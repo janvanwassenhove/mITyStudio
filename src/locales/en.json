@@ -1,0 +1,46 @@
+{
+  "tracks": {
+    "title": "Tracks",
+    "addTrack": "Add Track",
+    "empty": "No tracks yet",
+    "addFirst": "Add your first track",
+    "volume": "Volume",
+    "pan": "Pan",
+    "effects": "Effects"
+  },
+  "effects": {
+    "reverb": "Reverb",
+    "delay": "Delay",
+    "distortion": "Distortion"
+  },
+  "instruments": {
+    "piano": "Piano",
+    "drums": "Drums",
+    "bass": "Bass",
+    "guitar": "Guitar",
+    "synth": "Synth",
+    "vocals": "Vocals"
+  },
+  "playback": {
+    "play": "Play",
+    "pause": "Pause",
+    "stop": "Stop",
+    "record": "Record",
+    "loop": "Loop",
+    "metronome": "Metronome"
+  },
+  "ai": {
+    "title": "AI Assistant",
+    "placeholder": "Ask me anything about music production...",
+    "send": "Send",
+    "provider": "Provider",
+    "model": "Model",
+    "generating": "Generating..."
+  },
+  "json": {
+    "title": "Song Structure",
+    "export": "Export",
+    "import": "Import",
+    "reset": "Reset"
+  }
+}
