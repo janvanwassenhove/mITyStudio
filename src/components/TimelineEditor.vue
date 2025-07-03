@@ -31,9 +31,11 @@
               v-for="clip in track.clips" 
               :key="clip.id"
               class="audio-clip"
+              :class="{ selected: selectedClipId === clip.id }"
               :style="getClipStyle(clip)"
               @click.stop="selectClip(clip.id)"
               @mousedown="startDragClip(clip.id, $event)"
+              @contextmenu.prevent="showContextMenu(clip.id, track.id, $event)"
             >
               <div class="clip-content">
                 <span class="clip-name">{{ clip.instrument }}</span>
@@ -57,6 +59,38 @@
       <div class="playhead" :style="{ left: `${playheadPosition}px` }"></div>
     </div>
     
+    <!-- Context Menu -->
+    <div 
+      v-if="contextMenu.visible"
+      class="context-menu"
+      :style="{ 
+        left: `${contextMenu.x}px`, 
+        top: `${contextMenu.y}px` 
+      }"
+      @click.stop
+    >
+      <div class="context-menu-item" @click="duplicateClip">
+        <Copy class="context-icon" />
+        <span>Duplicate Clip</span>
+      </div>
+      <div class="context-menu-item" @click="splitClip">
+        <Scissors class="context-icon" />
+        <span>Split Clip</span>
+      </div>
+      <div class="context-menu-divider"></div>
+      <div class="context-menu-item danger" @click="removeClip">
+        <Trash2 class="context-icon" />
+        <span>Remove Clip</span>
+      </div>
+    </div>
+    
+    <!-- Context Menu Overlay -->
+    <div 
+      v-if="contextMenu.visible"
+      class="context-menu-overlay"
+      @click="hideContextMenu"
+    ></div>
+    
     <div class="timeline-footer">
       <div class="timeline-controls">
         <button class="btn btn-ghost" @click="zoomOut">
@@ -74,7 +108,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useAudioStore, type AudioClip } from '../stores/audioStore'
-import { ZoomIn, ZoomOut } from 'lucide-vue-next'
+import { ZoomIn, ZoomOut, Trash2, Copy, Scissors } from 'lucide-vue-next'
 
 const audioStore = useAudioStore()
 const timelineContent = ref<HTMLElement>()
@@ -84,6 +118,15 @@ const isDragging = ref(false)
 const isResizing = ref(false)
 const dragStartX = ref(0)
 const dragStartTime = ref(0)
+
+// Context menu state
+const contextMenu = ref({
+  visible: false,
+  x: 0,
+  y: 0,
+  clipId: '',
+  trackId: ''
+})
 
 // Timeline calculations
 const beatWidth = computed(() => 60 * audioStore.zoom) // pixels per beat
@@ -135,9 +178,98 @@ const addClipToTrack = (trackId: string, event: MouseEvent) => {
 
 const selectClip = (clipId: string) => {
   selectedClipId.value = clipId
+  hideContextMenu()
+}
+
+const showContextMenu = (clipId: string, trackId: string, event: MouseEvent) => {
+  event.preventDefault()
+  event.stopPropagation()
+  
+  selectedClipId.value = clipId
+  contextMenu.value = {
+    visible: true,
+    x: event.clientX,
+    y: event.clientY,
+    clipId,
+    trackId
+  }
+}
+
+const hideContextMenu = () => {
+  contextMenu.value.visible = false
+}
+
+const removeClip = () => {
+  if (contextMenu.value.clipId && contextMenu.value.trackId) {
+    audioStore.removeClip(contextMenu.value.trackId, contextMenu.value.clipId)
+    
+    // Clear selection if the removed clip was selected
+    if (selectedClipId.value === contextMenu.value.clipId) {
+      selectedClipId.value = null
+    }
+  }
+  hideContextMenu()
+}
+
+const duplicateClip = () => {
+  if (contextMenu.value.clipId && contextMenu.value.trackId) {
+    // Find the original clip
+    const track = audioStore.songStructure.tracks.find(t => t.id === contextMenu.value.trackId)
+    const originalClip = track?.clips.find(c => c.id === contextMenu.value.clipId)
+    
+    if (originalClip) {
+      const newClip = {
+        startTime: originalClip.startTime + originalClip.duration, // Place right after original
+        duration: originalClip.duration,
+        type: originalClip.type,
+        instrument: originalClip.instrument,
+        notes: originalClip.notes ? [...originalClip.notes] : undefined,
+        sampleUrl: originalClip.sampleUrl,
+        volume: originalClip.volume,
+        effects: { ...originalClip.effects }
+      }
+      
+      audioStore.addClip(contextMenu.value.trackId, newClip)
+    }
+  }
+  hideContextMenu()
+}
+
+const splitClip = () => {
+  if (contextMenu.value.clipId && contextMenu.value.trackId) {
+    const track = audioStore.songStructure.tracks.find(t => t.id === contextMenu.value.trackId)
+    const originalClip = track?.clips.find(c => c.id === contextMenu.value.clipId)
+    
+    if (originalClip && originalClip.duration > 0.5) {
+      const splitPoint = originalClip.duration / 2
+      
+      // Update original clip to first half
+      audioStore.updateClip(contextMenu.value.trackId, contextMenu.value.clipId, {
+        duration: splitPoint
+      })
+      
+      // Create second half
+      const secondHalf = {
+        startTime: originalClip.startTime + splitPoint,
+        duration: splitPoint,
+        type: originalClip.type,
+        instrument: originalClip.instrument,
+        notes: originalClip.notes ? [...originalClip.notes] : undefined,
+        sampleUrl: originalClip.sampleUrl,
+        volume: originalClip.volume,
+        effects: { ...originalClip.effects }
+      }
+      
+      audioStore.addClip(contextMenu.value.trackId, secondHalf)
+    }
+  }
+  hideContextMenu()
 }
 
 const startDragClip = (clipId: string, event: MouseEvent) => {
+  // Don't start drag if right-clicking
+  if (event.button === 2) return
+  
   selectedClipId.value = clipId
   isDragging.value = true
   dragStartX.value = event.clientX
@@ -229,11 +361,40 @@ const zoomOut = () => {
   audioStore.setZoom(audioStore.zoom / 1.2)
 }
 
+// Global click handler to hide context menu
+const handleGlobalClick = (event: MouseEvent) => {
+  if (contextMenu.value.visible) {
+    hideContextMenu()
+  }
+}
+
+// Global escape key handler
+const handleGlobalKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Escape' && contextMenu.value.visible) {
+    hideContextMenu()
+  }
+  
+  // Delete key to remove selected clip
+  if (event.key === 'Delete' && selectedClipId.value) {
+    for (const track of audioStore.songStructure.tracks) {
+      const clip = track.clips.find(c => c.id === selectedClipId.value)
+      if (clip) {
+        audioStore.removeClip(track.id, clip.id)
+        selectedClipId.value = null
+        break
+      }
+    }
+  }
+}
+
 onMounted(() => {
-  // Set up timeline scrolling and interaction
+  document.addEventListener('click', handleGlobalClick)
+  document.addEventListener('keydown', handleGlobalKeydown)
 })
 
 onUnmounted(() => {
+  document.removeEventListener('click', handleGlobalClick)
+  document.removeEventListener('keydown', handleGlobalKeydown)
   document.removeEventListener('mousemove', handleDragClip)
   document.removeEventListener('mouseup', stopDragClip)
   document.removeEventListener('mousemove', handleResizeClip)
@@ -354,6 +515,10 @@ onUnmounted(() => {
   box-shadow: var(--shadow-lg);
 }
 
+.audio-clip.selected {
+  box-shadow: 0 0 0 2px var(--accent), var(--shadow-lg);
+}
+
 .clip-content {
   padding: 0.5rem;
   height: 100%;
@@ -448,6 +613,63 @@ onUnmounted(() => {
   height: 16px;
 }
 
+/* Context Menu Styles */
+.context-menu-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 998;
+}
+
+.context-menu {
+  position: fixed;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow-lg);
+  z-index: 999;
+  min-width: 180px;
+  padding: 0.5rem 0;
+  backdrop-filter: blur(8px);
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  font-size: 0.875rem;
+  color: var(--text);
+}
+
+.context-menu-item:hover {
+  background: rgba(158, 127, 255, 0.1);
+}
+
+.context-menu-item.danger {
+  color: var(--error);
+}
+
+.context-menu-item.danger:hover {
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.context-menu-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 0.5rem 0;
+}
+
+.context-icon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
 @media (max-width: 768px) {
   .track-label {
     width: 150px;
@@ -460,6 +682,15 @@ onUnmounted(() => {
   
   .audio-clip {
     height: 44px;
+  }
+  
+  .context-menu {
+    min-width: 160px;
+  }
+  
+  .context-menu-item {
+    padding: 0.625rem 0.875rem;
+    font-size: 0.8125rem;
   }
 }
 </style>
