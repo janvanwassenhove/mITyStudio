@@ -24,4 +24,8 @@ const app = createApp(App)
 
 app.use(pinia)
 app.use(i18n)
+
+// Add theme transition class to body for smooth transitions
+document.body.classList.add('theme-transition')
+
 app.mount('#app')

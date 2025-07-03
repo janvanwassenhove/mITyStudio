@@ -36,10 +36,7 @@
           <option value="es">Español</option>
         </select>
         
-        <button class="btn btn-ghost" @click="toggleTheme">
-          <Sun v-if="isDark" class="icon" />
-          <Moon v-else class="icon" />
-        </button>
+        <ThemeToggle />
         
         <button class="btn btn-ghost" @click="openSettings">
           <Settings class="icon" />
@@ -50,24 +47,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAudioStore } from '../stores/audioStore'
-import { Music, FileText, FolderOpen, Save, Download, Settings, Sun, Moon } from 'lucide-vue-next'
+import { useThemeStore } from '../stores/themeStore'
+import { Music, FileText, FolderOpen, Save, Download, Settings } from 'lucide-vue-next'
+import ThemeToggle from './ThemeToggle.vue'
 
 const { t, locale } = useI18n()
 const audioStore = useAudioStore()
+const themeStore = useThemeStore()
 
 const currentLocale = ref(locale.value)
-const isDark = ref(true)
 
 const changeLocale = () => {
   locale.value = currentLocale.value
-}
-
-const toggleTheme = () => {
-  isDark.value = !isDark.value
-  // Theme toggle implementation would go here
 }
 
 const newProject = () => {
@@ -129,6 +123,11 @@ const openSettings = () => {
   // Settings modal would be implemented here
   alert('Settings panel coming soon!')
 }
+
+onMounted(() => {
+  // Initialize theme system
+  themeStore.initializeTheme()
+})
 </script>
 
 <style scoped>
@@ -141,6 +140,7 @@ const openSettings = () => {
   align-items: center;
   position: relative;
   z-index: 100;
+  transition: all var(--transition-normal);
 }
 
 .header-content {
@@ -165,6 +165,7 @@ const openSettings = () => {
   width: 32px;
   height: 32px;
   color: var(--primary);
+  transition: color var(--transition-normal);
 }
 
 .logo-text h1 {
@@ -175,6 +176,7 @@ const openSettings = () => {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  transition: all var(--transition-normal);
 }
 
 .logo-text p {
@@ -182,6 +184,7 @@ const openSettings = () => {
   color: var(--text-secondary);
   margin: 0;
   margin-top: -2px;
+  transition: color var(--transition-normal);
 }
 
 .header-nav {
@@ -227,5 +230,21 @@ const openSettings = () => {
   .header-controls {
     gap: 0.5rem;
   }
+  
+  .locale-select {
+    min-width: 80px;
+    font-size: 0.75rem;
+  }
+}
+
+/* Theme-specific adjustments */
+.theme-light .app-header {
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--surface) 95%, transparent);
+}
+
+.theme-dark .app-header {
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--surface) 90%, transparent);
 }
 </style>
