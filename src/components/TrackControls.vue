@@ -565,7 +565,7 @@ const getPanLabel = (pan: number): string => {
 .track-controls {
   display: flex;
   flex-direction: column;
-  height: calc(50% - 1px);
+  height: 100%;
   background: var(--background);
   overflow: hidden;
 }
