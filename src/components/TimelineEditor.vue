@@ -19,13 +19,9 @@
           v-for="track in audioStore.songStructure.tracks" 
           :key="track.id"
           class="timeline-track"
-          :class="{ selected: audioStore.selectedTrackId === track.id }"
+          :class="{ selected: audioStore.selectedTrackId === track.id, maximized: selectedTrackId === track.id }"
         >
-          <div class="track-label">
-            <span class="track-name">{{ track.name }}</span>
-            <span class="track-instrument">{{ $t(`instruments.${track.instrument}`) }}</span>
-          </div>
-          
+          <!-- Removed track-label for alignment with left panel -->
           <div class="track-lane" @click="addClipToTrack(track.id, $event)">
             <div 
               v-for="clip in track.clips" 
@@ -39,7 +35,18 @@
             >
               <div class="clip-content">
                 <span class="clip-name">{{ clip.instrument }}</span>
-                <div class="clip-waveform">
+                <div v-if="clip.type === 'sample' && clip.waveform && clip.waveform.length" class="clip-waveform">
+                  <div 
+                    v-for="(value, i) in clip.waveform" 
+                    :key="i"
+                    class="waveform-bar"
+                    :style="{ height: `${value * 100}%` }"
+                  ></div>
+                </div>
+                <div v-else-if="clip.notes && clip.notes.length" class="clip-notes">
+                  <span v-for="(note, idx) in clip.notes" :key="idx" class="clip-note">{{ note }}</span>
+                </div>
+                <div v-else class="clip-waveform">
                   <div 
                     v-for="i in 20" 
                     :key="i"
@@ -146,7 +153,6 @@ const playheadPosition = computed(() => {
 const getClipStyle = (clip: AudioClip) => {
   const left = clip.startTime * beatWidth.value * 4 // Convert beats to pixels
   const width = clip.duration * beatWidth.value * 4
-  
   return {
     left: `${left}px`,
     width: `${width}px`
@@ -456,7 +462,7 @@ onUnmounted(() => {
   display: flex;
   height: 80px;
   border-bottom: 1px solid var(--border);
-  transition: background-color 0.2s ease;
+  transition: background-color 0.2s ease, height 0.3s cubic-bezier(0.4, 0, 0.2, 1), min-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .timeline-track:hover {
@@ -465,6 +471,11 @@ onUnmounted(() => {
 
 .timeline-track.selected {
   background: rgba(158, 127, 255, 0.1);
+}
+
+.timeline-track.maximized {
+  min-height: 180px;
+  height: 180px;
 }
 
 .track-label {
@@ -532,6 +543,20 @@ onUnmounted(() => {
   font-weight: 500;
   color: white;
   text-transform: capitalize;
+}
+
+.clip-notes {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.clip-note {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.625rem;
+  color: var(--text);
 }
 
 .clip-waveform {

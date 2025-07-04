@@ -37,10 +37,7 @@
         </select>
         
         <ThemeToggle />
-        
-        <button class="btn btn-ghost" @click="openSettings">
-          <Settings class="icon" />
-        </button>
+      
       </div>
     </div>
   </header>

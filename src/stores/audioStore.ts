@@ -247,68 +247,71 @@ export const useAudioStore = defineStore('audio', () => {
 
   const scheduleClip = (clip: AudioClip, track: Track) => {
     const instrument = instruments.value.get(track.instrument)
-    if (!instrument || track.muted) return
+    if (!instrument || track.muted) {
+      console.log(`[scheduleClip] Skipping: No instrument or track muted for`, track.instrument, track.name)
+      return
+    }
 
     const notes = clip.notes || generateNotesForClip(clip, songStructure.value.key)
-    if (!notes.length) return
+    if (!notes.length) {
+      console.log(`[scheduleClip] No notes for clip`, clip, track)
+      return
+    }
 
     const clipVolume = clip.volume * track.volume * masterVolume.value
-    
-    // Set instrument volume
     if ('volume' in instrument) {
       instrument.volume.value = Tone.gainToDb(Math.max(0.01, clipVolume))
     }
+
+    console.log(`[scheduleClip] Scheduling`, {
+      instrument: track.instrument,
+      notes,
+      startTime: clip.startTime,
+      duration: clip.duration,
+      clip
+    })
 
     switch (clip.instrument) {
       case 'piano':
       case 'electric-piano':
       case 'synth-pad':
-        // Play chords
         const chordDuration = Math.max(0.5, clip.duration / Math.ceil(notes.length / 3))
         for (let i = 0; i < notes.length; i += 3) {
           const chord = notes.slice(i, i + 3).filter(note => note)
           if (chord.length === 0) continue
-          
           const chordTime = clip.startTime + (i / 3) * chordDuration
-          
           const eventId = transport.schedule((time) => {
             if (instrument && 'triggerAttackRelease' in instrument) {
+              console.log(`[triggerAttackRelease] Chord`, chord, chordDuration * 0.9, time)
               instrument.triggerAttackRelease(chord, chordDuration * 0.9, time)
             }
           }, `${chordTime}:0:0`)
-          
           scheduledEvents.value.push(eventId)
         }
         break
-
       case 'synth-lead':
-        // Play melody notes in sequence
         const noteDuration = Math.max(0.25, clip.duration / notes.length)
         notes.forEach((note, index) => {
           const noteTime = clip.startTime + index * noteDuration
-          
           const eventId = transport.schedule((time) => {
             if (instrument && 'triggerAttackRelease' in instrument) {
+              console.log(`[triggerAttackRelease] Note`, note, noteDuration * 0.8, time)
               instrument.triggerAttackRelease(note, noteDuration * 0.8, time)
             }
           }, `${noteTime}:0:0`)
-          
           scheduledEvents.value.push(eventId)
         })
         break
-
       case 'synth':
       default:
-        // Play simple pattern
         notes.forEach((note, index) => {
-          const noteTime = clip.startTime + index
-          
+          const noteTime = clip.startTime + index; // Use seconds for scheduling
           const eventId = transport.schedule((time) => {
             if (instrument && 'triggerAttackRelease' in instrument) {
+              console.log(`[triggerAttackRelease] Note`, note, '4n', time)
               instrument.triggerAttackRelease(note, "4n", time)
             }
-          }, `${noteTime}:0:0`)
-          
+          }, noteTime); // Pass as seconds
           scheduledEvents.value.push(eventId)
         })
         break
@@ -352,6 +355,7 @@ export const useAudioStore = defineStore('audio', () => {
     const soloTracks = songStructure.value.tracks.filter(track => track.solo)
     const tracksToPlay = soloTracks.length > 0 ? soloTracks : songStructure.value.tracks
 
+    console.log(`[generateAndScheduleSong] Scheduling for tracks:`, tracksToPlay.map(t => t.name))
     // Schedule all clips
     tracksToPlay.forEach(track => {
       track.clips.forEach(clip => {
@@ -373,7 +377,7 @@ export const useAudioStore = defineStore('audio', () => {
       transport.loop = false
     }
 
-    console.log(`Scheduled ${scheduledEvents.value.length} events`)
+    console.log(`[generateAndScheduleSong] Scheduled events:`, scheduledEvents.value.length)
   }
 
   const play = async () => {
@@ -392,10 +396,11 @@ export const useAudioStore = defineStore('audio', () => {
         await Tone.context.resume()
       }
 
+      console.log('[play] Generating and scheduling song...')
       generateAndScheduleSong()
       transport.start()
       isPlaying.value = true
-      console.log('Playback started')
+      console.log('[play] Playback started')
     } catch (error) {
       console.error('Failed to start playback:', error)
     }
@@ -472,6 +477,7 @@ export const useAudioStore = defineStore('audio', () => {
   const addClip = (trackId: string, clip: Omit<AudioClip, 'id' | 'trackId'>) => {
     const track = songStructure.value.tracks.find(t => t.id === trackId)
     if (track) {
+      // Generate default notes/chords/visualization for the new clip
       const newClip: AudioClip = {
         ...clip,
         id: `clip-${Date.now()}`,

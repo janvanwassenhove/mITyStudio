@@ -22,144 +22,149 @@
       </div>
       
       <template v-else>
-        <div 
-          v-for="track in tracks" 
-          :key="`track-${track.id}`"
-          class="track-item"
-          :class="{ 'selected': selectedTrack === track.id }"
-          @click="selectTrack(track.id)"
-        >
-          <div class="track-header">
-            <div class="track-info">
-              <button 
-                class="track-icon-btn"
-                @click.stop="openInstrumentSelector(track.id)"
-                :title="'Change instrument/sample'"
-              >
-                <div class="track-icon">
-                  <component :is="getTrackIcon(track.instrument)" class="icon" />
+        <div style="display: flex; flex-direction: column;">
+          <div
+            v-for="track in tracks"
+            :key="track.id"
+            class="track-item"
+            :class="{ selected: selectedTrack === track.id, expanded: selectedTrack === track.id }"
+            @click="selectTrack(track.id)"
+          >
+            <div
+              class="track-header"
+              :class="{ maximized: selectedTrack === track.id }"
+            >
+              <div class="track-info">
+                <button 
+                  class="track-icon-btn"
+                  @click.stop="openInstrumentSelector(track.id)"
+                  :title="'Change instrument/sample'"
+                >
+                  <div class="track-icon">
+                    <component :is="getTrackIcon(track.instrument)" class="icon" />
+                  </div>
+                </button>
+                <div class="track-details">
+                  <input 
+                    :key="`input-${track.id}`"
+                    v-model="track.name"
+                    class="track-name-input"
+                    @click.stop
+                    @blur="updateTrackName(track.id, getInputValue($event))"
+                  />
+                  <span class="track-instrument">{{ getInstrumentDisplayName(track.instrument) }}</span>
                 </div>
-              </button>
-              <div class="track-details">
-                <input 
-                  :key="`input-${track.id}`"
-                  v-model="track.name"
-                  class="track-name-input"
-                  @click.stop
-                  @blur="updateTrackName(track.id, $event.target.value)"
-                />
-                <span class="track-instrument">{{ getInstrumentDisplayName(track.instrument) }}</span>
+              </div>
+              
+              <div class="track-actions">
+                <button 
+                  class="btn-icon"
+                  :class="{ 'active': !track.muted }"
+                  @click.stop="toggleMute(track.id)"
+                  :title="track.muted ? 'Unmute' : 'Mute'"
+                >
+                  <VolumeX v-if="track.muted" class="icon" />
+                  <Volume2 v-else class="icon" />
+                </button>
+                
+                <button 
+                  class="btn-icon"
+                  :class="{ 'active': track.solo }"
+                  @click.stop="toggleSolo(track.id)"
+                  title="Solo"
+                >
+                  <Headphones class="icon" />
+                </button>
+                
+                <button 
+                  class="btn-icon delete-btn"
+                  @click.stop="deleteTrack(track.id)"
+                  title="Delete Track"
+                >
+                  <Trash2 class="icon" />
+                </button>
               </div>
             </div>
             
-            <div class="track-actions">
-              <button 
-                class="btn-icon"
-                :class="{ 'active': !track.muted }"
-                @click.stop="toggleMute(track.id)"
-                :title="track.muted ? 'Unmute' : 'Mute'"
-              >
-                <VolumeX v-if="track.muted" class="icon" />
-                <Volume2 v-else class="icon" />
-              </button>
+            <div v-if="selectedTrack === track.id" class="track-controls-section">
+              <div class="volume-control">
+                <label>Volume</label>
+                <input 
+                  :key="`volume-${track.id}`"
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.01"
+                  :value="track.volume"
+                  @input="updateTrackVolume(track.id, getInputValue($event))"
+                  class="slider"
+                />
+                <span class="volume-value">{{ Math.round(track.volume * 100) }}%</span>
+              </div>
               
-              <button 
-                class="btn-icon"
-                :class="{ 'active': track.solo }"
-                @click.stop="toggleSolo(track.id)"
-                title="Solo"
-              >
-                <Headphones class="icon" />
-              </button>
+              <div class="pan-control">
+                <label>Pan</label>
+                <input 
+                  :key="`pan-${track.id}`"
+                  type="range" 
+                  min="-1" 
+                  max="1" 
+                  step="0.01"
+                  :value="track.pan"
+                  @input="updateTrackPan(track.id, getInputValue($event))"
+                  class="slider"
+                />
+                <span class="pan-value">{{ getPanLabel(track.pan) }}</span>
+              </div>
+            </div>
+            
+            <div v-if="selectedTrack === track.id" :key="`effects-${track.id}`" class="effects-section">
+              <h4>Effects</h4>
               
-              <button 
-                class="btn-icon delete-btn"
-                @click.stop="deleteTrack(track.id)"
-                title="Delete Track"
-              >
-                <Trash2 class="icon" />
-              </button>
-            </div>
-          </div>
-          
-          <div class="track-controls-section">
-            <div class="volume-control">
-              <label>Volume</label>
-              <input 
-                :key="`volume-${track.id}`"
-                type="range" 
-                min="0" 
-                max="1" 
-                step="0.01"
-                :value="track.volume"
-                @input="updateTrackVolume(track.id, $event.target.value)"
-                class="slider"
-              />
-              <span class="volume-value">{{ Math.round(track.volume * 100) }}%</span>
-            </div>
-            
-            <div class="pan-control">
-              <label>Pan</label>
-              <input 
-                :key="`pan-${track.id}`"
-                type="range" 
-                min="-1" 
-                max="1" 
-                step="0.01"
-                :value="track.pan"
-                @input="updateTrackPan(track.id, $event.target.value)"
-                class="slider"
-              />
-              <span class="pan-value">{{ getPanLabel(track.pan) }}</span>
-            </div>
-          </div>
-          
-          <div v-if="selectedTrack === track.id" :key="`effects-${track.id}`" class="effects-section">
-            <h4>Effects</h4>
-            
-            <div class="effect-control">
-              <label>Reverb</label>
-              <input 
-                :key="`reverb-${track.id}`"
-                type="range" 
-                min="0" 
-                max="1" 
-                step="0.01"
-                :value="track.effects.reverb"
-                @input="updateTrackEffect(track.id, 'reverb', $event.target.value)"
-                class="slider"
-              />
-              <span>{{ Math.round(track.effects.reverb * 100) }}%</span>
-            </div>
-            
-            <div class="effect-control">
-              <label>Delay</label>
-              <input 
-                :key="`delay-${track.id}`"
-                type="range" 
-                min="0" 
-                max="1" 
-                step="0.01"
-                :value="track.effects.delay"
-                @input="updateTrackEffect(track.id, 'delay', $event.target.value)"
-                class="slider"
-              />
-              <span>{{ Math.round(track.effects.delay * 100) }}%</span>
-            </div>
-            
-            <div class="effect-control">
-              <label>Distortion</label>
-              <input 
-                :key="`distortion-${track.id}`"
-                type="range" 
-                min="0" 
-                max="1" 
-                step="0.01"
-                :value="track.effects.distortion"
-                @input="updateTrackEffect(track.id, 'distortion', $event.target.value)"
-                class="slider"
-              />
-              <span>{{ Math.round(track.effects.distortion * 100) }}%</span>
+              <div class="effect-control">
+                <label>Reverb</label>
+                <input 
+                  :key="`reverb-${track.id}`"
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.01"
+                  :value="track.effects.reverb"
+                  @input="updateTrackEffect(track.id, 'reverb', getInputValue($event))"
+                  class="slider"
+                />
+                <span>{{ Math.round(track.effects.reverb * 100) }}%</span>
+              </div>
+              
+              <div class="effect-control">
+                <label>Delay</label>
+                <input 
+                  :key="`delay-${track.id}`"
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.01"
+                  :value="track.effects.delay"
+                  @input="updateTrackEffect(track.id, 'delay', getInputValue($event))"
+                  class="slider"
+                />
+                <span>{{ Math.round(track.effects.delay * 100) }}%</span>
+              </div>
+              
+              <div class="effect-control">
+                <label>Distortion</label>
+                <input 
+                  :key="`distortion-${track.id}`"
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.01"
+                  :value="track.effects.distortion"
+                  @input="updateTrackEffect(track.id, 'distortion', getInputValue($event))"
+                  class="slider"
+                />
+                <span>{{ Math.round(track.effects.distortion * 100) }}%</span>
+              </div>
             </div>
           </div>
         </div>
@@ -270,12 +275,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
+import { useSampleStore } from '../stores/sampleStore'
 import { 
   Layers, Plus, Music, Volume2, VolumeX, Headphones, Trash2,
   Piano, Drum, Guitar, Mic, Zap, X, FileAudio, Play, Square
 } from 'lucide-vue-next'
 
 const audioStore = useAudioStore()
+const sampleStore = useSampleStore()
 const selectedTrack = ref<string | null>(null)
 const showInstrumentSelector = ref(false)
 const selectedTrackForInstrument = ref<string | null>(null)
@@ -345,41 +352,19 @@ const availableInstruments = [
   }
 ]
 
-const sampleCategories = [
-  {
-    name: 'Drums',
-    samples: [
-      { id: 'kick-808', name: '808 Kick', duration: 1.2, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-      { id: 'snare-acoustic', name: 'Acoustic Snare', duration: 0.8, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-      { id: 'hihat-closed', name: 'Closed Hi-Hat', duration: 0.3, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-      { id: 'crash-cymbal', name: 'Crash Cymbal', duration: 2.1, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' }
-    ]
-  },
-  {
-    name: 'Bass',
-    samples: [
-      { id: 'bass-sub', name: 'Sub Bass', duration: 2.0, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-      { id: 'bass-slap', name: 'Slap Bass', duration: 1.5, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-      { id: 'bass-synth', name: 'Synth Bass', duration: 1.8, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' }
-    ]
-  },
-  {
-    name: 'Melodic',
-    samples: [
-      { id: 'piano-chord', name: 'Piano Chord', duration: 3.2, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-      { id: 'guitar-strum', name: 'Guitar Strum', duration: 2.5, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-      { id: 'synth-arp', name: 'Synth Arp', duration: 4.0, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' }
-    ]
-  },
-  {
-    name: 'Vocals',
-    samples: [
-      { id: 'vocal-ah', name: 'Vocal Ah', duration: 2.8, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-      { id: 'vocal-oh', name: 'Vocal Oh', duration: 2.3, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' },
-      { id: 'vocal-chop', name: 'Vocal Chop', duration: 1.1, url: 'https://www.soundjay.com/misc/sounds/bell-ringing-05.wav' }
-    ]
+// Dynamically computed sample categories from the sample store
+const sampleCategories = computed(() => {
+  // Group samples by category
+  const grouped: { name: string, samples: any[] }[] = []
+  const library = sampleStore.sampleLibrary
+  for (const category in library) {
+    grouped.push({
+      name: category.charAt(0).toUpperCase() + category.slice(1),
+      samples: library[category]
+    })
   }
-]
+  return grouped
+})
 
 const getTrackIcon = (instrument: string) => {
   const iconMap: Record<string, any> = {
@@ -412,17 +397,26 @@ const getInstrumentDisplayName = (instrument: string) => {
   if (instrument_obj) return instrument_obj.name
   
   // Check if it's a sample
-  for (const category of sampleCategories) {
-    const sample = category.samples.find(s => s.id === instrument)
+  for (const category of sampleCategories.value) {
+    const sample = category.samples.find((s: any) => s.id === instrument)
     if (sample) return sample.name
   }
   
   return instrument.charAt(0).toUpperCase() + instrument.slice(1)
 }
 
+// Debug logging utility
+function debugLog(...args: any[]) {
+  if (process.env.NODE_ENV !== 'production') {
+    // eslint-disable-next-line no-console
+    console.debug('[TrackControls]', ...args)
+  }
+}
+
 const addNewTrack = () => {
   const instrument = availableInstruments[Math.floor(Math.random() * availableInstruments.length)]
   const trackId = audioStore.addTrack(`New ${instrument.name}`, instrument.value)
+  debugLog('Added new track', { trackId, instrument })
   if (trackId) {
     selectedTrack.value = trackId
   }
@@ -559,6 +553,12 @@ const getPanLabel = (pan: number): string => {
   if (pan > 0.1) return `R${Math.round(pan * 100)}`
   return 'C'
 }
+
+// Fix $event.target.value lint errors by type casting and null checks
+function getInputValue(event: Event): string {
+  const target = event.target as HTMLInputElement | null;
+  return target ? target.value : '';
+}
 </script>
 
 <style scoped>
@@ -571,15 +571,20 @@ const getPanLabel = (pan: number): string => {
 }
 
 .controls-header {
-  padding: 1rem;
+  padding: 1rem 1rem 0 1rem;
   border-bottom: 1px solid var(--border);
   background: var(--surface);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  /* Responsive height: aligns with playback controls + timeline ruler */
+  height: calc(var(--timeline-ruler-height, 87px) + var(--playback-controls-height, 64px));
+  box-sizing: border-box;
 }
 
 .header-title {
   display: flex;
-  align-items: center;
+  align-items: center; 
   gap: 0.75rem;
   margin-bottom: 1rem;
 }
@@ -629,6 +634,11 @@ const getPanLabel = (pan: number): string => {
   margin-bottom: 0.5rem;
   cursor: pointer;
   transition: all 0.2s ease;
+  /* Ensure track-item height matches the track lane height variable */
+  height: var(--track-lane-height, 70px);
+  display: flex;
+  flex-direction: column;
+  justify-content: stretch;
 }
 
 .track-item:hover {
@@ -640,11 +650,22 @@ const getPanLabel = (pan: number): string => {
   box-shadow: 0 0 0 1px var(--primary);
 }
 
+.track-item.expanded {
+  height: auto;
+  min-height: var(--track-lane-height, 104px);
+}
+
 .track-header {
   display: flex;
+  flex-direction: row;
   align-items: center;
   justify-content: space-between;
-  padding: 0.875rem;
+  height: 100%;
+  min-height: unset;
+  padding: 0.75rem 0.875rem 0.5rem 0.875rem;
+  box-sizing: border-box;
+  margin: 0;
+  gap: 0.5rem;
 }
 
 .track-info {
@@ -652,6 +673,7 @@ const getPanLabel = (pan: number): string => {
   align-items: center;
   gap: 0.75rem;
   flex: 1;
+  margin: 0;
 }
 
 .track-icon-btn {
@@ -687,6 +709,10 @@ const getPanLabel = (pan: number): string => {
 .track-details {
   flex: 1;
   min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
 }
 
 .track-name-input {
@@ -698,7 +724,7 @@ const getPanLabel = (pan: number): string => {
   width: 100%;
   padding: 2px 4px;
   border-radius: 4px;
-  margin-bottom: 2px;
+  margin-bottom: 0;
 }
 
 .track-name-input:focus {
@@ -714,6 +740,9 @@ const getPanLabel = (pan: number): string => {
 .track-actions {
   display: flex;
   gap: 0.25rem;
+  align-items: center;
+  justify-content: flex-end;
+  margin: 0;
 }
 
 .btn-icon {
@@ -751,11 +780,17 @@ const getPanLabel = (pan: number): string => {
 }
 
 .track-controls-section {
-  padding: 0 0.875rem 0.875rem;
-  border-top: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.effects-section {
+  padding: 0.5rem 0 0 0;
+  border-top: none;
+  background: transparent;
 }
 
 .volume-control,

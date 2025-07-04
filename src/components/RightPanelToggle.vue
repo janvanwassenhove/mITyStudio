@@ -25,117 +25,15 @@
         <SampleLibrary />
       </div>
       
-      <!-- Effects Tab -->
+      <!-- JSON Song Structure Tab (replaces Effects) -->
       <div v-if="activeTab === 'effects'" class="tab-panel">
-        <div class="effects-panel">
-          <div class="panel-header">
-            <Sliders class="header-icon" />
-            <h3>Effects</h3>
-          </div>
-          
-          <div class="effects-content">
-            <div class="effect-section">
-              <h4>Master Effects</h4>
-              
-              <div class="effect-control">
-                <label>Master Volume</label>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="1" 
-                  step="0.01"
-                  :value="audioStore.masterVolume"
-                  @input="audioStore.setMasterVolume(parseFloat($event.target.value))"
-                  class="slider"
-                />
-                <span class="value">{{ Math.round(audioStore.masterVolume * 100) }}%</span>
-              </div>
-              
-              <div class="effect-control">
-                <label>Master Reverb</label>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="1" 
-                  step="0.01"
-                  v-model="masterReverb"
-                  class="slider"
-                />
-                <span class="value">{{ Math.round(masterReverb * 100) }}%</span>
-              </div>
-              
-              <div class="effect-control">
-                <label>Master Delay</label>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="1" 
-                  step="0.01"
-                  v-model="masterDelay"
-                  class="slider"
-                />
-                <span class="value">{{ Math.round(masterDelay * 100) }}%</span>
-              </div>
-            </div>
-            
-            <div v-if="audioStore.selectedTrack" class="effect-section">
-              <h4>Track Effects: {{ audioStore.selectedTrack.name }}</h4>
-              
-              <div class="effect-control">
-                <label>Reverb</label>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="1" 
-                  step="0.01"
-                  :value="audioStore.selectedTrack.effects.reverb"
-                  @input="updateTrackEffect('reverb', $event.target.value)"
-                  class="slider"
-                />
-                <span class="value">{{ Math.round(audioStore.selectedTrack.effects.reverb * 100) }}%</span>
-              </div>
-              
-              <div class="effect-control">
-                <label>Delay</label>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="1" 
-                  step="0.01"
-                  :value="audioStore.selectedTrack.effects.delay"
-                  @input="updateTrackEffect('delay', $event.target.value)"
-                  class="slider"
-                />
-                <span class="value">{{ Math.round(audioStore.selectedTrack.effects.delay * 100) }}%</span>
-              </div>
-              
-              <div class="effect-control">
-                <label>Distortion</label>
-                <input 
-                  type="range" 
-                  min="0" 
-                  max="1" 
-                  step="0.01"
-                  :value="audioStore.selectedTrack.effects.distortion"
-                  @input="updateTrackEffect('distortion', $event.target.value)"
-                  class="slider"
-                />
-                <span class="value">{{ Math.round(audioStore.selectedTrack.effects.distortion * 100) }}%</span>
-              </div>
-            </div>
-            
-            <div v-else class="empty-state">
-              <Sliders class="empty-icon" />
-              <p>Select a track to edit effects</p>
-            </div>
-          </div>
-        </div>
+        <JSONStructurePanel />
       </div>
       
       <!-- Settings Tab -->
       <div v-if="activeTab === 'settings'" class="tab-panel">
         <div class="settings-panel">
-          <div class="panel-header">
+          <div class="panel-header align-timeline-header">
             <Settings class="header-icon" />
             <h3>Settings</h3>
           </div>
@@ -264,14 +162,13 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useAudioStore } from '../stores/audioStore'
 import { useThemeStore } from '../stores/themeStore'
 import { Bot, FileAudio, Sliders, Settings, RotateCcw, Download, Upload } from 'lucide-vue-next'
 import AiChat from './AiChat.vue'
 import SampleLibrary from './SampleLibrary.vue'
 import ThemeToggle from './ThemeToggle.vue'
+import JSONStructurePanel from './JSONStructurePanel.vue'
 
-const audioStore = useAudioStore()
 const themeStore = useThemeStore()
 
 // Tab management
@@ -280,13 +177,9 @@ const activeTab = ref('ai')
 const tabs = [
   { id: 'ai', name: 'AI Chat', icon: Bot },
   { id: 'samples', name: 'Samples', icon: FileAudio },
-  { id: 'effects', name: 'Effects', icon: Sliders },
-  { id: 'settings', name: 'Settings', icon: Settings }
+  { id: 'effects', name: 'JSON Song Structure', icon: Sliders }, // Renamed tab for clarity
+  { id: 'settings', name: 'Settings', icon: Settings }, // Ensure settings tab remains
 ]
-
-// Effects state
-const masterReverb = ref(0)
-const masterDelay = ref(0)
 
 // Settings state
 const sampleRate = ref('44100')
@@ -297,13 +190,6 @@ const exportFormat = ref('wav')
 const exportQuality = ref('high')
 
 // Methods
-const updateTrackEffect = (effect: string, value: string) => {
-  if (audioStore.selectedTrack) {
-    const effects = { ...audioStore.selectedTrack.effects, [effect]: parseFloat(value) }
-    audioStore.updateTrack(audioStore.selectedTrack.id, { effects })
-  }
-}
-
 const formatPresetName = (name: string): string => {
   return name.charAt(0).toUpperCase() + name.slice(1)
 }
@@ -316,8 +202,6 @@ const resetSettings = () => {
     animations.value = 'full'
     exportFormat.value = 'wav'
     exportQuality.value = 'high'
-    masterReverb.value = 0
-    masterDelay.value = 0
     themeStore.setMode('dark')
   }
 }
@@ -331,8 +215,6 @@ const exportSettings = () => {
     animations: animations.value,
     exportFormat: exportFormat.value,
     exportQuality: exportQuality.value,
-    masterReverb: masterReverb.value,
-    masterDelay: masterDelay.value
   }
   
   const blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' })
@@ -362,8 +244,6 @@ const importSettings = () => {
           animations.value = settings.animations || 'full'
           exportFormat.value = settings.exportFormat || 'wav'
           exportQuality.value = settings.exportQuality || 'high'
-          masterReverb.value = settings.masterReverb || 0
-          masterDelay.value = settings.masterDelay || 0
         } catch (error) {
           alert('Invalid settings file')
         }
@@ -464,6 +344,16 @@ const importSettings = () => {
   margin: 0;
   font-size: 1.125rem;
   color: var(--text);
+}
+
+.align-timeline-header {
+  /* Set height to match the sum of track header heights (e.g. 3 tracks * 48px = 144px) */
+  height: 144px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 .effects-content,
