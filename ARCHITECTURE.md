@@ -89,6 +89,7 @@ Sample library management and organization
 **Features:**
 - Audio Processing
 - Sample Management
+- Timeline Editing
 
 **Location:** `src/components/SampleLibrary.vue`
 
@@ -150,6 +151,7 @@ Manages application state
 
 **State Variables:**
 - `isPlaying`
+- `isPaused`
 - `currentTime`
 - `isLooping`
 - `metronomeEnabled`
@@ -157,12 +159,16 @@ Manages application state
 - `zoom`
 - `isInitialized`
 - `isInitializing`
+- `metronomeBars`
 
 **Actions:**
+- `setupPositionTracking()`
 - `scheduleClip()`
 - `scheduleMetronome()`
 - `clearScheduledEvents()`
 - `generateAndScheduleSong()`
+- `generateAndScheduleSongImmediate()`
+- `scheduleClipImmediate()`
 - `pause()`
 - `stop()`
 - `setTempo()`
@@ -180,6 +186,9 @@ Manages application state
 - `setMasterVolume()`
 - `setZoom()`
 - `selectTrack()`
+- `setMetronomeBars()`
+- `registerPreviewAudio()`
+- `unregisterPreviewAudio()`
 - `resetAudio()`
 
 **Location:** `src/stores/audioStore.ts`
@@ -200,6 +209,8 @@ Manages application state
 - `clearAllSamples()`
 - `exportSampleLibrary()`
 - `getSample()`
+- `saveSamplesToStorage()`
+- `loadSamplesFromStorage()`
 
 **Location:** `src/stores/sampleStore.ts`
 
@@ -252,4 +263,4 @@ Manages application state
 - ES6+ JavaScript support required
 - WebRTC support recommended for advanced features
 
-*This documentation is automatically generated. Last updated: 2025-07-05T12:47:53.011Z*
+*This documentation is automatically generated. Last updated: 2025-07-05T16:22:39.184Z*
