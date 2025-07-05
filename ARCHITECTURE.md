@@ -552,6 +552,43 @@ For new contributors, we recommend:
 3. Explore individual component files to understand specific implementations
 4. Review store files to understand state management patterns
 
+## Application Interface
+
+mITyStudio features a modern three-panel layout designed for efficient music production workflow:
+
+![mITyStudio Application Interface](https://github.com/user-attachments/assets/d5154383-0992-421b-aa05-f542d250c8cf)
+
+### Interface Layout
+
+The application is organized into three main sections:
+
+1. **Track Controls Panel (Left)**
+   - Track management and instrument selection
+   - Volume, pan, and effect controls
+   - Mute, solo, and delete track options
+   - Real-time parameter adjustment
+
+2. **Timeline Editor (Center)**
+   - Musical timeline with measure markers
+   - Playback controls (Play, Stop, Loop, Metronome)
+   - Key signature and tempo controls
+   - Zoom and navigation controls
+   - Audio engine status display
+
+3. **Right Panel (Samples/AI/Settings)**
+   - Sample library management
+   - AI assistant for music composition
+   - JSON song structure viewer
+   - Application settings
+
+### Key Features Shown
+
+- **Multiple Track Support**: Create and manage multiple instrument tracks
+- **Professional Controls**: Industry-standard mixing controls for each track
+- **Audio Engine**: Real-time audio processing with Tone.js
+- **Responsive Design**: Optimized layout for various screen sizes
+- **Dark Theme**: Professional dark interface for reduced eye strain
+
 ## Contributing
 
 When contributing to mITyStudio, please:
