@@ -17,4 +17,4 @@ Sample library management and organization
 
 This component is part of the main application structure and integrates with the overall mITyStudio workflow.
 
-*This documentation is automatically generated. Last updated: 2025-07-05T11:58:40.751Z*
+*This documentation is automatically generated. Last updated: 2025-07-05T12:37:44.256Z*
