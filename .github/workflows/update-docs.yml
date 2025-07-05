@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           # Use a personal access token with broader permissions to push back to the repo
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           # Fetch all history to ensure we can push back
           fetch-depth: 0
 
