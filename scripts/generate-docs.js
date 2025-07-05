@@ -74,9 +74,20 @@ function extractComponentInfo(filePath) {
   };
   
   // Extract component description from comments or infer from component name/content
-  const descriptionMatch = content.match(/\/\*\*\s*\n\s*\*\s*(.+?)\s*\n[\s\*]*\*\//);
+  let descriptionMatch = content.match(/\/\*\*\s*\n[\s\*]*(.+?)\s*\n[\s\*]*\*\//s);
+  if (!descriptionMatch) {
+    // Try alternative comment patterns
+    descriptionMatch = content.match(/\/\*\*\s*\n[\s\*]*(.+?)\s*\n[\s\*]*\*\/\s*<template>/s);
+  }
   if (descriptionMatch) {
-    info.description = descriptionMatch[1];
+    // Clean up the description by removing asterisks and extra whitespace
+    info.description = descriptionMatch[1]
+      .split('\n')
+      .map(line => line.replace(/^\s*\*\s?/, '').trim())
+      .filter(line => line.length > 0)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
   } else {
     // Infer description based on component name and content
     const name = info.name.toLowerCase();
