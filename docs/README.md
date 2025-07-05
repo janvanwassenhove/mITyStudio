@@ -39,4 +39,3 @@
 - [TimelineEditor](./timelineeditor.md)
 - [TrackControls](./trackcontrols.md)
 
-*This documentation is automatically generated. Last updated: 2025-07-05T12:12:02.954Z*
