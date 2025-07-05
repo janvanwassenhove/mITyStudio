@@ -1,0 +1,82 @@
+name: Update Documentation
+
+on:
+  push:
+    branches: ['**']  # Trigger on all branches
+    paths-ignore:
+      - 'docs/**'         # Prevent infinite loop when docs are updated
+      - 'ARCHITECTURE.md' # Prevent infinite loop when architecture doc is updated
+      - '*.md'           # Ignore other markdown files to prevent loops
+
+jobs:
+  update-docs:
+    runs-on: ubuntu-latest
+    
+    # Skip if commit message contains [skip docs] or [docs skip]
+    if: "!contains(github.event.head_commit.message, '[skip docs]') && !contains(github.event.head_commit.message, '[docs skip]')"
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          # Use a personal access token with broader permissions to push back to the repo
+          token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+          # Fetch all history to ensure we can push back
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate documentation
+        run: npm run docs
+
+      - name: Check for documentation changes
+        id: check-changes
+        run: |
+          # Check if there are any changes to documentation files
+          if git diff --quiet ARCHITECTURE.md docs/; then
+            echo "No documentation changes detected"
+            echo "changes=false" >> $GITHUB_OUTPUT
+          else
+            echo "Documentation changes detected"
+            echo "changes=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Commit and push documentation updates
+        if: steps.check-changes.outputs.changes == 'true'
+        run: |
+          # Configure git user
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Add documentation files
+          git add ARCHITECTURE.md docs/
+          
+          # Commit with a clear message
+          git commit -m "docs: auto-update documentation [skip docs]
+          
+          - Updated ARCHITECTURE.md
+          - Regenerated feature documentation
+          - Generated from commit ${{ github.sha }}"
+          
+          # Push back to the same branch
+          git push origin HEAD:${{ github.ref_name }}
+
+      - name: Summary
+        if: steps.check-changes.outputs.changes == 'true'
+        run: |
+          echo "✅ Documentation has been updated and pushed back to the branch"
+          echo "📄 Files updated:"
+          echo "   - ARCHITECTURE.md"
+          echo "   - docs/ directory"
+
+      - name: No changes summary
+        if: steps.check-changes.outputs.changes == 'false'  
+        run: |
+          echo "ℹ️ No documentation changes were needed"

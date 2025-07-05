@@ -1,3 +1,10 @@
+/**
+ * AI Chat Component
+ * 
+ * Provides an intelligent chat interface for music composition assistance.
+ * Features real-time AI responses, contextual suggestions, and integration
+ * with the main audio production workflow.
+ */
 <template>
   <div class="ai-chat">
     <div class="chat-header">
