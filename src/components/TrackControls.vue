@@ -239,6 +239,15 @@
                     <div class="sample-info">
                       <h5>{{ sample.name }}</h5>
                       <p>{{ sample.duration }}s</p>
+                      <!-- Waveform Canvas -->
+                      <canvas
+                        v-if="sample.waveform && sample.waveform.length"
+                        :ref="el => setWaveformCanvasRef(el, sample.id)"
+                        class="sample-waveform-canvas"
+                        width="120"
+                        height="24"
+                        style="display: block; margin-top: 4px; background: rgba(255,255,255,0.05); border-radius: 4px;"
+                      ></canvas>
                     </div>
                     <button 
                       class="play-sample-btn"
@@ -273,7 +282,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
 import { useSampleStore } from '../stores/sampleStore'
 import { 
@@ -290,6 +299,9 @@ const activeTab = ref<'instruments' | 'samples'>('instruments')
 const selectedInstrumentValue = ref<string>('')
 const isPreviewPlaying = ref(false)
 const previewingSample = ref<string | null>(null)
+const currentPreviewAudio = ref<HTMLAudioElement | null>(null)
+const waveformCanvasRefs = ref<Record<string, HTMLCanvasElement | null>>({})
+const waveformAnimationFrame = ref<Record<string, number>>({})
 
 // Computed property with safety check
 const tracks = computed(() => {
@@ -414,12 +426,37 @@ function debugLog(...args: any[]) {
 }
 
 const addNewTrack = () => {
-  const instrument = availableInstruments[Math.floor(Math.random() * availableInstruments.length)]
-  const trackId = audioStore.addTrack(`New ${instrument.name}`, instrument.value)
-  debugLog('Added new track', { trackId, instrument })
-  if (trackId) {
-    selectedTrack.value = trackId
+  // Instead of adding immediately, open the instrument/sample selector dialog
+  selectedTrackForInstrument.value = null // No track yet, will create after selection
+  selectedInstrumentValue.value = ''
+  showInstrumentSelector.value = true
+  activeTab.value = 'instruments'
+}
+
+// When user applies selection, create the track if not editing an existing one
+const applySelection = () => {
+  if (!selectedInstrumentValue.value) return
+  if (!selectedTrackForInstrument.value) {
+    // Create new track
+    let instrumentName = getInstrumentDisplayName(selectedInstrumentValue.value)
+    // If it's a sample, use sample name
+    for (const category of sampleCategories.value) {
+      const sample = category.samples.find((s: any) => s.id === selectedInstrumentValue.value)
+      if (sample) instrumentName = sample.name
+    }
+    const trackId = audioStore.addTrack(`New ${instrumentName}`, selectedInstrumentValue.value)
+    debugLog('Added new track', { trackId, instrument: selectedInstrumentValue.value })
+    if (trackId) {
+      selectedTrack.value = trackId
+    }
+    closeInstrumentSelector()
+    return
   }
+  // Otherwise, update existing track
+  audioStore.updateTrack(selectedTrackForInstrument.value, {
+    instrument: selectedInstrumentValue.value
+  })
+  closeInstrumentSelector()
 }
 
 const selectTrack = (trackId: string) => {
@@ -453,46 +490,133 @@ const selectSample = (sample: any) => {
 const previewSample = async (sample: any) => {
   if (isPreviewPlaying.value) {
     // Stop current preview
+    if (currentPreviewAudio.value) {
+      audioStore.unregisterPreviewAudio(currentPreviewAudio.value)
+      currentPreviewAudio.value.pause()
+      currentPreviewAudio.value = null
+    }
     isPreviewPlaying.value = false
     previewingSample.value = null
     return
   }
-  
   try {
     isPreviewPlaying.value = true
     previewingSample.value = sample.id
-    
-    // Create audio element for preview
+    await nextTick()
+    const canvas = waveformCanvasRefs.value[sample.id]
+    if (canvas) drawWaveformForSample(sample.id, 0)
     const audio = new Audio(sample.url)
     audio.volume = 0.5
+    
+    // Register with audio store for global stop functionality
+    audioStore.registerPreviewAudio(audio)
+    currentPreviewAudio.value = audio
     
     audio.onended = () => {
       isPreviewPlaying.value = false
       previewingSample.value = null
+      audioStore.unregisterPreviewAudio(audio)
+      currentPreviewAudio.value = null
+      drawWaveformForSample(sample.id, 1)
     }
-    
     audio.onerror = () => {
       isPreviewPlaying.value = false
       previewingSample.value = null
+      audioStore.unregisterPreviewAudio(audio)
+      currentPreviewAudio.value = null
+      drawWaveformForSample(sample.id, 0)
       console.warn('Could not preview sample:', sample.name)
     }
-    
-    await audio.play()
+    audio.ontimeupdate = () => {
+      if (canvas) drawWaveformForSample(sample.id, audio.currentTime / sample.duration)
+    }
+    audio.play()
+    animateWaveform(sample.id, audio)
   } catch (error) {
     isPreviewPlaying.value = false
     previewingSample.value = null
+    if (currentPreviewAudio.value) {
+      audioStore.unregisterPreviewAudio(currentPreviewAudio.value)
+      currentPreviewAudio.value = null
+    }
+    drawWaveformForSample(sample.id, 0)
     console.warn('Could not preview sample:', error)
   }
 }
 
-const applySelection = () => {
-  if (selectedTrackForInstrument.value && selectedInstrumentValue.value) {
-    audioStore.updateTrack(selectedTrackForInstrument.value, {
-      instrument: selectedInstrumentValue.value
-    })
-    closeInstrumentSelector()
+function setWaveformCanvasRef(el: Element | null, sampleId: string) {
+  // Fix: Only store if it's a canvas
+  if (el && el instanceof HTMLCanvasElement) {
+    waveformCanvasRefs.value[sampleId] = el
+    drawWaveformForSample(sampleId)
+  } else if (!el) {
+    // If unmounted, clean up
+    waveformCanvasRefs.value[sampleId] = null
   }
 }
+
+function drawWaveformForSample(sampleId: string, progress = 0) {
+  const sample = sampleCategories.value.flatMap(cat => cat.samples).find(s => s.id === sampleId)
+  const canvas = waveformCanvasRefs.value[sampleId]
+  if (!sample || !canvas || !sample.waveform) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+  ctx.strokeStyle = '#fff'
+  ctx.lineWidth = 1
+  const { width, height } = canvas
+  const waveform = sample.waveform
+  ctx.beginPath()
+  for (let i = 0; i < waveform.length; i++) {
+    const x = (i / (waveform.length - 1)) * width
+    const y = height / 2 - waveform[i] * (height / 2)
+    if (i === 0) ctx.moveTo(x, y)
+    else ctx.lineTo(x, y)
+  }
+  ctx.stroke()
+  // Draw playback progress if previewing
+  if (isPreviewPlaying.value && previewingSample.value === sampleId && sample.duration) {
+    const playedWidth = width * progress
+    ctx.fillStyle = 'rgba(158,127,255,0.3)'
+    ctx.fillRect(0, 0, playedWidth, height)
+  }
+}
+
+function animateWaveform(sampleId: string, audio: HTMLAudioElement) {
+  const sample = sampleCategories.value.flatMap(cat => cat.samples).find(s => s.id === sampleId)
+  if (!sample || !audio) return
+  const animate = () => {
+    if (!audio.paused && !audio.ended) {
+      const progress = audio.currentTime / sample.duration
+      drawWaveformForSample(sampleId, progress)
+      waveformAnimationFrame.value[sampleId] = requestAnimationFrame(animate)
+    } else {
+      drawWaveformForSample(sampleId, 1)
+      cancelAnimationFrame(waveformAnimationFrame.value[sampleId])
+    }
+  }
+  animate()
+}
+
+onMounted(() => {
+  sampleCategories.value.forEach(cat => {
+    cat.samples.forEach(sample => {
+      if (sample.waveform && waveformCanvasRefs.value[sample.id]) {
+        drawWaveformForSample(sample.id)
+      }
+    })
+  })
+})
+
+watch(sampleCategories, (newCats) => {
+  newCats.forEach(cat => {
+    cat.samples.forEach(sample => {
+      if (sample.waveform && waveformCanvasRefs.value[sample.id]) {
+        drawWaveformForSample(sample.id)
+      }
+    })
+  })
+})
 
 const updateTrackName = (trackId: string, name: string) => {
   if (name && name.trim()) {
@@ -709,10 +833,13 @@ function getInputValue(event: Event): string {
 .track-details {
   flex: 1;
   min-width: 0;
+  max-width: 110px;
+  width: 110px;
   margin: 0;
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  overflow: hidden;
 }
 
 .track-name-input {
@@ -725,6 +852,9 @@ function getInputValue(event: Event): string {
   padding: 2px 4px;
   border-radius: 4px;
   margin-bottom: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .track-name-input:focus {
@@ -735,6 +865,9 @@ function getInputValue(event: Event): string {
 .track-instrument {
   font-size: 0.75rem;
   color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .track-actions {
@@ -1165,6 +1298,14 @@ function getInputValue(event: Event): string {
 .tracks-list::-webkit-scrollbar-thumb:hover,
 .selection-content::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
+}
+
+.sample-waveform-canvas {
+  width: 120px;
+  height: 24px;
+  background: rgba(255,255,255,0.05);
+  border-radius: 4px;
+  display: block;
 }
 
 @media (max-width: 768px) {

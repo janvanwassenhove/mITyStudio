@@ -143,7 +143,16 @@
             <div class="sample-icon">
               <component :is="getCategoryIcon(sample.category)" class="icon" />
             </div>
-            
+
+            <div class="sample-waveform" v-if="sample.waveform" style="flex:1; margin: 0 0.5rem;">
+              <canvas 
+                :ref="el => waveformCanvases[sample.id] = el"
+                class="waveform-canvas"
+                :width="120"
+                :height="32"
+              ></canvas>
+            </div>
+
             <div class="sample-actions">
               <button 
                 class="action-btn play-btn"
@@ -161,15 +170,6 @@
                 <MoreVertical class="icon" />
               </button>
             </div>
-          </div>
-
-          <div class="sample-waveform" v-if="sample.waveform">
-            <canvas 
-              :ref="el => waveformCanvases[sample.id] = el"
-              class="waveform-canvas"
-              :width="200"
-              :height="40"
-            ></canvas>
           </div>
 
           <div class="sample-info">
@@ -317,6 +317,7 @@ import {
   Search, X, ArrowUpDown, Play, Pause, MoreVertical,
   Plus, Edit, Copy, Drum, Guitar, Piano, Mic, Zap
 } from 'lucide-vue-next'
+import { drawWaveform } from '../utils/waveform'
 
 const sampleStore = useSampleStore()
 const audioStore = useAudioStore()
@@ -356,6 +357,10 @@ const editModal = ref({
   tagsString: ''
 })
 
+// Animation
+const waveformAnimFrame = ref<number | null>(null)
+const waveformPlayProgress = ref(0)
+
 // Constants
 const allCategories: SampleCategory[] = [
   'drums', 'bass', 'melodic', 'vocals', 'fx', 'loops', 
@@ -394,39 +399,46 @@ const selectSample = (sample: LocalSample) => {
 
 const togglePlaySample = async (sample: LocalSample) => {
   if (isPlayingSample.value && playingSampleId.value === sample.id) {
-    // Stop current sample
-    currentAudio.value?.pause()
-    currentAudio.value = null
+    if (currentAudio.value) {
+      audioStore.unregisterPreviewAudio(currentAudio.value)
+      currentAudio.value.pause()
+      currentAudio.value = null
+    }
     isPlayingSample.value = false
     playingSampleId.value = null
+    stopWaveformAnimation()
   } else {
-    // Stop any currently playing sample
     if (currentAudio.value) {
+      audioStore.unregisterPreviewAudio(currentAudio.value)
       currentAudio.value.pause()
     }
-    
-    // Play new sample
     try {
       const audio = new Audio(sample.url)
       audio.volume = 0.7
       
+      // Register with audio store for global stop functionality
+      audioStore.registerPreviewAudio(audio)
+      
       audio.onended = () => {
         isPlayingSample.value = false
         playingSampleId.value = null
+        audioStore.unregisterPreviewAudio(audio)
         currentAudio.value = null
+        stopWaveformAnimation()
       }
-      
       audio.onerror = () => {
         isPlayingSample.value = false
         playingSampleId.value = null
+        audioStore.unregisterPreviewAudio(audio)
         currentAudio.value = null
+        stopWaveformAnimation()
         console.error('Failed to play sample:', sample.name)
       }
-      
       await audio.play()
       currentAudio.value = audio
       isPlayingSample.value = true
       playingSampleId.value = sample.id
+      startWaveformAnimation(sample)
     } catch (error) {
       console.error('Failed to play sample:', error)
     }
@@ -469,7 +481,8 @@ const addToTrack = () => {
         instrument: 'sample',
         sampleUrl: contextMenu.value.sample.url,
         volume: 0.8,
-        effects: { reverb: 0, delay: 0, distortion: 0 }
+        effects: { reverb: 0, delay: 0, distortion: 0 },
+        waveform: contextMenu.value.sample.waveform // Pass waveform for timeline visualization
       })
     }
   }
@@ -565,26 +578,51 @@ const getCategoryIcon = (category: SampleCategory) => {
   return icons[category] || Music
 }
 
-// Draw waveforms
-const drawWaveform = (canvas: HTMLCanvasElement, waveform: number[]) => {
+// Animate waveform highlight on playback
+const animateWaveform = (sample: LocalSample) => {
+  if (!sample.waveform || !waveformCanvases.value[sample.id]) return
+  const canvas = waveformCanvases.value[sample.id]
   const ctx = canvas.getContext('2d')
   if (!ctx) return
-  
   const width = canvas.width
   const height = canvas.height
-  
-  ctx.clearRect(0, 0, width, height)
-  ctx.fillStyle = 'var(--primary)'
-  
-  const barWidth = width / waveform.length
-  
-  waveform.forEach((value, index) => {
-    const barHeight = value * height * 0.8
-    const x = index * barWidth
-    const y = (height - barHeight) / 2
-    
-    ctx.fillRect(x, y, barWidth - 1, barHeight)
-  })
+  // Redraw waveform
+  drawWaveform(canvas, sample.waveform)
+  // Draw animated highlight if playing
+  if (isPlayingSample.value && playingSampleId.value === sample.id && sample.duration) {
+    const progress = waveformPlayProgress.value
+    const x = progress * width
+    ctx.save()
+    ctx.globalAlpha = 0.25
+    ctx.fillStyle = 'var(--primary)'
+    ctx.fillRect(0, 0, x, height)
+    ctx.restore()
+  }
+}
+
+// Animation loop
+const startWaveformAnimation = (sample: LocalSample) => {
+  const animate = () => {
+    if (!isPlayingSample.value || playingSampleId.value !== sample.id || !currentAudio.value) {
+      waveformPlayProgress.value = 0
+      animateWaveform(sample)
+      return
+    }
+    // Calculate progress (0-1)
+    const audio = currentAudio.value
+    waveformPlayProgress.value = Math.min(audio.currentTime / (sample.duration || 1), 1)
+    animateWaveform(sample)
+    waveformAnimFrame.value = requestAnimationFrame(animate)
+  }
+  waveformAnimFrame.value = requestAnimationFrame(animate)
+}
+
+const stopWaveformAnimation = () => {
+  if (waveformAnimFrame.value) {
+    cancelAnimationFrame(waveformAnimFrame.value)
+    waveformAnimFrame.value = null
+  }
+  waveformPlayProgress.value = 0
 }
 
 // Watch for waveform updates
@@ -593,12 +631,26 @@ watch(filteredSamples, async () => {
   filteredSamples.forEach(sample => {
     if (sample.waveform && waveformCanvases.value[sample.id]) {
       drawWaveform(waveformCanvases.value[sample.id], sample.waveform)
+      // If playing, animate
+      if (isPlayingSample.value && playingSampleId.value === sample.id) {
+        startWaveformAnimation(sample)
+      }
     }
   })
 }, { immediate: true })
 
+// Watch for changes in totalSamples and isLoading to trigger UI update
+watch([totalSamples, isLoading], async () => {
+  await nextTick()
+  filteredSamples.forEach(sample => {
+    if (sample.waveform && waveformCanvases.value[sample.id]) {
+      drawWaveform(waveformCanvases.value[sample.id], sample.waveform)
+    }
+  })
+})
+
+// Close context menu on escape
 onMounted(() => {
-  // Close context menu on escape
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') {
       contextMenu.value.show = false
@@ -884,6 +936,11 @@ onMounted(() => {
   color: white;
 }
 
+.sample-waveform {
+  margin: 0 0.5rem;
+  flex: 1;
+}
+
 .sample-actions {
   display: flex;
   gap: 0.25rem;
@@ -922,13 +979,9 @@ onMounted(() => {
   background: var(--success);
 }
 
-.sample-waveform {
-  margin-bottom: 0.75rem;
-}
-
 .waveform-canvas {
   width: 100%;
-  height: 40px;
+  height: 32px;
   border-radius: 4px;
   background: var(--background);
 }

@@ -8,7 +8,7 @@
           class="ruler-mark"
           :style="{ left: `${beat * beatWidth}px` }"
         >
-          <span class="ruler-label">{{ Math.floor(beat / 4) + 1 }}.{{ (beat % 4) + 1 }}</span>
+          <span class="ruler-label">{{ (beat % 4 === 0 || step > 1) ? Math.floor(beat / 4) + 1 : '' }}</span>
         </div>
       </div>
     </div>
@@ -36,12 +36,11 @@
               <div class="clip-content">
                 <span class="clip-name">{{ clip.instrument }}</span>
                 <div v-if="clip.type === 'sample' && clip.waveform && clip.waveform.length" class="clip-waveform">
-                  <div 
-                    v-for="(value, i) in clip.waveform" 
-                    :key="i"
-                    class="waveform-bar"
-                    :style="{ height: `${value * 100}%` }"
-                  ></div>
+                  <canvas
+                    :ref="el => setClipWaveformCanvas(el, clip)"
+                    class="waveform-canvas"
+                    :height="20"
+                  ></canvas>
                 </div>
                 <div v-else-if="clip.notes && clip.notes.length" class="clip-notes">
                   <span v-for="(note, idx) in clip.notes" :key="idx" class="clip-note">{{ note }}</span>
@@ -107,17 +106,32 @@
         <button class="btn btn-ghost" @click="zoomIn">
           <ZoomIn class="icon" />
         </button>
+        <!-- Metronome Bar Selection -->
+        <label style="margin-left: 1rem; color: var(--text-secondary); font-size: 0.9em;">
+          Metronome Bars:
+          <select v-model="audioStore.metronomeBars" style="margin-left: 0.5em;">
+            <option v-for="bar in maxBars" :key="bar" :value="bar">{{ bar }}</option>
+          </select>
+        </label>
+        <button class="btn btn-ghost" @click="toggleMetronome">
+          <span v-if="audioStore.metronomeEnabled">🔊</span>
+          <span v-else>🔈</span>
+          Metronome
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import { useAudioStore, type AudioClip } from '../stores/audioStore'
+import { useSampleStore } from '../stores/sampleStore'
 import { ZoomIn, ZoomOut, Trash2, Copy, Scissors } from 'lucide-vue-next'
+import { drawWaveform } from '../utils/waveform'
 
 const audioStore = useAudioStore()
+const sampleStore = useSampleStore()
 const timelineContent = ref<HTMLElement>()
 
 const selectedClipId = ref<string | null>(null)
@@ -135,12 +149,39 @@ const contextMenu = ref({
   trackId: ''
 })
 
+// Store canvas refs for each sample clip
+const clipWaveformCanvases = ref<Record<string, HTMLCanvasElement | null>>({})
+
+function setClipWaveformCanvas(el: Element | null, clip: AudioClip) {
+  if (el && el instanceof HTMLCanvasElement && clip.waveform) {
+    clipWaveformCanvases.value[clip.id] = el
+    // Set canvas width and height to match the clip's rendered size
+    const width = clip.duration * beatWidth.value * 4
+    el.width = Math.max(40, Math.round(width)) // minimum width for visibility
+    // Find the parent .audio-clip element to get its height
+    const parentClip = el.closest('.audio-clip') as HTMLElement | null
+    if (parentClip) {
+      el.height = parentClip.offsetHeight
+    } else {
+      el.height = 20 // fallback
+    }
+    drawWaveform(el, clip.waveform)
+  } else if (!el) {
+    clipWaveformCanvases.value[clip.id] = null
+  }
+}
+
 // Timeline calculations
 const beatWidth = computed(() => 60 * audioStore.zoom) // pixels per beat
 const timelineWidth = computed(() => audioStore.songStructure.duration * 4 * beatWidth.value)
 const timelineBeats = computed(() => {
   const beats = []
-  for (let i = 0; i < audioStore.songStructure.duration * 4; i++) {
+  const totalBeats = audioStore.songStructure.duration * 4
+  // Determine step: show fewer marks if zoomed out
+  let step = 1
+  if (beatWidth.value < 20) step = 4 // show only bar lines
+  if (beatWidth.value < 10) step = 8 // show every 2 bars
+  for (let i = 0; i < totalBeats; i += step) {
     beats.push(i)
   }
   return beats
@@ -161,24 +202,47 @@ const getClipStyle = (clip: AudioClip) => {
 
 const addClipToTrack = (trackId: string, event: MouseEvent) => {
   if (isDragging.value || isResizing.value) return
-  
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   const clickX = event.clientX - rect.left
   const startTime = clickX / (beatWidth.value * 4) // Convert pixels to beats
-  
+  // Find the track
+  const track = audioStore.songStructure.tracks.find(t => t.id === trackId)
+  // Check if this is a sample track (instrument matches a sample id)
+  const sample = track && sampleStore
+    ? Object.values(sampleStore.sampleLibrary).flat().find(s => s.id === track.instrument)
+    : null
+  if (sample) {
+    // Add a sample clip
+    const newClip = {
+      startTime: Math.max(0, startTime),
+      duration: sample.duration || 4,
+      type: 'sample' as const,
+      instrument: sample.id,
+      sampleUrl: sample.url,
+      waveform: sample.waveform,
+      volume: 0.8,
+      effects: {
+        reverb: 0,
+        delay: 0,
+        distortion: 0
+      }
+    } as const
+    audioStore.addClip(trackId, newClip)
+    return
+  }
+  // Otherwise, add a synth/instrument clip
   const newClip = {
     startTime: Math.max(0, startTime),
     duration: 4, // 1 bar default
     type: 'synth' as const,
-    instrument: 'synth',
+    instrument: track ? track.instrument : 'synth',
     volume: 0.8,
     effects: {
       reverb: 0,
       delay: 0,
       distortion: 0
     }
-  }
-  
+  } as const
   audioStore.addClip(trackId, newClip)
 }
 
@@ -317,22 +381,25 @@ const stopDragClip = () => {
   document.removeEventListener('mouseup', stopDragClip)
 }
 
+const resizeSide = ref<'left' | 'right' | null>(null)
+
 const startResizeClip = (clipId: string, side: 'left' | 'right', event: MouseEvent) => {
   selectedClipId.value = clipId
   isResizing.value = true
   dragStartX.value = event.clientX
-  
-  document.addEventListener('mousemove', (e) => handleResizeClip(e, side))
+  resizeSide.value = side
+
+  document.addEventListener('mousemove', handleResizeClipEvent)
   document.addEventListener('mouseup', stopResizeClip)
   event.preventDefault()
 }
 
 const handleResizeClip = (event: MouseEvent, side: 'left' | 'right') => {
   if (!isResizing.value || !selectedClipId.value) return
-  
+
   const deltaX = event.clientX - dragStartX.value
   const deltaTime = deltaX / (beatWidth.value * 4)
-  
+
   // Find and update the clip
   for (const track of audioStore.songStructure.tracks) {
     const clip = track.clips.find(c => c.id === selectedClipId.value)
@@ -353,9 +420,16 @@ const handleResizeClip = (event: MouseEvent, side: 'left' | 'right') => {
   }
 }
 
+const handleResizeClipEvent = (event: MouseEvent) => {
+  if (resizeSide.value) {
+    handleResizeClip(event, resizeSide.value)
+  }
+}
+
 const stopResizeClip = () => {
   isResizing.value = false
-  document.removeEventListener('mousemove', handleResizeClip)
+  resizeSide.value = null
+  document.removeEventListener('mousemove', handleResizeClipEvent)
   document.removeEventListener('mouseup', stopResizeClip)
 }
 
@@ -367,8 +441,13 @@ const zoomOut = () => {
   audioStore.setZoom(audioStore.zoom / 1.2)
 }
 
+const maxBars = computed(() => audioStore.songStructure.duration)
+const toggleMetronome = () => {
+  audioStore.toggleMetronome()
+}
+
 // Global click handler to hide context menu
-const handleGlobalClick = (event: MouseEvent) => {
+const handleGlobalClick = () => {
   if (contextMenu.value.visible) {
     hideContextMenu()
   }
@@ -393,6 +472,31 @@ const handleGlobalKeydown = (event: KeyboardEvent) => {
   }
 }
 
+// Redraw waveform when clips, zoom, or duration change
+watch([
+  () => audioStore.songStructure.tracks.map(t => t.clips),
+  () => audioStore.zoom
+], async () => {
+  await nextTick()
+  audioStore.songStructure.tracks.forEach(track => {
+    track.clips.forEach(clip => {
+      if (clip.type === 'sample' && clip.waveform && clipWaveformCanvases.value[clip.id]) {
+        // Update canvas width and height to match new clip size
+        const el = clipWaveformCanvases.value[clip.id]!
+        const width = clip.duration * beatWidth.value * 4
+        el.width = Math.max(40, Math.round(width))
+        const parentClip = el.closest('.audio-clip') as HTMLElement | null
+        if (parentClip) {
+          el.height = parentClip.offsetHeight
+        } else {
+          el.height = 20
+        }
+        drawWaveform(el, clip.waveform)
+      }
+    })
+  })
+}, { immediate: true })
+
 onMounted(() => {
   document.addEventListener('click', handleGlobalClick)
   document.addEventListener('keydown', handleGlobalKeydown)
@@ -403,7 +507,7 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleGlobalKeydown)
   document.removeEventListener('mousemove', handleDragClip)
   document.removeEventListener('mouseup', stopDragClip)
-  document.removeEventListener('mousemove', handleResizeClip)
+  document.removeEventListener('mousemove', handleResizeClipEvent)
   document.removeEventListener('mouseup', stopResizeClip)
 })
 </script>

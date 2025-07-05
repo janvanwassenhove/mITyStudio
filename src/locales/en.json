@@ -1,4 +1,22 @@
 {
+  "app": {
+    "title": "mITy Studio",
+    "description": "Create, edit, and produce music with ease.",
+    "welcome": "Welcome to mITy Studio!",
+    "loading": "Loading...",
+    "error": "An error occurred. Please try again.",
+    "subtitle": "Your music production studio in the cloud."
+  },
+  "header": {
+    "title": "mITy Studio",
+    "settings": "Settings",
+    "help": "Help",
+    "logout": "Logout",
+    "newProject": "New Project",
+    "openProject": "Open Project",
+    "saveProject": "Save Project",
+    "export": "Export Project"
+  },
   "tracks": {
     "title": "Tracks",
     "addTrack": "Add Track",
@@ -27,7 +45,9 @@
     "stop": "Stop",
     "record": "Record",
     "loop": "Loop",
-    "metronome": "Metronome"
+    "metronome": "Metronome",
+    "tempo": "Tempo",
+    "volume": "Volume"
   },
   "ai": {
     "title": "AI Assistant",

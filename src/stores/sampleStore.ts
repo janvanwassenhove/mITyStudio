@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 export interface LocalSample {
   id: string
@@ -453,6 +453,39 @@ export const useSampleStore = defineStore('samples', () => {
     const secs = Math.floor(seconds % 60)
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
+
+  // --- Persistence helpers ---
+  const SAMPLES_STORAGE_KEY = 'mitystudio_samples_v1'
+
+  // Save sample metadata to localStorage (excluding File objects)
+  const saveSamplesToStorage = () => {
+    const metadata = localSamples.value.map(sample => {
+      const { file, ...meta } = sample
+      return meta
+    })
+    localStorage.setItem(SAMPLES_STORAGE_KEY, JSON.stringify(metadata))
+  }
+
+  // Load sample metadata from localStorage
+  const loadSamplesFromStorage = () => {
+    const raw = localStorage.getItem(SAMPLES_STORAGE_KEY)
+    if (!raw) return
+    try {
+      const metadata = JSON.parse(raw)
+      if (Array.isArray(metadata)) {
+        // Restore as much as possible (file will be undefined)
+        localSamples.value = metadata.map((meta: any) => ({ ...meta, file: undefined }))
+      }
+    } catch (e) {
+      console.warn('Failed to load samples from storage:', e)
+    }
+  }
+
+  // Watch for changes and persist
+  watch(localSamples, saveSamplesToStorage, { deep: true })
+
+  // Call on store init
+  loadSamplesFromStorage()
 
   return {
     // State

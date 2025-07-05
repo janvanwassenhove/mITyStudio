@@ -17,6 +17,8 @@ export interface AudioClip {
     delay: number
     distortion: number
   }
+  // Add waveform for sample clips
+  waveform?: number[]
 }
 
 export interface Track {
@@ -52,6 +54,7 @@ export interface SongStructure {
 export const useAudioStore = defineStore('audio', () => {
   // State
   const isPlaying = ref(false)
+  const isPaused = ref(false)
   const currentTime = ref(0)
   const isLooping = ref(false)
   const metronomeEnabled = ref(false)
@@ -61,6 +64,7 @@ export const useAudioStore = defineStore('audio', () => {
   const isInitialized = ref(false)
   const isInitializing = ref(false)
   const initializationError = ref<string | null>(null)
+  const metronomeBars = ref(4)
   
   const songStructure = ref<SongStructure>({
     id: 'default-song',
@@ -75,10 +79,19 @@ export const useAudioStore = defineStore('audio', () => {
   })
 
   // Audio context and instruments
-  const instruments = ref<Map<string, Tone.Instrument>>(new Map())
+  const instruments = ref<Map<string, any>>(new Map())
   const scheduledEvents = ref<number[]>([])
   let transport: typeof Tone.Transport
   let metronome: Tone.Synth | null = null
+
+  // Track all active sample players
+  const samplePlayers: Tone.Player[] = []
+  
+  // Track all HTML audio elements for previews
+  const previewAudioElements = ref<Set<HTMLAudioElement>>(new Set())
+
+  // Track the position tracking event ID separately
+  let positionTrackingEventId: number | null = null
 
   // Computed
   const totalTracks = computed(() => songStructure.value.tracks.length)
@@ -222,9 +235,7 @@ export const useAudioStore = defineStore('audio', () => {
       instruments.value.set('synth-pad', synthPad)
       
       // Set up transport position tracking
-      transport.scheduleRepeat((time) => {
-        currentTime.value = transport.seconds
-      }, "16n")
+      setupPositionTracking()
       
       // Set master volume
       Tone.Destination.volume.value = Tone.gainToDb(masterVolume.value)
@@ -245,10 +256,73 @@ export const useAudioStore = defineStore('audio', () => {
     }
   }
 
-  const scheduleClip = (clip: AudioClip, track: Track) => {
+  // Setup position tracking separately from music events
+  const setupPositionTracking = () => {
+    if (positionTrackingEventId !== null) {
+      transport.clear(positionTrackingEventId)
+    }
+    positionTrackingEventId = transport.scheduleRepeat((_time) => {
+      currentTime.value = transport.seconds
+    }, "16n")
+    console.log('✅ Position tracking established')
+  }
+
+  const scheduleClip = (clip: AudioClip, track: Track, fromPosition: number = 0) => {
+    // Handle sample clips
+    if (clip.type === 'sample' && clip.sampleUrl) {
+      if (track.muted) return
+      const startTime = clip.startTime
+      const duration = clip.duration
+      const clipEndTime = startTime + duration
+      
+      // Skip clips that have already finished
+      if (clipEndTime <= fromPosition) {
+        console.log(`[scheduleClip] Skipping sample clip that ended before position ${fromPosition}:`, clip)
+        return
+      }
+      
+      // When resuming from pause, only schedule future events (not immediate ones)
+      const scheduleTime = Math.max(startTime, fromPosition)
+      const remainingDuration = clipEndTime - scheduleTime
+      
+      if (remainingDuration <= 0 || scheduleTime <= fromPosition) {
+        console.log(`[scheduleClip] Skipping sample clip - no future events needed:`, clip)
+        return
+      }
+      
+      const volume = (clip.volume ?? 1) * (track.volume ?? 1) * (masterVolume.value ?? 1)
+      
+      // Use Tone.Player for sample playback
+      const player = new Tone.Player({
+        url: clip.sampleUrl,
+        autostart: false,
+        volume: Tone.gainToDb(Math.max(0.01, volume)),
+      }).toDestination()
+      
+      samplePlayers.push(player)
+      
+      // Calculate how far into the sample we should start
+      const sampleOffset = scheduleTime - startTime
+      
+      console.log(`[scheduleClip] Scheduling future sample at ${scheduleTime}, offset: ${sampleOffset}, duration: ${remainingDuration}`)
+      
+      const eventId = transport.schedule((time) => {
+        player.start(time, sampleOffset, remainingDuration)
+      }, `${scheduleTime}:0:0`)
+      scheduledEvents.value.push(eventId)
+      return
+    }
+
     const instrument = instruments.value.get(track.instrument)
     if (!instrument || track.muted) {
       console.log(`[scheduleClip] Skipping: No instrument or track muted for`, track.instrument, track.name)
+      return
+    }
+
+    // Skip clips that have already finished
+    const clipEndTime = clip.startTime + clip.duration
+    if (clipEndTime <= fromPosition) {
+      console.log(`[scheduleClip] Skipping instrument clip that ended before position ${fromPosition}:`, clip)
       return
     }
 
@@ -263,7 +337,7 @@ export const useAudioStore = defineStore('audio', () => {
       instrument.volume.value = Tone.gainToDb(Math.max(0.01, clipVolume))
     }
 
-    console.log(`[scheduleClip] Scheduling`, {
+    console.log(`[scheduleClip] Scheduling from position ${fromPosition}:`, {
       instrument: track.instrument,
       notes,
       startTime: clip.startTime,
@@ -280,6 +354,10 @@ export const useAudioStore = defineStore('audio', () => {
           const chord = notes.slice(i, i + 3).filter(note => note)
           if (chord.length === 0) continue
           const chordTime = clip.startTime + (i / 3) * chordDuration
+          
+          // Skip notes that are before the current position
+          if (chordTime < fromPosition) continue
+          
           const eventId = transport.schedule((time) => {
             if (instrument && 'triggerAttackRelease' in instrument) {
               console.log(`[triggerAttackRelease] Chord`, chord, chordDuration * 0.9, time)
@@ -293,6 +371,10 @@ export const useAudioStore = defineStore('audio', () => {
         const noteDuration = Math.max(0.25, clip.duration / notes.length)
         notes.forEach((note, index) => {
           const noteTime = clip.startTime + index * noteDuration
+          
+          // Skip notes that are before the current position
+          if (noteTime < fromPosition) return
+          
           const eventId = transport.schedule((time) => {
             if (instrument && 'triggerAttackRelease' in instrument) {
               console.log(`[triggerAttackRelease] Note`, note, noteDuration * 0.8, time)
@@ -306,44 +388,52 @@ export const useAudioStore = defineStore('audio', () => {
       default:
         notes.forEach((note, index) => {
           const noteTime = clip.startTime + index; // Use seconds for scheduling
+          
+          // Skip notes that are before the current position
+          if (noteTime < fromPosition) return
+          
           const eventId = transport.schedule((time) => {
             if (instrument && 'triggerAttackRelease' in instrument) {
               console.log(`[triggerAttackRelease] Note`, note, '4n', time)
               instrument.triggerAttackRelease(note, "4n", time)
             }
-          }, noteTime); // Pass as seconds
+          }, `${noteTime}:0:0`)
           scheduledEvents.value.push(eventId)
         })
         break
     }
   }
 
-  const scheduleMetronome = () => {
+  const scheduleMetronome = (fromPosition: number = 0) => {
     if (!metronomeEnabled.value || !metronome) return
 
-    const totalBeats = songStructure.value.duration * songStructure.value.timeSignature[0]
-    
+    const totalBeats = metronomeBars.value * songStructure.value.timeSignature[0]
     for (let beat = 0; beat < totalBeats; beat++) {
-      const isDownbeat = beat % songStructure.value.timeSignature[0] === 0
+      const beatTime = beat
       
+      // Skip beats that are before the current position
+      if (beatTime < fromPosition) continue
+      
+      const isDownbeat = beat % songStructure.value.timeSignature[0] === 0
       const eventId = transport.schedule((time) => {
         if (metronome) {
           metronome.triggerAttackRelease(isDownbeat ? "C5" : "C4", "32n", time)
         }
-      }, `${beat}:0:0`)
-      
+      }, `${beatTime}:0:0`)
       scheduledEvents.value.push(eventId)
     }
   }
 
   const clearScheduledEvents = () => {
+    // Clear music events but preserve position tracking
     scheduledEvents.value.forEach(eventId => {
       transport.clear(eventId)
     })
     scheduledEvents.value = []
+    console.log('🧹 Cleared scheduled music events (position tracking preserved)')
   }
 
-  const generateAndScheduleSong = () => {
+  const generateAndScheduleSong = (fromPosition: number = 0) => {
     if (!isInitialized.value) {
       console.warn('Audio not initialized')
       return
@@ -355,17 +445,17 @@ export const useAudioStore = defineStore('audio', () => {
     const soloTracks = songStructure.value.tracks.filter(track => track.solo)
     const tracksToPlay = soloTracks.length > 0 ? soloTracks : songStructure.value.tracks
 
-    console.log(`[generateAndScheduleSong] Scheduling for tracks:`, tracksToPlay.map(t => t.name))
+    console.log(`[generateAndScheduleSong] Scheduling for tracks from position ${fromPosition}:`, tracksToPlay.map(t => t.name))
     // Schedule all clips
     tracksToPlay.forEach(track => {
       track.clips.forEach(clip => {
-        scheduleClip(clip, track)
+        scheduleClip(clip, track, fromPosition)
       })
     })
 
     // Schedule metronome
     if (metronomeEnabled.value) {
-      scheduleMetronome()
+      scheduleMetronome(fromPosition)
     }
 
     // Set loop points
@@ -378,6 +468,140 @@ export const useAudioStore = defineStore('audio', () => {
     }
 
     console.log(`[generateAndScheduleSong] Scheduled events:`, scheduledEvents.value.length)
+  }
+
+  // Immediate scheduling for resume from pause - starts audio right away
+  const generateAndScheduleSongImmediate = (fromPosition: number) => {
+    if (!isInitialized.value) {
+      console.warn('Audio not initialized')
+      return
+    }
+
+    clearScheduledEvents()
+
+    // Check if any tracks are soloed
+    const soloTracks = songStructure.value.tracks.filter(track => track.solo)
+    const tracksToPlay = soloTracks.length > 0 ? soloTracks : songStructure.value.tracks
+
+    console.log(`[generateAndScheduleSongImmediate] Starting immediate playback from position ${fromPosition}:`, tracksToPlay.map(t => t.name))
+    
+    // Start currently playing clips immediately
+    tracksToPlay.forEach(track => {
+      track.clips.forEach(clip => {
+        scheduleClipImmediate(clip, track, fromPosition)
+      })
+    })
+
+    // Schedule future events normally
+    tracksToPlay.forEach(track => {
+      track.clips.forEach(clip => {
+        scheduleClip(clip, track, fromPosition)
+      })
+    })
+
+    // Schedule metronome from current position
+    if (metronomeEnabled.value) {
+      scheduleMetronome(fromPosition)
+    }
+
+    // Set loop points
+    if (isLooping.value) {
+      transport.loopStart = 0
+      transport.loopEnd = `${songStructure.value.duration}:0:0`
+      transport.loop = true
+    } else {
+      transport.loop = false
+    }
+
+    console.log(`[generateAndScheduleSongImmediate] Immediate scheduling complete`)
+  }
+
+  // Immediate clip scheduling for clips that should be playing right now
+  const scheduleClipImmediate = (clip: AudioClip, track: Track, fromPosition: number) => {
+    // Only handle sample clips that are currently playing
+    if (clip.type === 'sample' && clip.sampleUrl) {
+      if (track.muted) return
+      
+      const startTime = clip.startTime
+      const duration = clip.duration
+      const clipEndTime = startTime + duration
+      
+      // Only start clips that should be playing right now
+      if (fromPosition >= startTime && fromPosition < clipEndTime) {
+        const volume = (clip.volume ?? 1) * (track.volume ?? 1) * (masterVolume.value ?? 1)
+        
+        // Use Tone.Player for sample playback
+        const player = new Tone.Player({
+          url: clip.sampleUrl,
+          autostart: false,
+          volume: Tone.gainToDb(Math.max(0.01, volume)),
+        }).toDestination()
+        
+        samplePlayers.push(player)
+        
+        // Calculate how far into the sample we should start
+        const sampleOffset = fromPosition - startTime
+        const remainingDuration = clipEndTime - fromPosition
+        
+        console.log(`[scheduleClipImmediate] Starting sample immediately with offset: ${sampleOffset}, duration: ${remainingDuration}`)
+        
+        // Start immediately (no scheduling delay)
+        player.start("+0.01", sampleOffset, remainingDuration)
+      }
+    }
+    
+    // Handle instruments that should be playing right now
+    const instrument = instruments.value.get(track.instrument)
+    if (!instrument || track.muted || clip.type === 'sample') {
+      return
+    }
+
+    const clipEndTime = clip.startTime + clip.duration
+    
+    // Only trigger instruments for clips that should be playing right now
+    if (fromPosition >= clip.startTime && fromPosition < clipEndTime) {
+      const notes = clip.notes || generateNotesForClip(clip, songStructure.value.key)
+      if (!notes.length) return
+
+      const clipVolume = clip.volume * track.volume * masterVolume.value
+      if ('volume' in instrument) {
+        instrument.volume.value = Tone.gainToDb(Math.max(0.01, clipVolume))
+      }
+
+      console.log(`[scheduleClipImmediate] Triggering instrument immediately:`, clip.instrument)
+
+      // Trigger the current note/chord immediately based on position within clip
+      const timeIntoClip = fromPosition - clip.startTime
+      
+      switch (clip.instrument) {
+        case 'piano':
+        case 'electric-piano':
+        case 'synth-pad':
+          const chordDuration = Math.max(0.5, clip.duration / Math.ceil(notes.length / 3))
+          const currentChordIndex = Math.floor(timeIntoClip / chordDuration) * 3
+          const chord = notes.slice(currentChordIndex, currentChordIndex + 3).filter(note => note)
+          if (chord.length > 0 && 'triggerAttackRelease' in instrument) {
+            const remainingChordTime = chordDuration - (timeIntoClip % chordDuration)
+            instrument.triggerAttackRelease(chord, Math.min(remainingChordTime, chordDuration) * 0.9, "+0.01")
+          }
+          break
+        case 'synth-lead':
+          const noteDuration = Math.max(0.25, clip.duration / notes.length)
+          const currentNoteIndex = Math.floor(timeIntoClip / noteDuration)
+          if (currentNoteIndex < notes.length && 'triggerAttackRelease' in instrument) {
+            const remainingNoteTime = noteDuration - (timeIntoClip % noteDuration)
+            instrument.triggerAttackRelease(notes[currentNoteIndex], Math.min(remainingNoteTime, noteDuration) * 0.8, "+0.01")
+          }
+          break
+        case 'synth':
+        default:
+          const currentNoteIdx = Math.floor(timeIntoClip)
+          if (currentNoteIdx < notes.length && 'triggerAttackRelease' in instrument) {
+            instrument.triggerAttackRelease(notes[currentNoteIdx], "4n", "+0.01")
+          }
+          break
+      }
+    }
   }
 
   const play = async () => {
@@ -396,31 +620,118 @@ export const useAudioStore = defineStore('audio', () => {
         await Tone.context.resume()
       }
 
-      console.log('[play] Generating and scheduling song...')
-      generateAndScheduleSong()
-      transport.start()
-      isPlaying.value = true
-      console.log('[play] Playback started')
+      // Check if we're resuming from pause
+      const isResumingFromPause = isPaused.value
+      
+      if (isResumingFromPause) {
+        console.log('[play] Resuming from pause...')
+        const pausedPosition = transport.seconds
+        console.log(`[play] Paused position: ${transport.position} (${pausedPosition}s)`)
+        
+        // Clear pause state
+        isPaused.value = false
+        
+        // Don't reset transport position - keep it where it was paused
+        // This eliminates the need for position offset calculations
+        
+        // Ensure position tracking is active
+        if (positionTrackingEventId === null) {
+          setupPositionTracking()
+        }
+        
+        // Reschedule events from current position using immediate scheduling
+        console.log('[play] Rescheduling events from current position...')
+        generateAndScheduleSongImmediate(pausedPosition)
+        
+        transport.start()
+        isPlaying.value = true
+        console.log('[play] Resumed from pause with immediate scheduling')
+      } else {
+        console.log('[play] Starting fresh playback...')
+        
+        // Ensure position tracking is active
+        if (positionTrackingEventId === null) {
+          setupPositionTracking()
+        }
+        
+        generateAndScheduleSong()
+        transport.start()
+        isPlaying.value = true
+        console.log('[play] Fresh playback started')
+      }
     } catch (error) {
       console.error('Failed to start playback:', error)
     }
   }
 
   const pause = () => {
+    console.log('⏸️ Pausing playback...')
     if (transport) {
+      // Stop and dispose all currently playing sample players
+      console.log(`⏸️ Stopping and disposing ${samplePlayers.length} sample players...`)
+      samplePlayers.forEach(player => {
+        try {
+          if (player.state === 'started') {
+            player.stop()
+          }
+          player.dispose()
+        } catch (e) {
+          console.warn('Error stopping/disposing sample player during pause:', e)
+        }
+      })
+      samplePlayers.length = 0 // Clear the array so new players can be created on resume
+      
+      // Clear scheduled events because we'll need to reschedule them on resume
+      clearScheduledEvents()
+      
       transport.pause()
       isPlaying.value = false
+      isPaused.value = true // Track that we're in paused state
+      console.log(`⏸️ Paused at position: ${transport.position} (${transport.seconds}s)`)
     }
   }
 
   const stop = () => {
+    console.log('🛑 Stopping all audio playback...')
+    
     if (transport) {
       transport.stop()
       transport.position = 0
       currentTime.value = 0
       isPlaying.value = false
+      isPaused.value = false // Clear pause state on stop
       clearScheduledEvents()
+      
+      // Don't clear position tracking on normal stop - keep it for next play
+      // Only clear it on full reset
     }
+    
+    // Stop and dispose all sample players
+    console.log(`🎵 Stopping ${samplePlayers.length} sample players...`)
+    samplePlayers.forEach(player => {
+      try { 
+        if (player.state === 'started') {
+          player.stop()
+        }
+        player.dispose()
+      } catch (e) { 
+        console.warn('Error stopping sample player:', e)
+      }
+    })
+    samplePlayers.length = 0
+    
+    // Stop all preview audio elements
+    console.log(`🔊 Stopping ${previewAudioElements.value.size} preview audio elements...`)
+    previewAudioElements.value.forEach(audio => {
+      try {
+        audio.pause()
+        audio.currentTime = 0
+      } catch (e) { 
+        console.warn('Error stopping preview audio:', e)
+      }
+    })
+    
+    console.log('✅ All audio playback stopped')
   }
 
   const setTempo = (bpm: number) => {
@@ -477,12 +788,13 @@ export const useAudioStore = defineStore('audio', () => {
   const addClip = (trackId: string, clip: Omit<AudioClip, 'id' | 'trackId'>) => {
     const track = songStructure.value.tracks.find(t => t.id === trackId)
     if (track) {
-      // Generate default notes/chords/visualization for the new clip
+      // For sample clips, do not generate notes
+      const isSample = clip.type === 'sample'
       const newClip: AudioClip = {
         ...clip,
         id: `clip-${Date.now()}`,
         trackId,
-        notes: generateNotesForClip({ ...clip, id: '', trackId } as AudioClip, songStructure.value.key)
+        notes: isSample ? undefined : generateNotesForClip({ ...clip, id: '', trackId } as AudioClip, songStructure.value.key)
       }
       track.clips.push(newClip)
       updateSongStructure()
@@ -546,6 +858,15 @@ export const useAudioStore = defineStore('audio', () => {
 
   const toggleMetronome = () => {
     metronomeEnabled.value = !metronomeEnabled.value
+    // If playback is running, re-schedule song to add/remove metronome events
+    if (isPlaying.value) {
+      clearScheduledEvents()
+      generateAndScheduleSong(transport.seconds)
+    }
+    // Play a test click when enabling metronome
+    if (metronomeEnabled.value && metronome) {
+      metronome.triggerAttackRelease('C6', '16n')
+    }
   }
 
   const setMasterVolume = (volume: number) => {
@@ -561,6 +882,20 @@ export const useAudioStore = defineStore('audio', () => {
 
   const selectTrack = (trackId: string | null) => {
     selectedTrackId.value = trackId
+  }
+
+  const setMetronomeBars = (bars: number) => {
+    metronomeBars.value = bars
+  }
+
+  // Register a preview audio element to be stopped when stop() is called
+  const registerPreviewAudio = (audio: HTMLAudioElement) => {
+    previewAudioElements.value.add(audio)
+  }
+
+  // Unregister a preview audio element
+  const unregisterPreviewAudio = (audio: HTMLAudioElement) => {
+    previewAudioElements.value.delete(audio)
   }
 
   // Force initialization with better error handling
@@ -582,29 +917,39 @@ export const useAudioStore = defineStore('audio', () => {
   // Reset audio system
   const resetAudio = () => {
     console.log('🔄 Resetting audio system')
-    
     // Stop everything
     if (transport) {
       transport.stop()
       clearScheduledEvents()
+      
+      // Clear position tracking on full reset
+      if (positionTrackingEventId !== null) {
+        transport.clear(positionTrackingEventId)
+        positionTrackingEventId = null
+      }
     }
+    // Stop and dispose all sample players
+    samplePlayers.forEach(player => {
+      try { player.stop(); player.dispose(); } catch (e) { /* ignore */ }
+    })
+    samplePlayers.length = 0
     
     // Clear instruments
     instruments.value.clear()
-    
     // Reset state
     isInitialized.value = false
     isInitializing.value = false
     initializationError.value = null
     isPlaying.value = false
+    isPaused.value = false
     currentTime.value = 0
-    
     console.log('Audio system reset complete')
   }
 
   return {
     // State
     isPlaying,
+    isPaused,
     currentTime,
     isLooping,
     metronomeEnabled,
@@ -615,6 +960,7 @@ export const useAudioStore = defineStore('audio', () => {
     isInitialized,
     isInitializing,
     initializationError,
+    metronomeBars,
     
     // Computed
     totalTracks,
@@ -642,6 +988,9 @@ export const useAudioStore = defineStore('audio', () => {
     toggleMetronome,
     setMasterVolume,
     setZoom,
-    selectTrack
+    selectTrack,
+    setMetronomeBars,
+    registerPreviewAudio,
+    unregisterPreviewAudio
   }
 })
