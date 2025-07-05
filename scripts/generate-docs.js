@@ -73,10 +73,30 @@ function extractComponentInfo(filePath) {
     features: []
   };
   
-  // Extract component description from comments
+  // Extract component description from comments or infer from component name/content
   const descriptionMatch = content.match(/\/\*\*\s*\n\s*\*\s*(.+?)\s*\n[\s\*]*\*\//);
   if (descriptionMatch) {
     info.description = descriptionMatch[1];
+  } else {
+    // Infer description based on component name and content
+    const name = info.name.toLowerCase();
+    if (name.includes('ai') && name.includes('chat')) {
+      info.description = 'AI-powered chat interface for music composition assistance';
+    } else if (name.includes('audio') || name.includes('playback')) {
+      info.description = 'Audio playback and control component';
+    } else if (name.includes('timeline')) {
+      info.description = 'Timeline editor for arranging musical elements';
+    } else if (name.includes('theme')) {
+      info.description = 'Theme management and customization component';
+    } else if (name.includes('sample')) {
+      info.description = 'Sample library management and organization';
+    } else if (name.includes('header')) {
+      info.description = 'Main application header with navigation and controls';
+    } else if (name.includes('track')) {
+      info.description = 'Individual track controls and management';
+    } else if (name.includes('panel')) {
+      info.description = 'Side panel component with various tools and settings';
+    }
   }
   
   // Extract features from component analysis

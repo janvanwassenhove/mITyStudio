@@ -2,7 +2,7 @@
 
 ## Overview
 
-The ThemeToggle component is a key part of the mITyStudio application.
+Theme management and customization component
 
 ## Features
 
@@ -16,4 +16,4 @@ The ThemeToggle component is a key part of the mITyStudio application.
 
 This component is part of the main application structure and integrates with the overall mITyStudio workflow.
 
-*This documentation is automatically generated. Last updated: 2025-07-05T11:55:38.278Z*
+*This documentation is automatically generated. Last updated: 2025-07-05T11:57:15.910Z*

@@ -32,7 +32,7 @@ src/
 
 ### AIChat
 
-Core component for the application
+AI-powered chat interface for music composition assistance
 
 **Features:**
 - AI Chat Integration
@@ -43,7 +43,7 @@ Core component for the application
 
 ### AppHeader
 
-Core component for the application
+Main application header with navigation and controls
 
 **Features:**
 - Audio Processing
@@ -53,7 +53,7 @@ Core component for the application
 
 ### JSONStructurePanel
 
-Core component for the application
+Side panel component with various tools and settings
 
 **Features:**
 - Audio Processing
@@ -62,7 +62,7 @@ Core component for the application
 
 ### PlaybackControls
 
-Core component for the application
+Audio playback and control component
 
 **Features:**
 - Audio Processing
@@ -71,7 +71,7 @@ Core component for the application
 
 ### RightPanelToggle
 
-Core component for the application
+Side panel component with various tools and settings
 
 **Features:**
 - AI Chat Integration
@@ -84,7 +84,7 @@ Core component for the application
 
 ### SampleLibrary
 
-Core component for the application
+Sample library management and organization
 
 **Features:**
 - Audio Processing
@@ -94,7 +94,7 @@ Core component for the application
 
 ### ThemeToggle
 
-Core component for the application
+Theme management and customization component
 
 **Features:**
 - Theme Management
@@ -103,7 +103,7 @@ Core component for the application
 
 ### TimelineEditor
 
-Core component for the application
+Timeline editor for arranging musical elements
 
 **Features:**
 - Audio Processing
@@ -114,7 +114,7 @@ Core component for the application
 
 ### TrackControls
 
-Core component for the application
+Individual track controls and management
 
 **Features:**
 - Audio Processing
@@ -252,4 +252,4 @@ Manages application state
 - ES6+ JavaScript support required
 - WebRTC support recommended for advanced features
 
-*This documentation is automatically generated. Last updated: 2025-07-05T11:55:38.275Z*
+*This documentation is automatically generated. Last updated: 2025-07-05T11:57:15.906Z*

@@ -1,10 +1,10 @@
 # mITyStudio
 
-A modern web application built with Vue 3, TypeScript, and Vite.
+A modern web-based digital audio workstation (DAW) built with Vue 3, TypeScript, and Vite.
 
 ## Description
 
-mITyStudio is a feature-rich platform designed to streamline your workflow with a fast, scalable, and maintainable codebase using the latest frontend technologies.
+mITyStudio is a feature-rich AI-powered music production platform designed to streamline your workflow with a fast, scalable, and maintainable codebase using the latest frontend technologies.
 
 ## Features
 

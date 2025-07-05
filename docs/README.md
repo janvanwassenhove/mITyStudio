@@ -2,15 +2,15 @@
 
 ## Available Features
 
-- [AIChat](./aichat.md) - Core component
-- [AppHeader](./appheader.md) - Core component
-- [JSONStructurePanel](./jsonstructurepanel.md) - Core component
-- [PlaybackControls](./playbackcontrols.md) - Core component
-- [RightPanelToggle](./rightpaneltoggle.md) - Core component
-- [SampleLibrary](./samplelibrary.md) - Core component
-- [ThemeToggle](./themetoggle.md) - Core component
-- [TimelineEditor](./timelineeditor.md) - Core component
-- [TrackControls](./trackcontrols.md) - Core component
+- [AIChat](./aichat.md) - AI-powered chat interface for music composition assistance
+- [AppHeader](./appheader.md) - Main application header with navigation and controls
+- [JSONStructurePanel](./jsonstructurepanel.md) - Side panel component with various tools and settings
+- [PlaybackControls](./playbackcontrols.md) - Audio playback and control component
+- [RightPanelToggle](./rightpaneltoggle.md) - Side panel component with various tools and settings
+- [SampleLibrary](./samplelibrary.md) - Sample library management and organization
+- [ThemeToggle](./themetoggle.md) - Theme management and customization component
+- [TimelineEditor](./timelineeditor.md) - Timeline editor for arranging musical elements
+- [TrackControls](./trackcontrols.md) - Individual track controls and management
 
 ## Feature Categories
 
@@ -39,4 +39,4 @@
 - [TimelineEditor](./timelineeditor.md)
 - [TrackControls](./trackcontrols.md)
 
-*This documentation is automatically generated. Last updated: 2025-07-05T11:55:38.279Z*
+*This documentation is automatically generated. Last updated: 2025-07-05T11:57:15.910Z*
