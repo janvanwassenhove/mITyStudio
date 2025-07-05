@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "docs": "node scripts/generate-docs.js"
   },
   "dependencies": {
     "vue": "^3.5.10",
