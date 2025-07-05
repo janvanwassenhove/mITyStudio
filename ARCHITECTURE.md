@@ -556,7 +556,9 @@ For new contributors, we recommend:
 
 mITyStudio features a modern three-panel layout designed for efficient music production workflow:
 
-![mITyStudio Application Interface](https://github.com/user-attachments/assets/d5154383-0992-421b-aa05-f542d250c8cf)
+![mITyStudio Application Interface](https://github.com/user-attachments/assets/220ca476-7374-48d1-8809-3e6b457fa363)
+
+*Main interface showing Piano and Electric Guitar tracks with volume, pan, and effects controls (left), timeline editor with measure markers (center), and AI Assistant (right)*
 
 ### Interface Layout
 
@@ -581,13 +583,30 @@ The application is organized into three main sections:
    - JSON song structure viewer
    - Application settings
 
+### Right Panel Features
+
+The right panel provides access to multiple specialized tools through tab navigation:
+
+#### Sample Library
+![Sample Library Interface](https://github.com/user-attachments/assets/9efb728d-4b59-4e35-a704-eb4ba419bc0d)
+
+*Sample Library tab showing the audio file management interface with load samples functionality*
+
+#### JSON Song Structure
+![JSON Song Structure Interface](https://github.com/user-attachments/assets/a3b92ad7-f2a5-4212-ae36-a4fa350448dd)
+
+*JSON Song Structure tab displaying project statistics and the complete song data structure for debugging and export*
+
 ### Key Features Shown
 
-- **Multiple Track Support**: Create and manage multiple instrument tracks
-- **Professional Controls**: Industry-standard mixing controls for each track
-- **Audio Engine**: Real-time audio processing with Tone.js
-- **Responsive Design**: Optimized layout for various screen sizes
-- **Dark Theme**: Professional dark interface for reduced eye strain
+- **Track Management**: Piano and Electric Guitar tracks with individual controls
+- **Professional Mixing**: Volume, pan, and effects controls for each track  
+- **Timeline Editor**: Musical timeline with measure markers from 1.1 to 32.4
+- **Playback Controls**: Play, Stop, Loop, Metronome, and Generate Song buttons
+- **Audio Engine**: Real-time audio processing with Tone.js integration
+- **Multi-tab Interface**: AI Assistant, Sample Library, JSON Structure, and Settings
+- **Project Visualization**: Complete song structure and metadata display
+- **Dark Theme**: Professional dark interface optimized for music production
 
 ## Contributing
 
