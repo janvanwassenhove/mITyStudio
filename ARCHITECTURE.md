@@ -536,6 +536,33 @@ graph LR
 - **Cloud Storage**: Project synchronization
 - **Plugin System**: Third-party extensions
 
+## Related Documentation
+
+Since this is the primary architectural document for the repository, additional documentation can be found in:
+
+- **README.md**: Project overview, setup instructions, and basic usage
+- **Inline Code Documentation**: TypeScript interfaces and component documentation within source files
+- **Component Files**: Each Vue component contains inline documentation for its specific functionality
+- **Store Files**: Pinia stores include detailed interface definitions and method documentation
+
+For new contributors, we recommend:
+
+1. Start with this architecture document to understand the overall structure
+2. Read the README.md for setup instructions
+3. Explore individual component files to understand specific implementations
+4. Review store files to understand state management patterns
+
+## Contributing
+
+When contributing to mITyStudio, please:
+
+- Follow the established architectural patterns described in this document
+- Maintain type safety with TypeScript
+- Use Pinia stores for state management
+- Follow Vue 3 Composition API best practices
+- Ensure proper audio resource cleanup
+- Update this architecture document for significant structural changes
+
 ---
 
 For more detailed information about specific components or systems, refer to the inline documentation in the respective source files.
