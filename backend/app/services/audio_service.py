@@ -1,0 +1,340 @@
+"""
+Audio Service
+Handles audio file processing, effects, and analysis
+"""
+
+import os
+import uuid
+import tempfile
+from typing import Dict, List, Any, Optional, Tuple
+import numpy as np
+import librosa
+import soundfile as sf
+from pydub import AudioSegment
+from flask import current_app
+import json
+
+
+class AudioService:
+    """Service for audio processing and analysis"""
+    
+    ALLOWED_EXTENSIONS = {'wav', 'mp3', 'flac', 'aiff', 'm4a', 'ogg'}
+    
+    def __init__(self):
+        self.upload_dir = current_app.config.get('UPLOAD_FOLDER', 'uploads')
+        self._ensure_upload_dir()
+    
+    def _ensure_upload_dir(self):
+        """Ensure upload directory exists"""
+        if not os.path.exists(self.upload_dir):
+            os.makedirs(self.upload_dir)
+    
+    @staticmethod
+    def allowed_file(filename: str) -> bool:
+        """Check if file extension is allowed"""
+        return '.' in filename and \
+               filename.rsplit('.', 1)[1].lower() in AudioService.ALLOWED_EXTENSIONS
+    
+    def process_upload(self, file) -> Dict:
+        """Process uploaded audio file"""
+        if not self.allowed_file(file.filename):
+            raise ValueError("File type not supported")
+        
+        # Generate unique file ID
+        file_id = str(uuid.uuid4())
+        file_extension = file.filename.rsplit('.', 1)[1].lower()
+        filename = f"{file_id}.{file_extension}"
+        filepath = os.path.join(self.upload_dir, filename)
+        
+        # Save uploaded file
+        file.save(filepath)
+        
+        try:
+            # Load and analyze audio
+            audio_data, sample_rate = librosa.load(filepath, sr=None)
+            
+            # Get basic audio info
+            duration = len(audio_data) / sample_rate
+            channels = 1 if len(audio_data.shape) == 1 else audio_data.shape[0]
+            
+            # Generate waveform data for visualization
+            waveform_data = self._generate_waveform_data(audio_data, sample_rate)
+            
+            # Extract metadata
+            metadata = self._extract_metadata(filepath, audio_data, sample_rate)
+            
+            return {
+                'file_id': file_id,
+                'filename': file.filename,
+                'duration': duration,
+                'sample_rate': sample_rate,
+                'channels': channels,
+                'waveform_data': waveform_data,
+                'metadata': metadata
+            }
+            
+        except Exception as e:
+            # Clean up file if processing fails
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            raise e
+    
+    def generate_waveform(self, file_id: str, resolution: int = 1000) -> List[float]:
+        """Generate waveform data for visualization"""
+        filepath = self.get_file_path(file_id)
+        
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"Audio file not found: {file_id}")
+        
+        # Load audio
+        audio_data, sample_rate = librosa.load(filepath, sr=None)
+        
+        return self._generate_waveform_data(audio_data, sample_rate, resolution)
+    
+    def _generate_waveform_data(self, audio_data: np.ndarray, sample_rate: int, 
+                               resolution: int = 1000) -> List[float]:
+        """Generate downsampled waveform data for visualization"""
+        # Calculate chunk size for downsampling
+        chunk_size = len(audio_data) // resolution
+        
+        if chunk_size < 1:
+            chunk_size = 1
+        
+        # Downsample by taking RMS of chunks
+        waveform = []
+        for i in range(0, len(audio_data), chunk_size):
+            chunk = audio_data[i:i + chunk_size]
+            rms = np.sqrt(np.mean(chunk ** 2))
+            waveform.append(float(rms))
+        
+        return waveform[:resolution]  # Ensure exact resolution
+    
+    def apply_effects(self, file_id: str, effects: Dict) -> Dict:
+        """Apply audio effects to a file"""
+        input_path = self.get_file_path(file_id)
+        
+        if not os.path.exists(input_path):
+            raise FileNotFoundError(f"Audio file not found: {file_id}")
+        
+        # Generate new file ID for processed audio
+        processed_file_id = str(uuid.uuid4())
+        output_path = os.path.join(self.upload_dir, f"{processed_file_id}.wav")
+        
+        import time
+        start_time = time.time()
+        
+        try:
+            # Load audio
+            audio_data, sample_rate = librosa.load(input_path, sr=None)
+            
+            # Apply effects
+            processed_audio = self._apply_audio_effects(audio_data, sample_rate, effects)
+            
+            # Save processed audio
+            sf.write(output_path, processed_audio, sample_rate)
+            
+            processing_time = time.time() - start_time
+            
+            return {
+                'file_id': processed_file_id,
+                'processing_time': processing_time
+            }
+            
+        except Exception as e:
+            # Clean up if processing fails
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            raise e
+    
+    def _apply_audio_effects(self, audio_data: np.ndarray, sample_rate: int, 
+                           effects: Dict) -> np.ndarray:
+        """Apply various audio effects"""
+        processed = audio_data.copy()
+        
+        # Reverb (simplified convolution reverb)
+        if effects.get('reverb', 0) > 0:
+            reverb_amount = effects['reverb']
+            # Create simple impulse response
+            reverb_length = int(sample_rate * 0.5)  # 0.5 second reverb
+            impulse = np.exp(-np.linspace(0, 5, reverb_length)) * np.random.normal(0, 0.1, reverb_length)
+            reverb = np.convolve(processed, impulse, mode='same') * reverb_amount
+            processed = processed + reverb * reverb_amount
+        
+        # Delay
+        if effects.get('delay', 0) > 0:
+            delay_amount = effects['delay']
+            delay_samples = int(sample_rate * 0.25)  # 250ms delay
+            delayed = np.zeros_like(processed)
+            delayed[delay_samples:] = processed[:-delay_samples]
+            processed = processed + delayed * delay_amount * 0.5
+        
+        # Distortion
+        if effects.get('distortion', 0) > 0:
+            distortion_amount = effects['distortion']
+            # Soft clipping distortion
+            gain = 1 + distortion_amount * 10
+            processed = np.tanh(processed * gain) / gain
+        
+        # Normalize to prevent clipping
+        max_val = np.max(np.abs(processed))
+        if max_val > 1.0:
+            processed = processed / max_val * 0.95
+        
+        return processed
+    
+    def convert_audio(self, file_id: str, target_format: str, 
+                     target_sample_rate: Optional[int] = None,
+                     target_bitrate: Optional[str] = None) -> Dict:
+        """Convert audio to different format"""
+        input_path = self.get_file_path(file_id)
+        
+        if not os.path.exists(input_path):
+            raise FileNotFoundError(f"Audio file not found: {file_id}")
+        
+        # Generate new file ID
+        converted_file_id = str(uuid.uuid4())
+        output_path = os.path.join(self.upload_dir, f"{converted_file_id}.{target_format}")
+        
+        try:
+            # Load audio
+            audio_data, sample_rate = librosa.load(input_path, sr=target_sample_rate)
+            
+            if target_format == 'wav':
+                # Save as WAV
+                sf.write(output_path, audio_data, sample_rate)
+            else:
+                # Use pydub for other formats
+                # Convert to temporary WAV first
+                temp_wav = tempfile.NamedTemporaryFile(suffix='.wav', delete=False)
+                sf.write(temp_wav.name, audio_data, sample_rate)
+                
+                # Load with pydub and export
+                audio_segment = AudioSegment.from_wav(temp_wav.name)
+                
+                export_params = {}
+                if target_bitrate and target_format == 'mp3':
+                    export_params['bitrate'] = target_bitrate
+                
+                audio_segment.export(output_path, format=target_format, **export_params)
+                
+                # Clean up temp file
+                os.unlink(temp_wav.name)
+            
+            return {
+                'file_id': converted_file_id,
+                'sample_rate': sample_rate,
+                'bitrate': target_bitrate
+            }
+            
+        except Exception as e:
+            # Clean up if conversion fails
+            if os.path.exists(output_path):
+                os.remove(output_path)
+            raise e
+    
+    def analyze_audio(self, file_id: str) -> Dict:
+        """Analyze audio features"""
+        filepath = self.get_file_path(file_id)
+        
+        if not os.path.exists(filepath):
+            raise FileNotFoundError(f"Audio file not found: {file_id}")
+        
+        # Load audio
+        audio_data, sample_rate = librosa.load(filepath, sr=None)
+        
+        # Tempo detection
+        tempo, beats = librosa.beat.beat_track(y=audio_data, sr=sample_rate)
+        
+        # Key detection (simplified)
+        chroma = librosa.feature.chroma_stft(y=audio_data, sr=sample_rate)
+        key_index = np.argmax(np.sum(chroma, axis=1))
+        keys = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+        estimated_key = keys[key_index]
+        
+        # Loudness (RMS)
+        rms = librosa.feature.rms(y=audio_data)[0]
+        loudness = np.mean(rms)
+        
+        # Spectral features
+        spectral_centroids = librosa.feature.spectral_centroid(y=audio_data, sr=sample_rate)[0]
+        spectral_bandwidth = librosa.feature.spectral_bandwidth(y=audio_data, sr=sample_rate)[0]
+        spectral_rolloff = librosa.feature.spectral_rolloff(y=audio_data, sr=sample_rate)[0]
+        
+        # Zero crossing rate
+        zcr = librosa.feature.zero_crossing_rate(audio_data)[0]
+        
+        return {
+            'tempo': float(tempo),
+            'key': estimated_key,
+            'time_signature': '4/4',  # Simplified - would need more analysis
+            'loudness': float(loudness),
+            'spectral_features': {
+                'centroid': float(np.mean(spectral_centroids)),
+                'bandwidth': float(np.mean(spectral_bandwidth)),
+                'rolloff': float(np.mean(spectral_rolloff)),
+                'zero_crossing_rate': float(np.mean(zcr))
+            },
+            'harmonic_features': {
+                'key_confidence': float(np.max(np.sum(chroma, axis=1)) / np.sum(chroma)),
+                'tonal_strength': float(np.std(np.sum(chroma, axis=1)))
+            }
+        }
+    
+    def get_file_path(self, file_id: str) -> str:
+        """Get full file path for a file ID"""
+        # Look for file with any supported extension
+        for ext in self.ALLOWED_EXTENSIONS:
+            filepath = os.path.join(self.upload_dir, f"{file_id}.{ext}")
+            if os.path.exists(filepath):
+                return filepath
+        
+        raise FileNotFoundError(f"File not found: {file_id}")
+    
+    def export_project(self, project_id: str, format: str = 'wav', quality: str = 'high') -> Dict:
+        """Export project as single audio file"""
+        # This would implement project mixdown logic
+        # For now, return a placeholder
+        
+        export_file_id = str(uuid.uuid4())
+        
+        # In a real implementation, this would:
+        # 1. Load all project tracks
+        # 2. Apply track effects and mixing
+        # 3. Render to single audio file
+        # 4. Apply master effects
+        # 5. Export in requested format
+        
+        return {
+            'file_id': export_file_id,
+            'file_size': 1024 * 1024 * 5,  # 5MB placeholder
+            'duration': 180.0  # 3 minutes placeholder
+        }
+    
+    def _extract_metadata(self, filepath: str, audio_data: np.ndarray, sample_rate: int) -> Dict:
+        """Extract metadata from audio file"""
+        try:
+            # Basic metadata
+            metadata = {
+                'duration': len(audio_data) / sample_rate,
+                'sample_rate': sample_rate,
+                'channels': 1 if len(audio_data.shape) == 1 else audio_data.shape[0],
+                'bit_depth': 16,  # Default assumption
+                'file_size': os.path.getsize(filepath)
+            }
+            
+            # Try to get more detailed metadata using pydub
+            try:
+                audio_segment = AudioSegment.from_file(filepath)
+                metadata.update({
+                    'channels': audio_segment.channels,
+                    'sample_rate': audio_segment.frame_rate,
+                    'bit_depth': audio_segment.sample_width * 8
+                })
+            except Exception:
+                pass  # Use defaults if pydub fails
+            
+            return metadata
+            
+        except Exception as e:
+            current_app.logger.warning(f"Failed to extract metadata: {str(e)}")
+            return {}

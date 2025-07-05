@@ -1,0 +1,12 @@
+Flask==3.0.3
+Flask-CORS==4.0.0
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.5
+Flask-JWT-Extended==4.6.0
+python-dotenv==1.0.1
+marshmallow==3.21.3
+webargs==8.4.0
+gunicorn==22.0.0
+requests==2.32.3
+openai==1.51.2
+anthropic==0.34.2

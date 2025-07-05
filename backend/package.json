@@ -1,0 +1,27 @@
+{
+  "name": "mitystudio-backend",
+  "version": "1.0.0",
+  "description": "Python Flask backend for mITyStudio",
+  "scripts": {
+    "dev": "python run.py",
+    "start": "gunicorn -w 4 -b 0.0.0.0:5000 app:create_app()",
+    "build": "echo 'Backend build complete'",
+    "test": "pytest tests/",
+    "lint": "flake8 app/ tests/",
+    "format": "black app/ tests/",
+    "type-check": "mypy app/",
+    "install": "pip install -r requirements.txt",
+    "migrate": "flask db upgrade",
+    "reset-db": "flask db downgrade && flask db upgrade",
+    "shell": "flask shell"
+  },
+  "keywords": [
+    "music",
+    "ai",
+    "flask",
+    "api",
+    "backend"
+  ],
+  "author": "mITyStudio Team",
+  "license": "MIT"
+}

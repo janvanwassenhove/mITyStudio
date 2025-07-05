@@ -1,28 +1,47 @@
 {
-  "name": "garageai-song-composer",
+  "name": "mitystudio",
+  "version": "1.0.0",
+  "description": "AI-powered music composition studio with frontend, backend, and desktop application",
   "private": true,
-  "version": "0.0.0",
-  "type": "module",
+  "workspaces": [
+    "frontend",
+    "backend",
+    "electron"
+  ],
   "scripts": {
-    "dev": "vite",
-    "build": "vue-tsc -b && vite build",
-    "preview": "vite preview",
-    "docs": "node scripts/generate-docs.js"
+    "dev": "npm run dev:frontend & npm run dev:backend",
+    "dev:frontend": "cd frontend && npm run dev",
+    "dev:backend": "cd backend && npm run dev",
+    "build": "npm run build:frontend && npm run build:backend && npm run build:electron",
+    "build:frontend": "cd frontend && npm run build",
+    "build:backend": "cd backend && npm run build",
+    "build:electron": "cd electron && npm run build",
+    "start:electron": "cd electron && npm start",
+    "docs": "cd frontend && npm run docs",
+    "install:all": "npm install && cd frontend && npm install && cd ../backend && pip install -r requirements.txt && cd ../electron && npm install",
+    "clean": "rm -rf frontend/node_modules backend/__pycache__ backend/venv electron/node_modules node_modules",
+    "test": "npm run test:frontend && npm run test:backend",
+    "test:frontend": "cd frontend && npm run test",
+    "test:backend": "cd backend && npm run test",
+    "setup": "node -e \"process.platform === 'win32' ? require('child_process').exec('setup.bat') : require('child_process').exec('./setup.sh')\"",
+    "quick-start": "node -e \"process.platform === 'win32' ? require('child_process').exec('start.bat') : require('child_process').exec('./start.sh')\"",
+    "dev-mode": "node -e \"process.platform === 'win32' ? require('child_process').exec('dev.bat') : require('child_process').exec('./dev.sh')\"",
+    "desktop": "node -e \"process.platform === 'win32' ? require('child_process').exec('desktop.bat') : console.log('Use desktop.bat on Windows or manual electron start on Unix')\"",
+    "cleanup": "node -e \"process.platform === 'win32' ? require('child_process').exec('cleanup.bat') : require('child_process').exec('./cleanup.sh')\""
   },
-  "dependencies": {
-    "vue": "^3.5.10",
-    "vue-i18n": "^9.8.0",
-    "tone": "^14.7.77",
-    "pinia": "^2.1.7",
-    "axios": "^1.6.2",
-    "lucide-vue-next": "^0.294.0",
-    "@vueuse/core": "^10.7.0"
-  },
+  "keywords": [
+    "music",
+    "ai",
+    "composition",
+    "audio",
+    "studio",
+    "vue",
+    "flask",
+    "electron"
+  ],
+  "author": "mITyStudio Team",
+  "license": "MIT",
   "devDependencies": {
-    "@vitejs/plugin-vue": "^5.1.4",
-    "typescript": "^5.5.3",
-    "vite": "^5.4.8",
-    "vue-tsc": "^2.1.6",
-    "@types/node": "^20.10.5"
+    "concurrently": "^8.2.2"
   }
 }
