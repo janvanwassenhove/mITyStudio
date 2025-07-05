@@ -164,7 +164,7 @@
 import { ref } from 'vue'
 import { useThemeStore } from '../stores/themeStore'
 import { Bot, FileAudio, Sliders, Settings, RotateCcw, Download, Upload } from 'lucide-vue-next'
-import AiChat from './AiChat.vue'
+import AiChat from './AIChat.vue'
 import SampleLibrary from './SampleLibrary.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import JSONStructurePanel from './JSONStructurePanel.vue'
