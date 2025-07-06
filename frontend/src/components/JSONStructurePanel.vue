@@ -72,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed } from 'vue'
+import { ref, watch } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
 import { 
   Code, 
@@ -113,9 +113,14 @@ const validateAndApplyJSON = () => {
       throw new Error('Invalid song structure format')
     }
     
-    // Apply the changes
+    // Apply the changes with enhanced JSON configuration support
     audioStore.loadSongStructure(parsedJSON)
+    
+    // Initialize track configurations for future clip creation
+    audioStore.initializeTrackConfigurations()
+    
     jsonError.value = ''
+    console.log('JSON structure applied with track configurations initialized')
   } catch (error) {
     jsonError.value = error instanceof Error ? error.message : 'Invalid JSON format'
     // Revert to current structure

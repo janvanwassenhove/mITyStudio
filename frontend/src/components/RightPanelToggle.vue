@@ -17,7 +17,12 @@
     <div class="panel-content">
       <!-- AI Chat Tab -->
       <div v-if="activeTab === 'ai'" class="tab-panel">
-        <AiChat />
+        <AIChat />
+      </div>
+      
+      <!-- Chord Generator Tab -->
+      <div v-if="activeTab === 'chords'" class="tab-panel">
+        <ChordVisualizationTest />
       </div>
       
       <!-- Sample Library Tab -->
@@ -163,11 +168,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useThemeStore } from '../stores/themeStore'
-import { Bot, FileAudio, Sliders, Settings, RotateCcw, Download, Upload } from 'lucide-vue-next'
-import AiChat from './AiChat.vue'
+import { Bot, FileAudio, Sliders, Settings, RotateCcw, Download, Upload, Music2 } from 'lucide-vue-next'
+import AIChat from './AIChat.vue'
 import SampleLibrary from './SampleLibrary.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import JSONStructurePanel from './JSONStructurePanel.vue'
+import ChordVisualizationTest from './ChordVisualizationTest.vue'
 
 const themeStore = useThemeStore()
 
@@ -176,6 +182,7 @@ const activeTab = ref('ai')
 
 const tabs = [
   { id: 'ai', name: 'AI Chat', icon: Bot },
+  { id: 'chords', name: 'Chords', icon: Music2 },
   { id: 'samples', name: 'Samples', icon: FileAudio },
   { id: 'effects', name: 'JSON Song Structure', icon: Sliders }, // Renamed tab for clarity
   { id: 'settings', name: 'Settings', icon: Settings }, // Ensure settings tab remains

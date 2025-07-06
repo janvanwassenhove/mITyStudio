@@ -174,8 +174,7 @@
     <!-- Instrument/Sample Selection Modal -->
     <div v-if="showInstrumentSelector" class="modal-overlay" @click="closeInstrumentSelector">
       <div class="modal-content" @click.stop>
-        <div class="modal-header">
-          <h3>Select Instrument or Sample</h3>
+        <div class="modal-header">            <h3>Select Instrument or Sample</h3>
           <button class="btn-icon close-btn" @click="closeInstrumentSelector">
             <X class="icon" />
           </button>
@@ -333,56 +332,58 @@ interface InstrumentOption {
   chord_count?: number
 }
 
-const defaultInstruments: InstrumentOption[] = [
-  { 
-    name: 'Piano', 
-    value: 'piano', 
-    description: 'Classic acoustic piano sound',
-    type: 'synth'
-  },
-  { 
-    name: 'Electric Piano', 
-    value: 'electric-piano', 
-    description: 'Vintage electric piano with warmth',
-    type: 'synth'
-  },
-  { 
-    name: 'Synth Lead', 
-    value: 'synth-lead', 
-    description: 'Bright synthesizer lead sounds',
-    type: 'synth'
-  },
-  { 
-    name: 'Synth Pad', 
-    value: 'synth-pad', 
-    description: 'Atmospheric pad sounds',
-    type: 'synth'
-  }
-]
-
 // Combined available instruments (sample-based + synthesized)
 const availableInstruments = computed((): InstrumentOption[] => {
-  console.log('Computing availableInstruments...', {
-    sampleInstruments: sampleInstruments.value,
-    defaultInstruments: defaultInstruments.length
-  })
+  const instruments: InstrumentOption[] = []
   
-  const combined: InstrumentOption[] = [...defaultInstruments]
-  
-  // Add sample-based instruments
-  sampleInstruments.value.forEach(instrument => {
-    console.log('Adding sample instrument:', instrument)
-    combined.push({
-      name: instrument.display_name,
+  // Add sample-based instruments from the loaded sample instruments
+  for (const instrument of sampleInstruments.value) {
+    instruments.push({
+      name: instrument.display_name || instrument.name,
       value: instrument.name,
-      description: `Sample-based ${instrument.display_name.toLowerCase()} with ${instrument.chord_count} chords`,
+      description: `Sample-based ${instrument.display_name || instrument.name} with ${instrument.chord_count} chords`,
       type: 'sample',
       chord_count: instrument.chord_count
     })
-  })
+  }
   
-  console.log('Final availableInstruments:', combined)
-  return combined
+  // Add synthesized instruments
+  const synthInstruments = [
+    { 
+      name: 'Electric Piano', 
+      value: 'electric-piano', 
+      description: 'Vintage electric piano with warmth',
+      type: 'synth'
+    },
+    { 
+      name: 'Synth Lead', 
+      value: 'synth-lead', 
+      description: 'Bright synthesizer lead sounds',
+      type: 'synth'
+    },
+    { 
+      name: 'Synth Pad', 
+      value: 'synth-pad', 
+      description: 'Atmospheric pad sounds',
+      type: 'synth'
+    },
+    { 
+      name: 'Bass', 
+      value: 'bass', 
+      description: 'Deep bass synthesizer',
+      type: 'synth'
+    },
+    { 
+      name: 'Drums', 
+      value: 'drums', 
+      description: 'Electronic drum machine',
+      type: 'synth'
+    }
+  ]
+  
+  instruments.push(...synthInstruments)
+  
+  return instruments
 })
 
 // Load sample instruments on component mount
@@ -396,8 +397,22 @@ const loadSampleInstruments = async () => {
     console.log('Available instruments now:', availableInstruments.value)
   } catch (error) {
     console.error('Failed to load sample instruments:', error)
-    // Fallback to empty array - default instruments will still be available
-    sampleInstruments.value = []
+    // Fallback to mock sample instruments for testing
+    sampleInstruments.value = [
+      {
+        name: 'guitar',
+        display_name: 'Guitar',
+        chord_count: 108,
+        available_chords: ['C_major', 'D_major', 'E_major']
+      },
+      {
+        name: 'piano',
+        display_name: 'Piano',
+        chord_count: 108,
+        available_chords: ['C_major', 'D_major', 'E_major']
+      }
+    ]
+    console.log('Using fallback sample instruments:', sampleInstruments.value)
   }
 }
 
@@ -646,6 +661,7 @@ function animateWaveform(sampleId: string, audio: HTMLAudioElement) {
 
 onMounted(() => {
   // Load sample instruments from backend
+  console.log('Component mounted, loading sample instruments...')
   loadSampleInstruments()
   
   // Initialize waveforms for existing samples
@@ -1152,28 +1168,30 @@ function getInputValue(event: Event): string {
 
 .instruments-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 0.75rem;
+  padding: 0.5rem;
 }
 
 .instrument-card {
   background: var(--background);
   border: 2px solid var(--border);
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 1rem;
   cursor: pointer;
   transition: all 0.2s ease;
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
   text-align: left;
   position: relative;
-  min-height: 80px;
+  min-height: 60px;
 }
 
 .instrument-card:hover {
   border-color: var(--primary);
   transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .instrument-card.selected {
@@ -1183,46 +1201,44 @@ function getInputValue(event: Event): string {
 }
 
 .instrument-card.selected .instrument-info h4,
-.instrument-card.selected .instrument-info p,
-.instrument-card.selected .sample-type-label,
-.instrument-card.selected .synth-type-label {
+.instrument-card.selected .instrument-info p {
   color: white;
 }
 
 .instrument-card.sample-based {
-  border: 2px solid rgba(34, 197, 94, 0.3);
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05));
+  border: 2px solid rgba(34, 197, 94, 0.4);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.05), rgba(34, 197, 94, 0.02));
 }
 
 .instrument-card.sample-based:hover {
-  border-color: rgba(34, 197, 94, 0.5);
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.15), rgba(34, 197, 94, 0.08));
+  border-color: rgba(34, 197, 94, 0.6);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05));
 }
 
 .instrument-card.sample-based.selected {
   border-color: rgb(34, 197, 94);
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.8), rgba(34, 197, 94, 0.6));
+  background: linear-gradient(135deg, rgb(34, 197, 94), rgba(34, 197, 94, 0.8));
 }
 
 .instrument-card.synth-based {
-  border: 2px solid rgba(168, 85, 247, 0.3);
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(168, 85, 247, 0.05));
+  border: 2px solid rgba(168, 85, 247, 0.4);
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.05), rgba(168, 85, 247, 0.02));
 }
 
 .instrument-card.synth-based:hover {
-  border-color: rgba(168, 85, 247, 0.5);
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(168, 85, 247, 0.08));
+  border-color: rgba(168, 85, 247, 0.6);
+  background: linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(168, 85, 247, 0.05));
 }
 
 .instrument-card.synth-based.selected {
   border-color: rgb(168, 85, 247);
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.8), rgba(168, 85, 247, 0.6));
+  background: linear-gradient(135deg, rgb(168, 85, 247), rgba(168, 85, 247, 0.8));
 }
 
 .instrument-icon {
   position: relative;
-  width: 48px;
-  height: 48px;
+  width: 40px;
+  height: 40px;
   background: var(--surface);
   border-radius: 8px;
   display: flex;
@@ -1233,8 +1249,8 @@ function getInputValue(event: Event): string {
 }
 
 .instrument-icon .icon {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   color: var(--text-secondary);
   transition: all 0.2s ease;
 }
@@ -1243,12 +1259,20 @@ function getInputValue(event: Event): string {
   background: var(--border);
 }
 
-.instrument-card.sample-based:hover .instrument-icon {
+.instrument-card.sample-based .instrument-icon {
   background: rgba(34, 197, 94, 0.1);
 }
 
-.instrument-card.synth-based:hover .instrument-icon {
+.instrument-card.sample-based .instrument-icon .icon {
+  color: rgb(34, 197, 94);
+}
+
+.instrument-card.synth-based .instrument-icon {
   background: rgba(168, 85, 247, 0.1);
+}
+
+.instrument-card.synth-based .instrument-icon .icon {
+  color: rgb(168, 85, 247);
 }
 
 .instrument-card.selected .instrument-icon {
@@ -1265,12 +1289,13 @@ function getInputValue(event: Event): string {
   right: -6px;
   background: rgb(34, 197, 94);
   color: white;
-  font-size: 10px;
-  padding: 2px 6px;
-  border-radius: 10px;
+  font-size: 9px;
+  padding: 2px 5px;
+  border-radius: 8px;
   font-weight: 600;
   white-space: nowrap;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 10;
 }
 
 .instrument-info {
@@ -1279,7 +1304,7 @@ function getInputValue(event: Event): string {
 }
 
 .instrument-info h4 {
-  font-size: 1rem;
+  font-size: 0.95rem;
   font-weight: 600;
   margin: 0 0 0.25rem 0;
   color: var(--text-primary);
@@ -1289,19 +1314,18 @@ function getInputValue(event: Event): string {
 }
 
 .instrument-info p {
-  font-size: 0.85rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
-  margin: 0 0 0.5rem 0;
+  margin: 0;
   line-height: 1.3;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sample-type-label,
 .synth-type-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
@@ -1309,6 +1333,7 @@ function getInputValue(event: Event): string {
   padding: 2px 6px;
   border-radius: 4px;
   transition: all 0.2s ease;
+  margin-top: 4px;
 }
 
 .sample-type-label {

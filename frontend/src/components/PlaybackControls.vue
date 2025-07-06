@@ -50,6 +50,15 @@
         Generate Song
       </button>
 
+      <button 
+        class="btn btn-secondary transport-btn"
+        @click="generateChordDemo"
+        :disabled="!audioStore.isInitialized"
+      >
+        <Music2 class="icon" />
+        Chord Demo
+      </button>
+
       <!-- Manual Initialize Button -->
       <button 
         v-if="!audioStore.isInitialized && !audioStore.initializationError"
@@ -203,6 +212,7 @@ import {
   ZoomIn, 
   ZoomOut,
   Music,
+  Music2,
   RefreshCw
 } from 'lucide-vue-next'
 import * as Tone from 'tone'
@@ -373,6 +383,30 @@ const togglePlayback = async () => {
 
 const generateSong = () => {
   audioStore.generateAndScheduleSong()
+}
+
+const generateChordDemo = async () => {
+  // Create a demo track with chord progression if none exists
+  if (audioStore.totalTracks === 0) {
+    // Add a piano track for demo
+    const trackId = audioStore.addTrack('Demo Piano', 'piano')
+    if (trackId) {
+      // Enable looping for better demo experience
+      audioStore.isLooping = true
+      // Generate a I-V-vi-IV progression
+      await audioStore.generateChordProgression(trackId, 'I-V-vi-IV', 0, 2, 1)
+      console.log('Demo chord progression created!')
+    }
+  } else {
+    // Generate chords for the first track
+    const firstTrack = audioStore.songStructure.tracks[0]
+    if (firstTrack) {
+      // Enable looping for better demo experience
+      audioStore.isLooping = true
+      await audioStore.generateChordProgression(firstTrack.id, 'I-V-vi-IV', 0, 2, 1)
+      console.log('Chord progression added to existing track!')
+    }
+  }
 }
 
 const updateTempo = () => {

@@ -6,9 +6,10 @@
           v-for="beat in timelineBeats" 
           :key="beat"
           class="ruler-mark"
+          :class="{ 'bar-line': beat % 4 === 0, 'beat-line': beat % 4 !== 0 }"
           :style="{ left: `${beat * beatWidth}px` }"
         >
-          <span class="ruler-label">{{ (beat % 4 === 0 || step > 1) ? Math.floor(beat / 4) + 1 : '' }}</span>
+          <span v-if="beat % 4 === 0" class="ruler-label">{{ Math.floor(beat / 4) + 1 }}</span>
         </div>
       </div>
     </div>
@@ -19,7 +20,7 @@
           v-for="track in audioStore.songStructure.tracks" 
           :key="track.id"
           class="timeline-track"
-          :class="{ selected: audioStore.selectedTrackId === track.id, maximized: selectedTrackId === track.id }"
+          :class="{ selected: audioStore.selectedTrackId === track.id }"
         >
           <!-- Removed track-label for alignment with left panel -->
           <div class="track-lane" @click="addClipToTrack(track.id, $event)">
@@ -34,24 +35,52 @@
               @contextmenu.prevent="showContextMenu(clip.id, track.id, $event)"
             >
               <div class="clip-content">
-                <span class="clip-name">{{ clip.instrument }}</span>
-                <div v-if="clip.type === 'sample' && clip.waveform && clip.waveform.length" class="clip-waveform">
-                  <canvas
-                    :ref="el => setClipWaveformCanvas(el, clip)"
-                    class="waveform-canvas"
-                    :height="20"
-                  ></canvas>
+                <!-- Chord Sample Clips -->
+                <div v-if="clip.type === 'sample' && clip.sampleUrl && isChordSample(clip)" class="chord-clip">
+                  <div class="chord-info">
+                    <span class="chord-name">{{ getChordDisplayName(clip) }}</span>
+                    <div class="chord-meta">
+                      <span class="chord-bar">Bar {{ getClipBarNumber(clip) }}</span>
+                      <span class="audio-format">{{ getAudioFormat(clip) }}</span>
+                    </div>
+                  </div>
+                  <div class="chord-visual">
+                    <div class="chord-duration-bar" :style="getChordBarStyle(clip)"></div>
+                  </div>
                 </div>
-                <div v-else-if="clip.notes && clip.notes.length" class="clip-notes">
-                  <span v-for="(note, idx) in clip.notes" :key="idx" class="clip-note">{{ note }}</span>
+                
+                <!-- Regular Sample Clips with Waveform -->
+                <div v-else-if="clip.type === 'sample' && clip.waveform && clip.waveform.length" class="sample-clip">
+                  <span class="clip-name">{{ clip.instrument }}</span>
+                  <div class="clip-waveform">
+                    <canvas
+                      :ref="el => setClipWaveformCanvas(el, clip)"
+                      class="waveform-canvas"
+                      :height="20"
+                    ></canvas>
+                  </div>
                 </div>
-                <div v-else class="clip-waveform">
-                  <div 
-                    v-for="i in 20" 
-                    :key="i"
-                    class="waveform-bar"
-                    :style="{ height: `${Math.random() * 100}%` }"
-                  ></div>
+                
+                <!-- Instrument Clips with Notes -->
+                <div v-else-if="clip.notes && clip.notes.length" class="instrument-clip">
+                  <span class="clip-name">{{ clip.instrument }}</span>
+                  <div class="clip-notes">
+                    <span v-for="(note, idx) in clip.notes.slice(0, 6)" :key="idx" class="clip-note">{{ note }}</span>
+                    <span v-if="clip.notes.length > 6" class="note-overflow">+{{ clip.notes.length - 6 }}</span>
+                  </div>
+                </div>
+                
+                <!-- Fallback Generic Clip -->
+                <div v-else class="generic-clip">
+                  <span class="clip-name">{{ clip.instrument }}</span>
+                  <div class="clip-waveform">
+                    <div 
+                      v-for="i in 20" 
+                      :key="i"
+                      class="waveform-bar"
+                      :style="{ height: `${Math.random() * 100}%` }"
+                    ></div>
+                  </div>
                 </div>
               </div>
               
@@ -124,11 +153,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch, nextTick, type ComponentPublicInstance } from 'vue'
 import { useAudioStore, type AudioClip } from '../stores/audioStore'
 import { useSampleStore } from '../stores/sampleStore'
 import { ZoomIn, ZoomOut, Trash2, Copy, Scissors } from 'lucide-vue-next'
 import { drawWaveform } from '../utils/waveform'
+import { extractChordFromSampleUrl } from '../utils/chordVisualization'
 
 const audioStore = useAudioStore()
 const sampleStore = useSampleStore()
@@ -152,21 +182,24 @@ const contextMenu = ref({
 // Store canvas refs for each sample clip
 const clipWaveformCanvases = ref<Record<string, HTMLCanvasElement | null>>({})
 
-function setClipWaveformCanvas(el: Element | null, clip: AudioClip) {
-  if (el && el instanceof HTMLCanvasElement && clip.waveform) {
-    clipWaveformCanvases.value[clip.id] = el
+function setClipWaveformCanvas(el: Element | ComponentPublicInstance | null, clip: AudioClip) {
+  // Handle the case where el might be a component instance
+  const canvas = el instanceof Element ? el : null
+  
+  if (canvas && canvas instanceof HTMLCanvasElement && clip.waveform) {
+    clipWaveformCanvases.value[clip.id] = canvas
     // Set canvas width and height to match the clip's rendered size
     const width = clip.duration * beatWidth.value * 4
-    el.width = Math.max(40, Math.round(width)) // minimum width for visibility
+    canvas.width = Math.max(40, Math.round(width)) // minimum width for visibility
     // Find the parent .audio-clip element to get its height
-    const parentClip = el.closest('.audio-clip') as HTMLElement | null
+    const parentClip = canvas.closest('.audio-clip') as HTMLElement | null
     if (parentClip) {
-      el.height = parentClip.offsetHeight
+      canvas.height = parentClip.offsetHeight
     } else {
-      el.height = 20 // fallback
+      canvas.height = 20 // fallback
     }
-    drawWaveform(el, clip.waveform)
-  } else if (!el) {
+    drawWaveform(canvas, clip.waveform)
+  } else if (!canvas) {
     clipWaveformCanvases.value[clip.id] = null
   }
 }
@@ -205,14 +238,17 @@ const addClipToTrack = (trackId: string, event: MouseEvent) => {
   const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
   const clickX = event.clientX - rect.left
   const startTime = clickX / (beatWidth.value * 4) // Convert pixels to beats
+  
   // Find the track
   const track = audioStore.songStructure.tracks.find(t => t.id === trackId)
+  
   // Check if this is a sample track (instrument matches a sample id)
   const sample = track && sampleStore
     ? Object.values(sampleStore.sampleLibrary).flat().find(s => s.id === track.instrument)
     : null
+  
   if (sample) {
-    // Add a sample clip
+    // Add a sample clip with JSON configuration support
     const newClip = {
       startTime: Math.max(0, startTime),
       duration: sample.duration || 4,
@@ -227,13 +263,16 @@ const addClipToTrack = (trackId: string, event: MouseEvent) => {
         distortion: 0
       }
     } as const
+    
+    // This will now use JSON configuration if available
     audioStore.addClip(trackId, newClip)
     return
   }
-  // Otherwise, add a synth/instrument clip
+  
+  // Otherwise, add a synth/instrument clip with JSON configuration support
   const newClip = {
     startTime: Math.max(0, startTime),
-    duration: 4, // 1 bar default
+    duration: 4, // 1 bar default (will be overridden by JSON config if available)
     type: 'synth' as const,
     instrument: track ? track.instrument : 'synth',
     volume: 0.8,
@@ -243,6 +282,8 @@ const addClipToTrack = (trackId: string, event: MouseEvent) => {
       distortion: 0
     }
   } as const
+  
+  // This will now use JSON configuration if available
   audioStore.addClip(trackId, newClip)
 }
 
@@ -446,6 +487,104 @@ const toggleMetronome = () => {
   audioStore.toggleMetronome()
 }
 
+// Chord visualization methods
+const isChordSample = (clip: AudioClip): boolean => {
+  if (!clip.sampleUrl) return false
+  
+  // Check if the sample URL contains chord patterns
+  const filename = clip.sampleUrl.split('/').pop() || ''
+  const nameWithoutExt = filename.replace(/\.(wav|mp3|ogg)$/i, '')
+  
+  // Look for chord patterns like "C_major", "F#_min7", etc.
+  const chordPattern = /^[A-G][#b]?_(major|minor|dom7|maj7|min7|augmented|diminished|sus2|sus4)$/i
+  return chordPattern.test(nameWithoutExt)
+}
+
+const getChordDisplayName = (clip: AudioClip): string => {
+  if (!clip.sampleUrl) return clip.instrument || 'Unknown'
+  
+  const chordInfo = extractChordFromSampleUrl(clip.sampleUrl)
+  if (chordInfo) {
+    // Extract instrument type from the sample URL path
+    const urlParts = clip.sampleUrl.split('/')
+    const instrument = urlParts.find(part => ['piano', 'guitar', 'bass', 'synth'].includes(part.toLowerCase()))
+    
+    // Show both chord and instrument info for clarity
+    if (instrument) {
+      return `${chordInfo.displayName} (${instrument})`
+    }
+    return chordInfo.displayName
+  }
+  
+  return clip.instrument || 'Unknown'
+}
+
+const getClipBarNumber = (clip: AudioClip): number => {
+  // Calculate which bar this clip starts in (1-indexed)
+  const timeSignature = audioStore.songStructure.timeSignature
+  const beatsPerBar = timeSignature[0]
+  const tempo = audioStore.songStructure.tempo
+  
+  // Convert startTime (in seconds) to beats, then to bars
+  // At 120 BPM, 1 beat = 0.5 seconds
+  const beatsPerSecond = tempo / 60
+  const beatPosition = clip.startTime * beatsPerSecond
+  const barNumber = Math.floor(beatPosition / beatsPerBar) + 1
+  
+  return Math.max(1, barNumber)
+}
+
+const getChordBarStyle = (clip: AudioClip) => {
+  const chordInfo = clip.sampleUrl ? extractChordFromSampleUrl(clip.sampleUrl) : null
+  let backgroundColor = chordInfo ? chordInfo.color : '#9E7FFF'
+  
+  // Slightly adjust color based on audio format for visual distinction
+  if (clip.sampleUrl) {
+    if (clip.sampleUrl.includes('/wav/')) {
+      // WAV files get full opacity (highest quality)
+      backgroundColor = chordInfo?.color || '#9E7FFF'
+    } else if (clip.sampleUrl.includes('/mp3/')) {
+      // MP3 files get slightly desaturated
+      backgroundColor = adjustBrightness(chordInfo?.color || '#9E7FFF', -10)
+    } else if (clip.sampleUrl.includes('/midi/')) {
+      // MIDI files get different treatment
+      backgroundColor = adjustBrightness(chordInfo?.color || '#9E7FFF', 15)
+    }
+  }
+  
+  return {
+    backgroundColor,
+    width: '100%',
+    height: '4px',
+    borderRadius: '2px',
+    opacity: '0.8',
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.1)'
+  }
+}
+
+// Helper function to adjust color brightness
+const adjustBrightness = (color: string, percent: number): string => {
+  // Simple hex color brightness adjustment
+  const hex = color.replace('#', '')
+  const r = Math.max(0, Math.min(255, parseInt(hex.substr(0, 2), 16) + percent))
+  const g = Math.max(0, Math.min(255, parseInt(hex.substr(2, 2), 16) + percent))
+  const b = Math.max(0, Math.min(255, parseInt(hex.substr(4, 2), 16) + percent))
+  
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+}
+
+const getAudioFormat = (clip: AudioClip): string => {
+  if (!clip.sampleUrl) return ''
+  
+  if (clip.sampleUrl.includes('/wav/')) return 'WAV'
+  if (clip.sampleUrl.includes('/mp3/')) return 'MP3'
+  if (clip.sampleUrl.includes('/midi/')) return 'MIDI'
+  
+  // Extract from file extension as fallback
+  const extension = clip.sampleUrl.split('.').pop()?.toUpperCase()
+  return extension || 'UNK'
+}
+
 // Global click handler to hide context menu
 const handleGlobalClick = () => {
   if (contextMenu.value.visible) {
@@ -539,16 +678,29 @@ onUnmounted(() => {
   position: absolute;
   top: 0;
   height: 100%;
-  border-left: 1px solid var(--text-secondary);
   display: flex;
   align-items: center;
   padding-left: 4px;
 }
 
+.ruler-mark.bar-line {
+  border-left: 2px solid var(--text-secondary);
+  z-index: 2;
+}
+
+.ruler-mark.beat-line {
+  border-left: 1px solid var(--border);
+  z-index: 1;
+}
+
 .ruler-label {
   font-size: 0.75rem;
   color: var(--text-secondary);
-  font-weight: 500;
+  font-weight: 600;
+  background: var(--surface);
+  padding: 0.125rem 0.25rem;
+  border-radius: 3px;
+  margin-left: 2px;
 }
 
 .timeline-content {
@@ -609,8 +761,13 @@ onUnmounted(() => {
   flex: 1;
   position: relative;
   cursor: crosshair;
-  background: linear-gradient(to right, var(--border) 1px, transparent 1px);
-  background-size: v-bind('beatWidth + "px"') 100%;
+  background-image: 
+    linear-gradient(to right, var(--text-secondary) 1px, transparent 1px),
+    linear-gradient(to right, var(--border) 1px, transparent 1px);
+  background-size: 
+    v-bind('(beatWidth * 4) + "px"') 100%,
+    v-bind('beatWidth + "px"') 100%;
+  background-position: 0 0, 0 0;
 }
 
 .audio-clip {
@@ -661,6 +818,99 @@ onUnmounted(() => {
   border-radius: 4px;
   font-size: 0.625rem;
   color: var(--text);
+}
+
+/* Chord visualization styles */
+.chord-clip {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.chord-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.25rem;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.chord-meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.chord-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.chord-bar {
+  font-size: 0.6875rem;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+}
+
+.audio-format {
+  font-size: 0.625rem;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 500;
+  background: rgba(0, 0, 0, 0.2);
+  padding: 0.125rem 0.25rem;
+  border-radius: 3px;
+  letter-spacing: 0.5px;
+}
+
+.chord-visual {
+  margin-top: auto;
+}
+
+.chord-duration-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--accent);
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
+}
+
+.audio-clip:hover .chord-duration-bar {
+  opacity: 1;
+}
+
+.sample-clip {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.instrument-clip {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.note-overflow {
+  background: rgba(255, 255, 255, 0.1);
+  padding: 0.125rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.generic-clip {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .clip-waveform {
