@@ -42,7 +42,6 @@ export const useThemeStore = defineStore('theme', () => {
     secondary: '#38bdf8',
     accent: '#f472b6',
     background: '#171717',
-    backgroundSecondary: '#38bdf8',
     surface: '#262626',
     text: '#FFFFFF',
     textSecondary: '#A3A3A3',

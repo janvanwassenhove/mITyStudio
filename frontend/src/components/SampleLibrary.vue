@@ -146,7 +146,7 @@
 
             <div class="sample-waveform" v-if="sample.waveform" style="flex:1; margin: 0 0.5rem;">
               <canvas 
-                :ref="el => waveformCanvases[sample.id] = el"
+                :ref="el => waveformCanvases[sample.id] = el as HTMLCanvasElement"
                 class="waveform-canvas"
                 :width="120"
                 :height="32"
@@ -309,7 +309,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick, watch, toRef } from 'vue'
+import { ref, onMounted, nextTick, watch, toRef } from 'vue'
 import { useSampleStore, type LocalSample, type SampleCategory } from '../stores/sampleStore'
 import { useAudioStore } from '../stores/audioStore'
 import {
@@ -324,7 +324,7 @@ const audioStore = useAudioStore()
 
 // Destructure store properties
 const {
-  localSamples, isLoading, loadingProgress, selectedCategory: selectedCategoryRef, searchQuery: searchQueryRef,
+  localSamples, isLoading, loadingProgress,
   sortBy, sortOrder, filteredSamples, categories, totalSamples, totalSize,
   formatFileSize, formatDuration, loadSamples, removeSample,
   updateSampleCategory, updateSampleTags, clearAllSamples
@@ -917,7 +917,6 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 0.75rem;
 }
 
 .sample-icon {
@@ -947,8 +946,8 @@ onMounted(() => {
 }
 
 .action-btn {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border: none;
   background: var(--border);
   border-radius: 6px;
@@ -980,6 +979,7 @@ onMounted(() => {
 }
 
 .waveform-canvas {
+  margin-top: 7px;
   width: 100%;
   height: 32px;
   border-radius: 4px;

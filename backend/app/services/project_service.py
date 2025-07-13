@@ -9,6 +9,9 @@ from datetime import datetime
 from typing import Dict, List, Any, Optional
 from flask import current_app
 
+# Import the new song structure model
+from app.models.song_structure import SongStructure, Track, AudioClip
+
 
 class ProjectService:
     """Service for managing music projects"""
@@ -283,38 +286,144 @@ class ProjectService:
     
     def export_project(self, project_id: str, format_type: str = 'json',
                       include_audio: bool = False) -> Dict:
-        """Export project data"""
+        """Export project data using the new song structure contract"""
         project = self.get_project(project_id)
         
         if not project:
             raise ValueError(f"Project not found: {project_id}")
         
         if format_type == 'json':
-            # Export as JSON
-            export_data = {
-                'project': project,
-                'format': 'mITyStudio Project',
-                'version': '1.0',
-                'exported_at': datetime.utcnow().isoformat()
-            }
-            
-            if not include_audio:
-                # Remove audio file references
-                for track in export_data['project'].get('tracks', []):
-                    for clip in track.get('clips', []):
-                        if 'audio_file_id' in clip:
-                            del clip['audio_file_id']
-            
-            return export_data
+            # Convert to the new song structure format
+            try:
+                song_structure = SongStructure.from_project_data(project)
+                export_data = {
+                    'song_structure': song_structure.to_dict(),
+                    'format': 'mITyStudio Project',
+                    'version': '2.0',  # Updated version for new structure
+                    'exported_at': datetime.utcnow().isoformat()
+                }
+                
+                if not include_audio:
+                    # Remove audio file references from clips
+                    for track in export_data['song_structure'].get('tracks', []):
+                        for clip in track.get('clips', []):
+                            if 'audio_file_id' in clip:
+                                del clip['audio_file_id']
+                
+                return export_data
+                
+            except Exception as e:
+                current_app.logger.error(f"Failed to convert project to new structure: {e}")
+                # Fallback to old format
+                export_data = {
+                    'project': project,
+                    'format': 'mITyStudio Project (Legacy)',
+                    'version': '1.0',
+                    'exported_at': datetime.utcnow().isoformat()
+                }
+                
+                if not include_audio:
+                    # Remove audio file references
+                    for track in export_data['project'].get('tracks', []):
+                        for clip in track.get('clips', []):
+                            if 'audio_file_id' in clip:
+                                del clip['audio_file_id']
+                
+                return export_data
         
         else:
             raise ValueError(f"Unsupported export format: {format_type}")
     
     def import_project(self, import_data: Dict, user_id: str = 'default') -> Dict:
-        """Import project from exported data"""
-        if import_data.get('format') != 'mITyStudio Project':
+        """Import project from exported data, supporting both old and new formats"""
+        format_name = import_data.get('format', '')
+        
+        if 'mITyStudio Project' not in format_name:
             raise ValueError("Invalid project format")
         
+        # Check if it's the new song structure format
+        if 'song_structure' in import_data:
+            return self._import_from_song_structure(import_data, user_id)
+        else:
+            return self._import_legacy_project(import_data, user_id)
+    
+    def _import_from_song_structure(self, import_data: Dict, user_id: str) -> Dict:
+        """Import project from new song structure format"""
+        try:
+            song_structure_data = import_data.get('song_structure', {})
+            song_structure = SongStructure.from_dict(song_structure_data)
+            
+            # Validate the structure
+            validation_errors = song_structure.validate()
+            if validation_errors:
+                current_app.logger.warning(f"Song structure validation errors: {validation_errors}")
+            
+            # Create new project from song structure
+            metadata = song_structure.metadata
+            new_project = self.create_project(
+                name=f"{metadata.title} (Imported)" if metadata.title else "Imported Song",
+                description=f"Artist: {metadata.artist}, Genre: {metadata.genre}" if metadata.artist and metadata.genre else '',
+                genre=metadata.genre or 'pop',
+                tempo=metadata.tempo or 120,
+                key=metadata.key or 'C',
+                time_signature=metadata.time_signature or '4/4',
+                user_id=user_id
+            )
+            
+            project_id = new_project['id']
+            
+            # Import tracks and clips from song structure
+            for track_data in song_structure.tracks:
+                new_track = self.add_track(
+                    project_id=project_id,
+                    name=track_data.name or 'Imported Track',
+                    instrument=track_data.instrument or 'piano',
+                    volume=track_data.volume or 0.8,
+                    pan=track_data.pan or 0.0,
+                    muted=track_data.muted or False,
+                    soloed=track_data.soloed or False
+                )
+                
+                # Import clips with new structure support
+                for clip_data in track_data.clips:
+                    clip_dict = {
+                        'start_time': clip_data.start or 0,
+                        'duration': clip_data.duration or 4,
+                        'type': clip_data.type or 'synth',
+                        'instrument': clip_data.instrument or track_data.instrument or 'piano',
+                        'volume': clip_data.volume or 0.7,
+                        'effects': clip_data.effects.__dict__ if clip_data.effects else {},
+                        'midi_data': clip_data.midi_data or []
+                    }
+                    
+                    # Handle new lyrics & vocals structure
+                    if clip_data.type == 'lyrics_vocals':
+                        if clip_data.voices:
+                            # New multi-voice structure
+                            clip_dict['voices'] = [voice.__dict__ for voice in clip_data.voices]
+                        else:
+                            # Legacy simple structure
+                            clip_dict.update({
+                                'lyrics': clip_data.lyrics,
+                                'voice_id': clip_data.voice_id,
+                                'vocal_style': clip_data.vocal_style
+                            })
+                    
+                    self.add_clip(
+                        project_id=project_id,
+                        track_id=new_track['id'],
+                        **clip_dict
+                    )
+            
+            return new_project
+            
+        except Exception as e:
+            current_app.logger.error(f"Failed to import from song structure: {e}")
+            # Fallback to legacy import if possible
+            return self._import_legacy_project(import_data, user_id)
+    
+    def _import_legacy_project(self, import_data: Dict, user_id: str) -> Dict:
+        """Import project from legacy format"""
         project_data = import_data.get('project', {})
         
         # Create new project

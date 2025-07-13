@@ -48,21 +48,19 @@ export const useSampleStore = defineStore('samples', () => {
 
   // Computed
   const sampleLibrary = computed<SampleLibrary>(() => {
-    const library: SampleLibrary = {}
-    
+    const library: SampleLibrary = {};
     localSamples.value.forEach(sample => {
       if (!library[sample.category]) {
-        library[sample.category] = []
+        library[sample.category] = [];
       }
-      library[sample.category].push(sample)
-    })
-    
-    return library
+      library[sample.category].push(sample);
+    });
+    return library;
   })
 
   const filteredSamples = computed(() => {
-    let samples = selectedCategory.value === 'uncategorized' 
-      ? localSamples.value 
+    let samples = selectedCategory.value === 'uncategorized'
+      ? localSamples.value
       : localSamples.value.filter(s => s.category === selectedCategory.value)
 
     // Apply search filter

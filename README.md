@@ -8,6 +8,9 @@ A complete monorepo structure for an AI-powered music composition and production
 - TypeScript for type safety
 - Vite for lightning-fast development and builds
 - Modular and scalable project structure
+- **Voice Training with WAV Format**: Automatic conversion to WAV format for optimal voice training quality
+- Advanced AI-powered music composition and voice synthesis
+- Real-time audio processing and effects
 
 ## Song Structure JSON Contract
 
@@ -55,6 +58,65 @@ The song structure is represented as a JSON object with the following schema:
       },
       "sampleUrl": "string",     // (Optional) URL for track sample
       "isSample": false          // (Optional) Is this a sample track
+    },
+    {
+      "id": "track-lyrics",
+      "name": "Lyrics & Vocals",
+      "instrument": "vocals",
+      "category": "vocals",
+      "volume": 0.8,
+      "pan": 0,
+      "muted": false,
+      "solo": false,
+      "clips": [                 // Lyrics clips
+        {
+          "id": "clip-lyrics-1",
+          "trackId": "track-lyrics",
+          "startTime": 4,        // Start time in seconds
+          "duration": 2,         // Duration in seconds
+          "type": "lyrics",      // Clip type
+          "instrument": "vocals",
+          "volume": 0.8,
+          "effects": { "reverb": 0, "delay": 0, "distortion": 0 },
+          "voices": [            // (Optional) Advanced multi-voice structure
+            {
+              "voice_id": "soprano01",     // Voice identifier
+              "lyrics": [
+                {
+                  "text": "Shine",         // Lyric text fragment
+                  "notes": ["E4", "F4"],   // Notes for this fragment
+                  "start": 0.0,            // Start time relative to clip (seconds)
+                  "durations": [0.4, 0.4]  // Duration for each note (seconds)
+                },
+                {
+                  "text": "on",
+                  "notes": ["G4"],
+                  "start": 1.0,
+                  "duration": 0.6          // Single duration for single note
+                }
+              ]
+            },
+            {
+              "voice_id": "bass01",
+              "lyrics": [
+                {
+                  "text": "You",
+                  "notes": ["C3"],
+                  "start": 0.5,
+                  "duration": 0.6
+                },
+                {
+                  "text": "and",
+                  "notes": ["D3", "E3"],
+                  "start": 1.3,
+                  "durations": [0.4, 0.5]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "effects": { "reverb": 0, "delay": 0, "distortion": 0 }
     }
   ],
   "duration": 32,                // Song duration in seconds
@@ -65,7 +127,12 @@ The song structure is represented as a JSON object with the following schema:
 
 - All fields are required unless marked as (Optional).
 - The `tracks` array contains all tracks in the song, each with its own clips and settings.
-- The `clips` array within each track contains audio or MIDI clips, with timing and instrument/sample info.
+- The `clips` array within each track contains audio, MIDI, or lyrics clips, with timing and instrument/sample info.
+- Lyrics are stored as clips within a dedicated "Lyrics & Vocals" track with `type: "lyrics"`.
+- For simple vocal arrangements, use the basic `text`, `notes`, and `chordName` fields within the clip.
+- For advanced vocal arrangements, use the `voices` array within lyrics clips to define multiple voice parts with precise timing, pitch, and text mapping (do not use the basic fields when using `voices`).
+- Each voice in the `voices` array can have multiple lyric fragments with individual note sequences and timing.
+- Use `duration` for single notes or `durations` array for multiple notes in a lyric fragment.
 - Effects are represented as numeric values (typically 0–1).
 
 This contract is used for project import/export and for direct editing in the Song Structure panel.

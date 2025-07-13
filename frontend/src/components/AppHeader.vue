@@ -48,10 +48,10 @@ import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAudioStore } from '../stores/audioStore'
 import { useThemeStore } from '../stores/themeStore'
-import { Music, FileText, FolderOpen, Save, Download, Settings } from 'lucide-vue-next'
+import { Music, FileText, FolderOpen, Save, Download } from 'lucide-vue-next'
 import ThemeToggle from './ThemeToggle.vue'
 
-const { t, locale } = useI18n()
+const { locale } = useI18n()
 const audioStore = useAudioStore()
 const themeStore = useThemeStore()
 
@@ -114,11 +114,6 @@ const saveProject = () => {
 const exportProject = () => {
   // Export functionality would be implemented here
   alert('Export functionality coming soon!')
-}
-
-const openSettings = () => {
-  // Settings modal would be implemented here
-  alert('Settings panel coming soon!')
 }
 
 onMounted(() => {

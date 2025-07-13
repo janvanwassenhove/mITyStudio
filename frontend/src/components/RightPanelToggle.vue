@@ -25,6 +25,11 @@
         <ChordVisualizationTest />
       </div>
       
+      <!-- Lyrics & Vocals Tab -->
+      <div v-if="activeTab === 'lyrics'" class="tab-panel">
+        <LyricsVocals />
+      </div>
+      
       <!-- Sample Library Tab -->
       <div v-if="activeTab === 'samples'" class="tab-panel">
         <SampleLibrary />
@@ -143,6 +148,11 @@
             <div class="setting-section">
               <h4>Actions</h4>
               
+              <button class="btn btn-ghost full-width" @click="openDiagnostics">
+                <Stethoscope class="icon" />
+                Audio Diagnostics
+              </button>
+              
               <button class="btn btn-ghost full-width" @click="resetSettings">
                 <RotateCcw class="icon" />
                 Reset to Defaults
@@ -163,26 +173,46 @@
       </div>
     </div>
   </div>
+
+  <!-- Diagnostics Dialog -->
+  <DiagnosticsDialog :isOpen="showDiagnostics" @close="closeDiagnostics" />
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useThemeStore } from '../stores/themeStore'
-import { Bot, FileAudio, Sliders, Settings, RotateCcw, Download, Upload, Music2 } from 'lucide-vue-next'
+import { useAudioStore } from '../stores/audioStore'
+import { Bot, FileAudio, Sliders, Settings, RotateCcw, Download, Upload, Music2, Stethoscope, Mic } from 'lucide-vue-next'
 import AIChat from './AIChat.vue'
 import SampleLibrary from './SampleLibrary.vue'
 import ThemeToggle from './ThemeToggle.vue'
 import JSONStructurePanel from './JSONStructurePanel.vue'
 import ChordVisualizationTest from './ChordVisualizationTest.vue'
+import LyricsVocals from './LyricsVocals.vue'
+import DiagnosticsDialog from './DiagnosticsDialog.vue'
 
 const themeStore = useThemeStore()
+const audioStore = useAudioStore()
 
 // Tab management
 const activeTab = ref('ai')
 
+// Watch for clip selection and automatically switch to chords tab
+watch(() => audioStore.selectedClipId, (newClipId) => {
+  if (newClipId) {
+    // Get the selected clip to check if it has chord data
+    const selectedClip = audioStore.getSelectedClip
+    if (selectedClip && (selectedClip.notes || selectedClip.type === 'synth' || selectedClip.sampleUrl)) {
+      // Switch to chords tab for clips that can be edited or have chord data
+      activeTab.value = 'chords'
+    }
+  }
+})
+
 const tabs = [
   { id: 'ai', name: 'AI Chat', icon: Bot },
   { id: 'chords', name: 'Chords', icon: Music2 },
+  { id: 'lyrics', name: 'Lyrics & Vocals', icon: Mic },
   { id: 'samples', name: 'Samples', icon: FileAudio },
   { id: 'effects', name: 'JSON Song Structure', icon: Sliders }, // Renamed tab for clarity
   { id: 'settings', name: 'Settings', icon: Settings }, // Ensure settings tab remains
@@ -196,9 +226,20 @@ const animations = ref('full')
 const exportFormat = ref('wav')
 const exportQuality = ref('high')
 
+// Diagnostics dialog state
+const showDiagnostics = ref(false)
+
 // Methods
 const formatPresetName = (name: string): string => {
   return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+const openDiagnostics = () => {
+  showDiagnostics.value = true
+}
+
+const closeDiagnostics = () => {
+  showDiagnostics.value = false
 }
 
 const resetSettings = () => {

@@ -202,32 +202,46 @@
           
           <div class="selection-content">
             <!-- Instruments Tab -->
-            <div v-if="activeTab === 'instruments'" class="instruments-grid">
-              <button
-                v-for="instrument in availableInstruments"
-                :key="instrument.value"
-                class="instrument-card"
-                :class="{ 
-                  'selected': selectedInstrumentValue === instrument.value,
-                  'sample-based': instrument.type === 'sample',
-                  'synth-based': instrument.type === 'synth'
-                }"
-                @click="selectInstrument(instrument.value)"
-              >
-                <div class="instrument-icon">
-                  <component :is="getTrackIcon(instrument.value)" class="icon" />
-                  <!-- Sample indicator badge -->
-                  <span v-if="instrument.type === 'sample'" class="sample-badge">
-                    {{ instrument.chord_count }} chords
-                  </span>
+            <div v-if="activeTab === 'instruments'" class="instruments-categories-list">
+              <template v-if="instrumentsByCategory.length">
+                <div v-for="group in instrumentsByCategory" :key="group.name" class="instrument-category-group" style="margin-bottom: 1.5em;">
+                  <div class="category-header" @click="toggleCategory(group.name)" style="cursor:pointer;display:flex;align-items:center;padding:1em 0;border-bottom:1px solid #eee;">
+                    <component :is="getCategoryIcon(group.name)" class="icon" style="font-size:1.5em;margin-right:0.7em;color:#7b7bff;" />
+                    <span style="font-weight:bold;font-size:1.1em;flex:1;text-align:left;">{{ group.name }}</span>
+                    <span v-if="expandedCategory === group.name"><ChevronDown class="icon" /></span>
+                    <span v-else><ChevronRight class="icon" /></span>
+                  </div>
+                  <transition name="fade">
+                    <div v-if="expandedCategory === group.name" class="category-instruments-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1em;margin-top:1em;">
+                      <button
+                        v-for="instrument in group.instruments"
+                        :key="instrument.value"
+                        class="instrument-card"
+                        :class="{ 
+                          'selected': selectedInstrumentValue === instrument.value,
+                          'sample-based': instrument.type === 'sample',
+                          'synth-based': instrument.type === 'synth'
+                        }"
+                        @click="selectInstrument(instrument.value)"
+                        style="background:#f8f9fa;border:1px solid #e0e0e0;border-radius:10px;padding:1.2em 1em;text-align:left;display:flex;align-items:center;gap:1em;transition:box-shadow .2s;box-shadow:0 1px 2px rgba(0,0,0,0.02);cursor:pointer;"
+                      >
+                        <div class="instrument-icon">
+                          <component :is="getInstrumentIcon(instrument.value || instrument.name)" class="icon" style="font-size:2em;color:#7b7bff;" />
+                        </div>
+                        <div class="instrument-info">
+                          <h4 style="margin:0 0 0.2em 0;font-size:1.1em;">{{ instrument.name || instrument.display_name }}</h4>
+                          <p style="margin:0 0 0.2em 0;font-size:0.95em;color:#888;">{{ instrument.description }}</p>
+                          <span v-if="instrument.type === 'sample'" class="sample-type-label" style="font-size:0.85em;color:#7b7bff;">Sample-based</span>
+                          <span v-else class="synth-type-label" style="font-size:0.85em;color:#aaa;">Synthesized</span>
+                        </div>
+                      </button>
+                    </div>
+                  </transition>
                 </div>
-                <div class="instrument-info">
-                  <h4>{{ instrument.name }}</h4>
-                  <p>{{ instrument.description }}</p>
-                  <span v-if="instrument.type === 'sample'" class="sample-type-label">Sample-based</span>
-                  <span v-else class="synth-type-label">Synthesized</span>
-                </div>
-              </button>
+              </template>
+              <div v-else class="empty-instruments-message" style="padding:2em;text-align:center;color:#888;">
+                No instruments found in any category.
+              </div>
             </div>
             
             <!-- Samples Tab -->
@@ -294,10 +308,11 @@
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
 import { useSampleStore } from '../stores/sampleStore'
-import { getSampleInstruments } from '../utils/api'
+import { getSampleInstruments, getAllSampleInstruments } from '../utils/api'
 import { 
   Layers, Plus, Music, Volume2, VolumeX, Headphones, Trash2,
-  Piano, Drum, Guitar, Mic, Zap, X, FileAudio, Play, Square
+  Piano, Drum, Guitar, Mic, Zap, X, FileAudio, Play, Square, 
+  ChevronDown, ChevronRight
 } from 'lucide-vue-next'
 
 const audioStore = useAudioStore()
@@ -324,12 +339,16 @@ const tracks = computed(() => {
 // Dynamic instruments loaded from sample library
 const sampleInstruments = ref<any[]>([])
 
+// All sample instruments grouped by category
+const allSampleInstruments = ref<{ name: string, instruments: any[] }[]>([])
+
 interface InstrumentOption {
   name: string
   value: string
   description: string
   type: string
   chord_count?: number
+  category?: string // Added for grouping
 }
 
 // Combined available instruments (sample-based + synthesized)
@@ -343,7 +362,8 @@ const availableInstruments = computed((): InstrumentOption[] => {
       value: instrument.name,
       description: `Sample-based ${instrument.display_name || instrument.name} with ${instrument.chord_count} chords`,
       type: 'sample',
-      chord_count: instrument.chord_count
+      chord_count: instrument.chord_count,
+      category: instrument.category || 'Other' // Assign category if present
     })
   }
   
@@ -386,11 +406,14 @@ const availableInstruments = computed((): InstrumentOption[] => {
   return instruments
 })
 
+// Group instruments by category for display in the selector
+const instrumentsByCategory = computed(() => allSampleInstruments.value)
+
 // Load sample instruments on component mount
-const loadSampleInstruments = async () => {
+const loadSampleInstruments = async (category = 'default') => {
   try {
-    console.log('Loading sample instruments...')
-    const response = await getSampleInstruments()
+    console.log('Loading sample instruments for category:', category)
+    const response = await getSampleInstruments(category)
     console.log('Raw response:', response)
     sampleInstruments.value = response.instruments || []
     console.log('Loaded sample instruments:', sampleInstruments.value)
@@ -416,6 +439,19 @@ const loadSampleInstruments = async () => {
   }
 }
 
+// Load all sample instruments for the selector
+const loadAllSampleInstruments = async () => {
+  try {
+    const response = await getAllSampleInstruments()
+    console.log('All sample instruments response:', response)
+    // Convert response.categories (object) to array for easier rendering
+    allSampleInstruments.value = Object.entries(response.categories).map(([name, instruments]) => ({ name, instruments: (instruments as any[]).map(inst => ({ ...inst, value: inst.value || inst.name })) }))
+  } catch (error) {
+    console.error('Failed to load all sample instruments:', error)
+    allSampleInstruments.value = []
+  }
+}
+
 // Dynamically computed sample categories from the sample store
 const sampleCategories = computed(() => {
   // Group samples by category
@@ -429,6 +465,45 @@ const sampleCategories = computed(() => {
   }
   return grouped
 })
+
+const getCategoryIcon = (category: string) => {
+  const iconMap: Record<string, any> = {
+    'Drums': Drum,
+    'Percussion': Drum,
+    'Bass': Guitar,
+    'Guitar': Guitar,
+    'Piano': Piano,
+    'Keys': Piano,
+    'Synth': Zap,
+    'Strings': Music,
+    'Vocals': Mic,
+    'Voice': Mic,
+    'Other': Music
+  }
+  // fallback: capitalize and match
+  const key = Object.keys(iconMap).find(k => category.toLowerCase().includes(k.toLowerCase()))
+  return key ? iconMap[key] : Music
+}
+
+const getInstrumentIcon = (instrument: string) => {
+  const iconMap: Record<string, any> = {
+    'piano': Piano,
+    'electric-piano': Piano,
+    'drums': Drum,
+    'bass': Guitar,
+    'electric-guitar': Guitar,
+    'acoustic-guitar': Guitar,
+    'guitar': Guitar,
+    'synth-lead': Zap,
+    'synth-pad': Zap,
+    'vocals': Mic,
+    'voice': Mic,
+    'strings': Music
+  }
+  // fallback: capitalize and match
+  const key = Object.keys(iconMap).find(k => instrument.toLowerCase().includes(k.toLowerCase()))
+  return key ? iconMap[key] : Music
+}
 
 const getTrackIcon = (instrument: string) => {
   const iconMap: Record<string, any> = {
@@ -663,6 +738,7 @@ onMounted(() => {
   // Load sample instruments from backend
   console.log('Component mounted, loading sample instruments...')
   loadSampleInstruments()
+  loadAllSampleInstruments()
   
   // Initialize waveforms for existing samples
   sampleCategories.value.forEach(cat => {
@@ -748,6 +824,12 @@ const getPanLabel = (pan: number): string => {
 function getInputValue(event: Event): string {
   const target = event.target as HTMLInputElement | null;
   return target ? target.value : '';
+}
+
+const expandedCategory = ref<string | null>(null)
+
+const toggleCategory = (name: string) => {
+  expandedCategory.value = expandedCategory.value === name ? null : name
 }
 </script>
 
@@ -1565,4 +1647,6 @@ function getInputValue(event: Event): string {
   transform: none;
   box-shadow: none;
 }
+
+/* If you reference instrument sample paths, include category between instruments and instrument name. */
 </style>

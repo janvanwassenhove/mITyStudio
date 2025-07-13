@@ -1,0 +1,24 @@
+audio:
+  fft_size: 1024
+  hop_size: 256
+  mel_bins: 80
+  sample_rate: 22050
+  win_size: 1024
+language: en
+model:
+  dropout: 0.1
+  hidden_size: 256
+  num_layers: 4
+  use_speaker_embedding: true
+preprocessing:
+  add_noise: false
+  normalize_audio: true
+  trim_silence: true
+speaker_embedding: true
+training:
+  batch_size: 8
+  epochs: 100
+  learning_rate: 0.0001
+  save_every: 10
+  validate_every: 5
+voice_name: lim

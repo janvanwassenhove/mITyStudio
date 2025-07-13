@@ -98,7 +98,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useThemeStore, type ThemeMode } from '../stores/themeStore'
 import { Sun, Moon, Monitor, X } from 'lucide-vue-next'
 

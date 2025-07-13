@@ -194,19 +194,11 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
+import { useAIStore } from '../stores/aiStore'
 import { checkApiKeyStatus as apiCheckApiKeyStatus } from '../utils/api'
 import { 
-  Bot, User, Trash2, Send, Paperclip, Mic, Lightbulb,
-  Plus, Settings, Music, Key
+  Bot, User, Trash2, Send, Paperclip, Mic, Lightbulb, Key
 } from 'lucide-vue-next'
-
-interface ChatMessage {
-  id: string
-  type: 'user' | 'ai'
-  content: string
-  timestamp: Date
-  actions?: ChatAction[]
-}
 
 interface ChatAction {
   label: string
@@ -216,16 +208,26 @@ interface ChatAction {
 }
 
 const audioStore = useAudioStore()
+const aiStore = useAIStore()
 
-// State
-const messages = ref<ChatMessage[]>([])
+// State - Use AI store messages instead of local state
 const currentMessage = ref('')
-const isTyping = ref(false)
-const isOnline = ref(true)
 const isListening = ref(false)
 const showSuggestions = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const messageInput = ref<HTMLTextAreaElement>()
+
+// Computed properties from AI store
+const messages = computed(() => aiStore.messages.map(msg => ({
+  id: msg.id,
+  type: msg.role === 'user' ? 'user' : 'ai',
+  content: msg.content,
+  timestamp: msg.timestamp,
+  actions: msg.actions
+})))
+
+const isTyping = computed(() => aiStore.isGenerating)
+const isOnline = ref(true)
 
 // Quick suggestions
 const quickSuggestions = [
@@ -251,15 +253,129 @@ const contextualSuggestions = computed(() => {
   return suggestions
 })
 
-// Providers and models
-const providers = ['Anthropic', 'OpenAI', 'Google']
-const modelsByProvider: Record<string, string[]> = {
-  'Anthropic': ['Claude Sonnet 4', 'Claude 3 Opus', 'Claude 3 Haiku'],
-  'OpenAI': ['GPT-4o', 'GPT-4 Turbo', 'GPT-3.5 Turbo'],
-  'Google': ['Gemini 1.5 Pro', 'Gemini 1.0 Pro']
+// Providers and models - sync with AI store
+const providers = ['Anthropic', 'OpenAI', 'Google', 'Mistral', 'xAI']
+
+// Map store values to display names
+const modelDisplayNames: Record<string, string> = {
+  // Anthropic
+  'claude-4-sonnet': 'Claude 4 Sonnet',
+  'claude-3-7-sonnet': 'Claude 3.7 Sonnet',
+  'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet (Oct 2024)',
+  'claude-3-5-sonnet-20240620': 'Claude 3.5 Sonnet (Jun 2024)',
+  'claude-3-5-haiku-20241022': 'Claude 3.5 Haiku (Oct 2024)',
+  'claude-3-opus-20240229': 'Claude 3 Opus',
+  'claude-3-sonnet-20240229': 'Claude 3 Sonnet',
+  'claude-3-haiku-20240307': 'Claude 3 Haiku',
+  'claude-2.1': 'Claude 2.1',
+  'claude-2.0': 'Claude 2.0',
+  'claude-instant-1.2': 'Claude Instant 1.2',
+  // OpenAI
+  'gpt-4o': 'GPT-4o',
+  'gpt-4o-mini': 'GPT-4o Mini',
+  'gpt-4-turbo': 'GPT-4 Turbo',
+  'gpt-4-turbo-preview': 'GPT-4 Turbo Preview',
+  'gpt-4-0125-preview': 'GPT-4 (Jan 2024)',
+  'gpt-4-1106-preview': 'GPT-4 (Nov 2023)',
+  'gpt-4': 'GPT-4',
+  'gpt-4-0613': 'GPT-4 (Jun 2023)',
+  'gpt-3.5-turbo': 'GPT-3.5 Turbo',
+  'gpt-3.5-turbo-0125': 'GPT-3.5 Turbo (Jan 2024)',
+  'gpt-3.5-turbo-1106': 'GPT-3.5 Turbo (Nov 2023)',
+  'gpt-3.5-turbo-16k': 'GPT-3.5 Turbo 16K',
+  'gpt-3.5-turbo-instruct': 'GPT-3.5 Turbo Instruct',
+  // Google
+  'gemini-1.5-pro': 'Gemini 1.5 Pro',
+  'gemini-1.5-pro-latest': 'Gemini 1.5 Pro (Latest)',
+  'gemini-1.5-flash': 'Gemini 1.5 Flash',
+  'gemini-1.5-flash-latest': 'Gemini 1.5 Flash (Latest)',
+  'gemini-1.0-pro': 'Gemini 1.0 Pro',
+  'gemini-1.0-pro-latest': 'Gemini 1.0 Pro (Latest)',
+  'gemini-1.0-pro-vision': 'Gemini 1.0 Pro Vision',
+  'gemini-pro': 'Gemini Pro',
+  'gemini-pro-vision': 'Gemini Pro Vision',
+  // Mistral
+  'mistral-large-latest': 'Mistral Large (Latest)',
+  'mistral-large-2407': 'Mistral Large (Jul 2024)',
+  'mistral-large-2402': 'Mistral Large (Feb 2024)',
+  'mistral-medium-latest': 'Mistral Medium (Latest)',
+  'mistral-medium-2312': 'Mistral Medium (Dec 2023)',
+  'mistral-small-latest': 'Mistral Small (Latest)',
+  'mistral-small-2402': 'Mistral Small (Feb 2024)',
+  'mistral-small-2312': 'Mistral Small (Dec 2023)',
+  'mistral-tiny': 'Mistral Tiny',
+  'mistral-7b-instruct': 'Mistral 7B Instruct',
+  'mixtral-8x7b-instruct': 'Mixtral 8x7B Instruct',
+  'mixtral-8x22b-instruct': 'Mixtral 8x22B Instruct',
+  'open-mistral-7b': 'Open Mistral 7B',
+  'open-mistral-8x7b': 'Open Mistral 8x7B',
+  'open-mistral-8x22b': 'Open Mistral 8x22B',
+  'open-mixtral-8x7b': 'Open Mixtral 8x7B',
+  'open-mixtral-8x22b': 'Open Mixtral 8x22B',
+  // xAI
+  'grok-beta': 'Grok Beta',
+  'grok-2-1212': 'Grok 2 (Dec 2024)',
+  'grok-2-latest': 'Grok 2 (Latest)',
+  'grok-2-public': 'Grok 2 (Public)',
+  'grok-2-mini': 'Grok 2 Mini',
+  'grok-vision-beta': 'Grok Vision Beta',
+  'grok-1': 'Grok 1',
+  'grok-1.5': 'Grok 1.5'
 }
-const selectedProvider = ref('Anthropic')
-const selectedModel = ref('Claude Sonnet 4')
+
+// Reverse mapping for display names to store values
+const modelStoreValues: Record<string, string> = Object.fromEntries(
+  Object.entries(modelDisplayNames).map(([store, display]) => [display, store])
+)
+
+// Get models for each provider using store values
+const getModelsForProvider = (provider: string): string[] => {
+  const storeProvider = provider.toLowerCase()
+  const storeProviders = aiStore.providers || []
+  const providerData = storeProviders.find(p => p.id === storeProvider)
+  return providerData?.models || []
+}
+
+// Use AI store for provider/model selection
+const selectedProvider = computed({
+  get: () => {
+    // Convert lowercase store value to proper display name
+    const provider = aiStore.selectedProvider
+    // Map store values to exact display names used in modelsByProvider
+    const providerMap: Record<string, string> = {
+      'anthropic': 'Anthropic',
+      'openai': 'OpenAI',
+      'google': 'Google',
+      'mistral': 'Mistral',
+      'xai': 'xAI'
+    }
+    return providerMap[provider] || provider
+  },
+  set: (value) => {
+    aiStore.setProvider(value.toLowerCase())
+  }
+})
+
+const selectedModel = computed({
+  get: () => {
+    // Convert store value to display name
+    const storeValue = aiStore.selectedModel
+    const displayValue = modelDisplayNames[storeValue] || storeValue
+    return displayValue
+  },
+  set: (displayValue) => {
+    // Convert display name to store value
+    const storeValue = modelStoreValues[displayValue] || displayValue
+    aiStore.setModel(storeValue)
+  }
+})
+
+const availableModels = computed(() => {
+  // Get store models for the selected provider and convert to display names
+  const storeModels = getModelsForProvider(selectedProvider.value)
+  const displayModels = storeModels.map(model => modelDisplayNames[model] || model)
+  return displayModels
+})
 
 // Dynamically detect if API key is set for the selected provider
 const apiKeySet = ref(false)
@@ -280,19 +396,35 @@ const checkApiKeyStatus = async (provider: string) => {
 }
 
 // Watch for provider changes to re-check API key status
-watch(selectedProvider, (newProvider) => {
+watch(() => aiStore.selectedProvider, (newProvider) => {
   checkApiKeyStatus(newProvider)
 }, { immediate: true })
 
-const apiKeyLabel = computed(() => `${selectedProvider.value} API Key:`)
+// Watch for available models changes to ensure model is selected
+watch(() => availableModels.value, (newModels) => {
+  // If models are available but no model is selected, select the first one
+  if (newModels.length > 0 && !selectedModel.value) {
+    selectedModel.value = newModels[0]
+  }
+  // If the currently selected model is not in the available models, select the first one
+  else if (newModels.length > 0 && !newModels.includes(selectedModel.value)) {
+    selectedModel.value = newModels[0]
+  }
+}, { immediate: true })
+
+const apiKeyLabel = computed(() => `${aiStore.selectedProvider} API Key:`)
 
 const apiKeyLink = computed(() => {
-  if (selectedProvider.value === 'Anthropic') {
+  if (aiStore.selectedProvider === 'anthropic') {
     return 'https://console.anthropic.com/account/keys'
-  } else if (selectedProvider.value === 'OpenAI') {
+  } else if (aiStore.selectedProvider === 'openai') {
     return 'https://platform.openai.com/api-keys'
-  } else if (selectedProvider.value === 'Google') {
+  } else if (aiStore.selectedProvider === 'google') {
     return 'https://aistudio.google.com/app/apikey'
+  } else if (aiStore.selectedProvider === 'mistral') {
+    return 'https://console.mistral.ai/api-keys'
+  } else if (aiStore.selectedProvider === 'xai') {
+    return 'https://console.x.ai/api-keys'
   }
   return '#'
 })
@@ -306,21 +438,11 @@ onMounted(() => {
   messageInput.value?.focus()
 })
 
-const availableModels = computed(() => modelsByProvider[selectedProvider.value] || [])
-
 // Methods
 const sendMessage = async (content: string) => {
   if (!content.trim()) return
   
-  // Add user message
-  const userMessage: ChatMessage = {
-    id: `user-${Date.now()}`,
-    type: 'user',
-    content: content.trim(),
-    timestamp: new Date()
-  }
-  
-  messages.value.push(userMessage)
+  // Clear current message and hide suggestions
   currentMessage.value = ''
   showSuggestions.value = false
   
@@ -328,179 +450,31 @@ const sendMessage = async (content: string) => {
   await nextTick()
   scrollToBottom()
   
-  // Show typing indicator
-  isTyping.value = true
-  
-  // Simulate AI response (in a real app, this would call an AI API)
-  setTimeout(() => {
-    const aiResponse = generateAIResponse(content)
-    const aiMessage: ChatMessage = {
-      id: `ai-${Date.now()}`,
-      type: 'ai',
-      content: aiResponse.content,
-      timestamp: new Date(),
-      actions: aiResponse.actions
-    }
+  try {
+    // Use the regular AI chat service that we know works
+    const result = await aiStore.sendMessage(content)
+    console.log('AI response received:', result)
     
-    messages.value.push(aiMessage)
-    isTyping.value = false
+  } catch (error) {
+    console.error('AI chat error:', error)
     
+    // Fallback is handled by the AI store
+  } finally {
     nextTick(() => {
       scrollToBottom()
     })
-  }, 1000 + Math.random() * 2000) // Random delay for realism
+  }
 }
 
 const sendCurrentMessage = () => {
   sendMessage(currentMessage.value)
 }
 
-const generateAIResponse = (userMessage: string): { content: string, actions?: ChatAction[] } => {
-  const message = userMessage.toLowerCase()
-  
-  // Chord progression suggestions
-  if (message.includes('chord') || message.includes('progression')) {
-    return {
-      content: `Here are some popular chord progressions you can try:
-
-**I-V-vi-IV (C-G-Am-F)** - The most popular progression in pop music
-**vi-IV-I-V (Am-F-C-G)** - Great for emotional ballads  
-**I-vi-IV-V (C-Am-F-G)** - Classic 50s progression
-**ii-V-I (Dm-G-C)** - Essential jazz progression
-
-Would you like me to create a track with one of these progressions?`,
-      actions: [
-        { label: 'Add Pop Progression', icon: Plus, action: 'add_chord_progression', params: { type: 'pop' } },
-        { label: 'Add Jazz Progression', icon: Plus, action: 'add_chord_progression', params: { type: 'jazz' } }
-      ]
-    }
-  }
-  
-  // Drum pattern suggestions
-  if (message.includes('drum') || message.includes('beat') || message.includes('rhythm')) {
-    return {
-      content: `Here are some drum patterns for different genres:
-
-**House Music**: Four-on-the-floor kick with hi-hats on off-beats
-**Hip-Hop**: Kick on 1 and 3, snare on 2 and 4, with syncopated hi-hats
-**Rock**: Basic rock beat with kick, snare, and steady hi-hat
-**Trap**: Heavy 808 kicks with rapid hi-hat rolls
-
-I can add any of these patterns to your project!`,
-      actions: [
-        { label: 'Add House Beat', icon: Plus, action: 'add_drum_pattern', params: { genre: 'house' } },
-        { label: 'Add Hip-Hop Beat', icon: Plus, action: 'add_drum_pattern', params: { genre: 'hiphop' } }
-      ]
-    }
-  }
-  
-  // Bass suggestions
-  if (message.includes('bass')) {
-    return {
-      content: `To make your bass sound fuller, try these techniques:
-
-1. **Layer different bass sounds** - Combine a sub bass with a mid-range bass
-2. **Use saturation/distortion** - Adds harmonics and presence
-3. **EQ boost around 80-100Hz** - For that chest-thumping low end
-4. **Compress with slow attack** - Maintains punch while adding sustain
-5. **Side-chain compression** - Creates space and rhythm
-
-Would you like me to add a bass track with these settings?`,
-      actions: [
-        { label: 'Add Bass Track', icon: Plus, action: 'add_bass_track' },
-        { label: 'Apply Bass Effects', icon: Settings, action: 'apply_bass_effects' }
-      ]
-    }
-  }
-  
-  // Vocal effects
-  if (message.includes('vocal') || message.includes('voice')) {
-    return {
-      content: `Great vocal effects to try:
-
-**Reverb**: Adds space and depth - try hall reverb for ballads, plate for pop
-**Delay**: Creates echoes - use 1/8 note delays for rhythmic interest  
-**Compression**: Evens out dynamics - use 3:1 ratio with medium attack
-**EQ**: High-pass at 80Hz, boost presence around 3-5kHz
-**De-esser**: Reduces harsh sibilants
-**Chorus**: Adds width and thickness
-
-I can set up a vocal chain for you!`,
-      actions: [
-        { label: 'Add Vocal Track', icon: Plus, action: 'add_vocal_track' },
-        { label: 'Setup Vocal Chain', icon: Settings, action: 'setup_vocal_chain' }
-      ]
-    }
-  }
-  
-  // Arrangement suggestions
-  if (message.includes('arrangement') || message.includes('improve') || message.includes('structure')) {
-    const trackCount = audioStore.songStructure.tracks.length
-    return {
-      content: `Looking at your current project with ${trackCount} tracks, here are some arrangement tips:
-
-**Song Structure**: Try Intro → Verse → Chorus → Verse → Chorus → Bridge → Chorus → Outro
-**Frequency Balance**: Make sure you have elements covering lows, mids, and highs
-**Dynamics**: Create contrast between sections with different energy levels
-**Space**: Don't fill every frequency - leave room for each element to breathe
-
-${trackCount < 3 ? 'Consider adding more instruments for a fuller sound!' : 'Your track count looks good - focus on mixing and effects!'}`,
-      actions: [
-        { label: 'Analyze Project', icon: Music, action: 'analyze_project' },
-        { label: 'Suggest Instruments', icon: Plus, action: 'suggest_instruments' }
-      ]
-    }
-  }
-  
-  // Default responses
-  const defaultResponses = [
-    {
-      content: `I'd be happy to help with that! As your AI music assistant, I can provide guidance on:
-
-• **Composition**: Chord progressions, melodies, and song structure
-• **Production**: Recording techniques and workflow tips  
-• **Mixing**: EQ, compression, and effects processing
-• **Sound Design**: Creating and shaping sounds
-• **Music Theory**: Scales, modes, and harmonic concepts
-
-What specific aspect would you like to explore?`,
-      actions: [
-        { label: 'Start New Project', icon: Plus, action: 'new_project' },
-        { label: 'Analyze Current Song', icon: Music, action: 'analyze_song' }
-      ]
-    },
-    {
-      content: `Great question! Music production is all about creativity and experimentation. Here are some general tips:
-
-1. **Start with a strong foundation** - Get your drums and bass locked in first
-2. **Less is often more** - Don't overcrowd your mix
-3. **Reference other tracks** - Compare your work to professional releases
-4. **Trust your ears** - If it sounds good, it probably is good
-5. **Take breaks** - Fresh ears catch things tired ears miss
-
-What genre or style are you working on?`
-    },
-    {
-      content: `I'm here to help you create amazing music! Whether you're a beginner or experienced producer, I can assist with:
-
-🎹 **Instrument selection and programming**
-🎚️ **Mixing and mastering techniques** 
-🎵 **Music theory and composition**
-🎛️ **DAW workflow and productivity tips**
-🎧 **Sound design and synthesis**
-
-Feel free to ask me anything specific about your current project!`,
-      actions: [
-        { label: 'Get Project Tips', icon: Lightbulb, action: 'project_tips' }
-      ]
-    }
-  ]
-  
-  return defaultResponses[Math.floor(Math.random() * defaultResponses.length)]
-}
-
 const executeAction = (action: ChatAction) => {
   switch (action.action) {
+    case 'apply_song_structure':
+      applySongStructureChanges(action.params?.songStructure)
+      break
     case 'add_chord_progression':
       addChordProgression(action.params?.type || 'pop')
       break
@@ -521,6 +495,77 @@ const executeAction = (action: ChatAction) => {
       break
     default:
       console.log('Action not implemented:', action.action)
+  }
+}
+
+const applySongStructureChanges = async (songStructure: any) => {
+  if (!songStructure) {
+    console.warn('No song structure provided to apply')
+    return
+  }
+
+  try {
+    console.log('🎵 Applying AI-generated song structure changes:', songStructure)
+    
+    // Stop any current playback to prevent conflicts
+    if (audioStore.isPlaying) {
+      audioStore.stop()
+    }
+    
+    // Load the new song structure into the audio store
+    audioStore.loadSongStructure(songStructure)
+    
+    // Force multiple UI refresh cycles to ensure all components reflect the changes
+    await nextTick()
+    await new Promise(resolve => setTimeout(resolve, 100)) // Small delay for DOM updates
+    await nextTick()
+    
+    // Trigger reactive updates by touching relevant reactive properties
+    if (songStructure.tracks && songStructure.tracks.length > 0) {
+      // Select the first track to trigger UI updates
+      audioStore.selectTrack(songStructure.tracks[0].id)
+      await nextTick()
+      
+      // Clear selection to show all tracks
+      audioStore.selectTrack(null)
+    }
+    
+    // Count the changes that were applied
+    const trackCount = songStructure.tracks?.length || 0
+    const clipCount = songStructure.tracks?.reduce((total: number, track: any) => 
+      total + (track.clips?.length || 0), 0) || 0
+    
+    // Notify user that changes were applied with detailed info
+    const confirmationMessage = `✅ **Changes Applied Successfully!**
+
+The AI suggestions have been applied to your song:
+- **Tracks**: ${trackCount} track${trackCount !== 1 ? 's' : ''} 
+- **Clips**: ${clipCount} clip${clipCount !== 1 ? 's' : ''}
+- **Tempo**: ${songStructure.tempo || 120} BPM  
+- **Key**: ${songStructure.key || 'C'}
+- **Duration**: ${songStructure.duration || 0} bars
+
+Your timeline and track visualization have been updated. You can now see the new structure in the editor!
+
+${trackCount > 0 ? '🎼 **Tip**: You can now play, edit, or further modify these tracks using the timeline controls.' : ''}`
+    
+    // Add confirmation message to chat
+    aiStore.addMessage('assistant', confirmationMessage)
+    
+    // Scroll to show the confirmation
+    await nextTick()
+    scrollToBottom()
+    
+  } catch (error) {
+    console.error('Failed to apply song structure changes:', error)
+    
+    const errorMessage = `❌ **Failed to Apply Changes**
+
+There was an error applying the AI suggestions to your song. Please try again or check the browser console for more details.
+
+Error: ${error instanceof Error ? error.message : 'Unknown error'}`
+    
+    aiStore.addMessage('assistant', errorMessage)
   }
 }
 
@@ -624,7 +669,7 @@ ${tracks.length > 8 ? '💡 **Suggestion**: You have many tracks - focus on mixi
 
 const clearChat = () => {
   if (confirm('Clear all chat messages?')) {
-    messages.value = []
+    aiStore.clearMessages()
   }
 }
 
@@ -676,6 +721,7 @@ const toggleVoiceInput = () => {
 
 <style scoped>
 .ai-chat {
+  --primary-dark: #6c63ff;
   display: flex;
   flex-direction: column;
   height: 100%;

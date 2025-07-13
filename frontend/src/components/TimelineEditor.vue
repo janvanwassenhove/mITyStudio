@@ -135,13 +135,6 @@
         <button class="btn btn-ghost" @click="zoomIn">
           <ZoomIn class="icon" />
         </button>
-        <!-- Metronome Bar Selection -->
-        <label style="margin-left: 1rem; color: var(--text-secondary); font-size: 0.9em;">
-          Metronome Bars:
-          <select v-model="audioStore.metronomeBars" style="margin-left: 0.5em;">
-            <option v-for="bar in maxBars" :key="bar" :value="bar">{{ bar }}</option>
-          </select>
-        </label>
         <button class="btn btn-ghost" @click="toggleMetronome">
           <span v-if="audioStore.metronomeEnabled">🔊</span>
           <span v-else>🔈</span>
@@ -164,7 +157,7 @@ const audioStore = useAudioStore()
 const sampleStore = useSampleStore()
 const timelineContent = ref<HTMLElement>()
 
-const selectedClipId = ref<string | null>(null)
+const selectedClipId = computed(() => audioStore.selectedClipId)
 const isDragging = ref(false)
 const isResizing = ref(false)
 const dragStartX = ref(0)
@@ -288,7 +281,7 @@ const addClipToTrack = (trackId: string, event: MouseEvent) => {
 }
 
 const selectClip = (clipId: string) => {
-  selectedClipId.value = clipId
+  audioStore.selectClip(clipId)
   hideContextMenu()
 }
 
@@ -296,7 +289,7 @@ const showContextMenu = (clipId: string, trackId: string, event: MouseEvent) => 
   event.preventDefault()
   event.stopPropagation()
   
-  selectedClipId.value = clipId
+  audioStore.selectClip(clipId)
   contextMenu.value = {
     visible: true,
     x: event.clientX,
@@ -316,7 +309,7 @@ const removeClip = () => {
     
     // Clear selection if the removed clip was selected
     if (selectedClipId.value === contextMenu.value.clipId) {
-      selectedClipId.value = null
+      audioStore.selectClip(null)
     }
   }
   hideContextMenu()
@@ -381,7 +374,7 @@ const startDragClip = (clipId: string, event: MouseEvent) => {
   // Don't start drag if right-clicking
   if (event.button === 2) return
   
-  selectedClipId.value = clipId
+  audioStore.selectClip(clipId)
   isDragging.value = true
   dragStartX.value = event.clientX
   
@@ -425,7 +418,7 @@ const stopDragClip = () => {
 const resizeSide = ref<'left' | 'right' | null>(null)
 
 const startResizeClip = (clipId: string, side: 'left' | 'right', event: MouseEvent) => {
-  selectedClipId.value = clipId
+  audioStore.selectClip(clipId)
   isResizing.value = true
   dragStartX.value = event.clientX
   resizeSide.value = side
@@ -482,7 +475,6 @@ const zoomOut = () => {
   audioStore.setZoom(audioStore.zoom / 1.2)
 }
 
-const maxBars = computed(() => audioStore.songStructure.duration)
 const toggleMetronome = () => {
   audioStore.toggleMetronome()
 }
@@ -604,7 +596,7 @@ const handleGlobalKeydown = (event: KeyboardEvent) => {
       const clip = track.clips.find(c => c.id === selectedClipId.value)
       if (clip) {
         audioStore.removeClip(track.id, clip.id)
-        selectedClipId.value = null
+        audioStore.selectClip(null)
         break
       }
     }

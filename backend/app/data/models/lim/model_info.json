@@ -1,0 +1,37 @@
+{
+  "name": "lim",
+  "language": "en",
+  "created_at": 1752272082.3394184,
+  "version": "1.0.0",
+  "type": "neural_voice_model",
+  "config": {
+    "voice_name": "lim",
+    "language": "en",
+    "training": {
+      "epochs": 100,
+      "batch_size": 8,
+      "learning_rate": 0.0001,
+      "save_every": 10,
+      "validate_every": 5
+    },
+    "model": {
+      "hidden_size": 256,
+      "num_layers": 4,
+      "dropout": 0.1,
+      "use_speaker_embedding": true
+    },
+    "audio": {
+      "sample_rate": 22050,
+      "hop_size": 256,
+      "win_size": 1024,
+      "fft_size": 1024,
+      "mel_bins": 80
+    },
+    "preprocessing": {
+      "normalize_audio": true,
+      "trim_silence": true,
+      "add_noise": false
+    },
+    "speaker_embedding": true
+  }
+}

@@ -5,6 +5,8 @@ Handles AI-powered music composition and chat interactions
 
 import os
 import json
+import random
+import logging
 from datetime import datetime
 from typing import Dict, List, Any, Optional
 import openai
@@ -20,6 +22,14 @@ class AIService:
         self.anthropic_client = None
         self._initialize_clients()
     
+    def _get_logger(self):
+        """Get logger that works both inside and outside Flask context"""
+        try:
+            return current_app.logger
+        except RuntimeError:
+            # Outside Flask context, use basic logger
+            return logging.getLogger(__name__)
+    
     def _initialize_clients(self):
         """Initialize AI service clients"""
         openai_key = os.getenv('OPENAI_API_KEY')
@@ -31,37 +41,86 @@ class AIService:
         if anthropic_key:
             self.anthropic_client = anthropic.Anthropic(api_key=anthropic_key)
     
+    def _map_anthropic_model(self, model_id: str) -> str:
+        """Map frontend model ID to actual Anthropic model name"""
+        model_mapping = {
+            'claude-4-sonnet': 'claude-3-5-sonnet-20241022',
+            'claude-3-7-sonnet': 'claude-3-5-sonnet-20241022',
+            'claude-3-5-sonnet-20241022': 'claude-3-5-sonnet-20241022',
+            'claude-3-5-sonnet-20240620': 'claude-3-5-sonnet-20240620',
+            'claude-3-5-haiku-20241022': 'claude-3-5-haiku-20241022',
+            'claude-3-opus-20240229': 'claude-3-opus-20240229',
+            'claude-3-sonnet-20240229': 'claude-3-sonnet-20240229',
+            'claude-3-haiku-20240307': 'claude-3-haiku-20240307',
+            'claude-2.1': 'claude-2.1',
+            'claude-2.0': 'claude-2.0',
+            'claude-instant-1.2': 'claude-instant-1.2'
+        }
+        return model_mapping.get(model_id, 'claude-3-5-sonnet-20241022')
+    
+    def _map_openai_model(self, model_id: str) -> str:
+        """Map frontend model ID to actual OpenAI model name"""
+        model_mapping = {
+            'gpt-4o': 'gpt-4o',
+            'gpt-4o-mini': 'gpt-4o-mini',
+            'gpt-4-turbo': 'gpt-4-turbo',
+            'gpt-4-turbo-preview': 'gpt-4-turbo-preview',
+            'gpt-4-0125-preview': 'gpt-4-0125-preview',
+            'gpt-4-1106-preview': 'gpt-4-1106-preview',
+            'gpt-4': 'gpt-4',
+            'gpt-4-0613': 'gpt-4-0613',
+            'gpt-3.5-turbo': 'gpt-3.5-turbo',
+            'gpt-3.5-turbo-0125': 'gpt-3.5-turbo-0125',
+            'gpt-3.5-turbo-1106': 'gpt-3.5-turbo-1106',
+            'gpt-3.5-turbo-16k': 'gpt-3.5-turbo-16k',
+            'gpt-3.5-turbo-instruct': 'gpt-3.5-turbo-instruct'
+        }
+        return model_mapping.get(model_id, 'gpt-4o')
+    
     def check_service_status(self) -> Dict[str, bool]:
         """Check which AI services are available"""
         return {
-            'openai': bool(self.openai_client),
             'anthropic': bool(self.anthropic_client),
-            'google': bool(os.getenv('GOOGLE_API_KEY'))
+            'openai': bool(self.openai_client),
+            'google': bool(os.getenv('GOOGLE_API_KEY')),
+            'mistral': bool(os.getenv('MISTRAL_API_KEY')),
+            'xai': bool(os.getenv('XAI_API_KEY'))
         }
     
     def chat_completion(self, message: str, provider: str = 'anthropic', 
-                       model: str = 'claude-sonnet-4', context: Dict = None) -> Dict:
+                       model: str = 'claude-4-sonnet', context: Dict = None) -> Dict:
         """
         Generate AI chat response
         """
+        if context is None:
+            context = {}
+            
         try:
+            logger = self._get_logger()
+            logger.info(f"AI chat request - Provider: {provider}, Model: {model}")
+            
             if provider == 'anthropic' and self.anthropic_client:
                 return self._anthropic_chat(message, model, context)
             elif provider == 'openai' and self.openai_client:
                 return self._openai_chat(message, model, context)
             else:
+                logger.warning(f"Provider {provider} not available or not configured")
                 return self._fallback_response(message, context)
         
         except Exception as e:
-            current_app.logger.error(f"AI chat error: {str(e)}")
+            logger = self._get_logger()
+            logger.error(f"AI chat error: {str(e)}")
             return self._fallback_response(message, context)
     
     def _anthropic_chat(self, message: str, model: str, context: Dict) -> Dict:
         """Handle Anthropic/Claude chat"""
         system_prompt = self._build_system_prompt(context)
+        actual_model = self._map_anthropic_model(model)
+        logger = self._get_logger()
+        logger.info(f"Using Anthropic model: {actual_model}")
         
         response = self.anthropic_client.messages.create(
-            model="claude-3-sonnet-20240229",  # Map to actual model
+            model=actual_model,
             max_tokens=1000,
             system=system_prompt,
             messages=[{"role": "user", "content": message}]
@@ -81,9 +140,12 @@ class AIService:
     def _openai_chat(self, message: str, model: str, context: Dict) -> Dict:
         """Handle OpenAI/GPT chat"""
         system_prompt = self._build_system_prompt(context)
+        actual_model = self._map_openai_model(model)
+        logger = self._get_logger()
+        logger.info(f"Using OpenAI model: {actual_model}")
         
         response = self.openai_client.chat.completions.create(
-            model="gpt-4" if "gpt-4" in model.lower() else "gpt-3.5-turbo",
+            model=actual_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": message}
@@ -158,7 +220,6 @@ class AIService:
             "AI chat is offline right now. For music composition tips, try exploring different scales or adding some rhythm tracks to your project."
         ]
         
-        import random
         content = random.choice(fallback_responses)
         
         return {
@@ -259,8 +320,66 @@ class AIService:
         
         return analysis
     
-    def suggest_instruments(self, genre: str, existing_instruments: List[str], mood: str, tempo: int) -> Dict:
-        """Suggest instruments based on context"""
+    def _is_monophonic_instrument(self, instrument: str, category: str = None) -> bool:
+        """
+        Check if an instrument is monophonic (single note) or polyphonic (can play chords)
+        """
+        monophonic_instruments = {
+            'woodwinds': ['flute', 'saxophone', 'clarinet', 'oboe', 'bassoon', 'recorder'],
+            'brass': ['trumpet', 'trombone', 'french horn', 'tuba', 'cornet'],
+            'strings': ['violin', 'viola', 'cello', 'double bass'],  # Bowed strings are typically monophonic
+            'general': ['flute', 'saxophone', 'trumpet', 'trombone', 'violin', 'cello', 'lead', 'solo']
+        }
+        
+        instrument_lower = instrument.lower()
+        
+        # Check by category first
+        if category and category.lower() in monophonic_instruments:
+            category_instruments = monophonic_instruments[category.lower()]
+            if any(mono_inst in instrument_lower for mono_inst in category_instruments):
+                return True
+        
+        # Check general monophonic instruments
+        for mono_inst in monophonic_instruments['general']:
+            if mono_inst in instrument_lower:
+                return True
+        
+        # Special cases for instrument names containing descriptive words
+        if any(word in instrument_lower for word in ['lead', 'solo', 'melody', 'single']):
+            return True
+            
+        return False
+    
+    def _get_polyphonic_alternatives(self, instrument: str, category: str = None) -> List[str]:
+        """
+        Suggest polyphonic alternatives for monophonic instruments
+        """
+        alternatives = {
+            'woodwinds': ['piano', 'guitar', 'strings'],
+            'brass': ['piano', 'guitar', 'strings'],
+            'strings': ['piano', 'guitar'],  # For bowed strings
+            'general': ['piano', 'guitar', 'strings', 'synth']
+        }
+        
+        if category and category.lower() in alternatives:
+            return alternatives[category.lower()]
+        
+        return alternatives['general']
+
+    def suggest_instruments(self, genre: str, existing_instruments: List[str], mood: str, tempo: int, 
+                          context: Dict = None, available_instruments: List[Dict] = None) -> Dict:
+        """Suggest instruments based on context and available sample library"""
+        
+        # If we have available instruments, use them for suggestions
+        if available_instruments:
+            available_names = [inst['name'] for inst in available_instruments]
+            category_mapping = {inst['name']: inst['category'] for inst in available_instruments}
+            self._get_logger().info(f"Using available instruments: {available_names}")
+        else:
+            # Fallback to hardcoded suggestions
+            available_names = ['guitar', 'piano', 'bass', 'drums', 'vocals', 'synth']
+            category_mapping = {}
+        
         # Updated instrument suggestions to match the sample library structure
         instrument_suggestions = {
             'pop': ['guitar', 'piano', 'bass', 'drums', 'vocals', 'synth'],
@@ -276,7 +395,14 @@ class AIService:
         }
         
         genre_instruments = instrument_suggestions.get(genre.lower(), instrument_suggestions['pop'])
-        missing_instruments = [inst for inst in genre_instruments if inst not in existing_instruments]
+        
+        # Filter to only include instruments we actually have samples for
+        available_genre_instruments = [inst for inst in genre_instruments if inst in available_names]
+        missing_instruments = [inst for inst in available_genre_instruments if inst not in existing_instruments]
+        
+        # If no genre-specific instruments available, suggest any available instruments
+        if not missing_instruments and available_instruments:
+            missing_instruments = [inst['name'] for inst in available_instruments if inst['name'] not in existing_instruments][:5]
         
         # Prioritize based on mood and tempo
         mood_weights = {
@@ -290,9 +416,12 @@ class AIService:
         
         mood_preferred = mood_weights.get(mood.lower(), [])
         
+        # Filter mood preferences to available instruments
+        available_mood_preferred = [inst for inst in mood_preferred if inst in available_names]
+        
         # Sort missing instruments by mood preference
         sorted_suggestions = []
-        for pref in mood_preferred:
+        for pref in available_mood_preferred:
             if pref in missing_instruments:
                 sorted_suggestions.append(pref)
                 missing_instruments.remove(pref)
@@ -307,13 +436,13 @@ class AIService:
             else:
                 reasoning += f" and moderate tempo ({tempo} BPM)"
         
-        reasoning += f", these instruments would complement your existing {', '.join(existing_instruments)} setup."
+        reasoning += f", I recommend these instruments from your available sample library:"
         
         return {
             'suggestions': sorted_suggestions[:5],  # Top 5 suggestions
             'reasoning': reasoning,
-            'genre_typical': genre_instruments,
-            'mood_preferred': mood_preferred
+            'available_count': len(available_names) if available_instruments else 0,
+            'genre_matches': len(available_genre_instruments) if available_instruments else 0
         }
     
     def _get_chord_map(self, key: str) -> Dict[str, str]:

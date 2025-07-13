@@ -41,28 +41,101 @@ export const useAIStore = defineStore('ai', () => {
   const messages = ref<ChatMessage[]>([])
   const isGenerating = ref(false)
   const selectedProvider = ref('anthropic')
-  const selectedModel = ref('claude-sonnet-4')
+  const selectedModel = ref('claude-4-sonnet')
   
   const providers: AIProvider[] = [
     {
       id: 'anthropic',
       name: 'Anthropic',
-      models: ['claude-sonnet-4', 'claude-3-opus', 'claude-3-haiku']
+      models: [
+        'claude-4-sonnet',
+        'claude-3-7-sonnet',
+        'claude-3-5-sonnet-20241022',
+        'claude-3-5-sonnet-20240620',
+        'claude-3-5-haiku-20241022',
+        'claude-3-opus-20240229',
+        'claude-3-sonnet-20240229',
+        'claude-3-haiku-20240307',
+        'claude-2.1',
+        'claude-2.0',
+        'claude-instant-1.2'
+      ]
     },
     {
       id: 'openai',
       name: 'OpenAI',
-      models: ['gpt-4o', 'gpt-4-turbo', 'gpt-3.5-turbo']
+      models: [
+        'gpt-4o',
+        'gpt-4o-mini',
+        'gpt-4-turbo',
+        'gpt-4-turbo-preview',
+        'gpt-4-0125-preview',
+        'gpt-4-1106-preview',
+        'gpt-4',
+        'gpt-4-0613',
+        'gpt-3.5-turbo',
+        'gpt-3.5-turbo-0125',
+        'gpt-3.5-turbo-1106',
+        'gpt-3.5-turbo-16k',
+        'gpt-3.5-turbo-instruct'
+      ]
     },
     {
       id: 'google',
       name: 'Google',
-      models: ['gemini-1.5-pro', 'gemini-1.0-pro']
+      models: [
+        'gemini-1.5-pro',
+        'gemini-1.5-pro-latest',
+        'gemini-1.5-flash',
+        'gemini-1.5-flash-latest',
+        'gemini-1.0-pro',
+        'gemini-1.0-pro-latest',
+        'gemini-1.0-pro-vision',
+        'gemini-pro',
+        'gemini-pro-vision'
+      ]
+    },
+    {
+      id: 'mistral',
+      name: 'Mistral',
+      models: [
+        'mistral-large-latest',
+        'mistral-large-2407',
+        'mistral-large-2402',
+        'mistral-medium-latest',
+        'mistral-medium-2312',
+        'mistral-small-latest',
+        'mistral-small-2402',
+        'mistral-small-2312',
+        'mistral-tiny',
+        'mistral-7b-instruct',
+        'mixtral-8x7b-instruct',
+        'mixtral-8x22b-instruct',
+        'open-mistral-7b',
+        'open-mistral-8x7b',
+        'open-mistral-8x22b',
+        'open-mixtral-8x7b',
+        'open-mixtral-8x22b'
+      ]
+    },
+    {
+      id: 'xai',
+      name: 'xAI',
+      models: [
+        'grok-beta',
+        'grok-2-1212',
+        'grok-2-latest',
+        'grok-2-public',
+        'grok-2-mini',
+        'grok-vision-beta',
+        'grok-1',
+        'grok-1.5'
+      ]
     }
   ]
 
   // Actions
-  const addMessage = (role: 'user' | 'assistant', content: string, actions?: ChatAction[]) => {
+  const addMessage = (role: 'user' | 'assistant', content: string) => {
     const message: ChatMessage = {
       id: `msg-${Date.now()}`,
       role,
@@ -119,6 +192,190 @@ export const useAIStore = defineStore('ai', () => {
       return fallbackResponse
     } finally {
       isGenerating.value = false
+    }
+  }
+
+  const sendMusicAssistantMessage = async (content: string, songStructure: any = null) => {
+    addMessage('user', content)
+    isGenerating.value = true
+    
+    try {
+      // Call the new music assistant endpoint
+      const response = await api.post('/api/ai/music-assistant', {
+        message: content,
+        provider: selectedProvider.value,
+        model: selectedModel.value,
+        song_structure: songStructure
+      })
+
+      const aiResponse = response.data.response
+      const updatedStructure = response.data.updated_song_structure
+      const toolsUsed = response.data.tools_used || []
+      
+      // Add AI response with tools info
+      let responseText = aiResponse
+      if (toolsUsed.length > 0) {
+        responseText += `\n\n*Tools used: ${toolsUsed.map((tool: any) => tool.tool || 'music tool').join(', ')}*`
+      }
+      
+      const message: ChatMessage = {
+        id: `msg-${Date.now()}-ai`,
+        role: 'assistant',
+        content: responseText,
+        timestamp: new Date(),
+        actions: updatedStructure ? [{
+          label: 'Apply Changes',
+          action: 'apply_song_structure',
+          icon: 'Music',
+          params: { songStructure: updatedStructure }
+        }] : []
+      }
+      
+      messages.value.push(message)
+      
+      return {
+        response: aiResponse,
+        updatedSongStructure: updatedStructure,
+        toolsUsed: toolsUsed,
+        success: response.data.success
+      }
+      
+    } catch (error: any) {
+      console.error('Failed to send music assistant message:', error)
+      
+      // Enhanced fallback for music assistant
+      const fallbackResponse = generateEnhancedMockResponse(content, songStructure)
+      addMessage('assistant', fallbackResponse)
+      
+      return {
+        response: fallbackResponse,
+        updatedSongStructure: null,
+        toolsUsed: [],
+        success: false
+      }
+    } finally {
+      isGenerating.value = false
+    }
+  }
+
+  const analyzeSong = async (songStructure: any) => {
+    isGenerating.value = true
+    
+    try {
+      const response = await api.post('/api/ai/analyze-song', {
+        song_structure: songStructure
+      })
+
+      const analysis = response.data.analysis
+      const suggestions = response.data.suggestions
+      
+      // Add analysis to chat
+      addMessage('assistant', `**Song Analysis:**\n\n${analysis}`)
+      
+      return {
+        analysis: analysis,
+        suggestions: suggestions,
+        success: response.data.success
+      }
+      
+    } catch (error: any) {
+      console.error('Failed to analyze song:', error)
+      const fallbackAnalysis = generateFallbackAnalysis(songStructure)
+      addMessage('assistant', fallbackAnalysis)
+      
+      return {
+        analysis: fallbackAnalysis,
+        suggestions: null,
+        success: false
+      }
+    } finally {
+      isGenerating.value = false
+    }
+  }
+
+  const generateSongSection = async (songStructure: any, sectionName: string, requirements: any = {}) => {
+    isGenerating.value = true
+    
+    try {
+      const response = await api.post('/api/ai/generate-section', {
+        song_structure: songStructure,
+        section_name: sectionName,
+        requirements: requirements
+      })
+
+      const updatedStructure = response.data.updated_song_structure
+      const responseText = response.data.response
+      
+      addMessage('assistant', `**${sectionName.charAt(0).toUpperCase() + sectionName.slice(1)} Section Created:**\n\n${responseText}`)
+      
+      return {
+        response: responseText,
+        updatedSongStructure: updatedStructure,
+        success: response.data.success
+      }
+      
+    } catch (error: any) {
+      console.error('Failed to generate song section:', error)
+      const fallbackResponse = `I'll help you create a ${sectionName} section. This would typically include chord progressions and instrument arrangements appropriate for this part of the song.`
+      addMessage('assistant', fallbackResponse)
+      
+      return {
+        response: fallbackResponse,
+        updatedSongStructure: null,
+        success: false
+      }
+    } finally {
+      isGenerating.value = false
+    }
+  }
+
+  const suggestModifications = async (songStructure: any, goal: string = 'improve the song') => {
+    isGenerating.value = true
+    
+    try {
+      const response = await api.post('/api/ai/suggest-modifications', {
+        song_structure: songStructure,
+        goal: goal
+      })
+
+      const suggestions = response.data.suggestions
+      const suggestedStructure = response.data.suggested_structure
+      
+      addMessage('assistant', `**Suggestions to ${goal}:**\n\n${suggestions}`)
+      
+      return {
+        suggestions: suggestions,
+        suggestedStructure: suggestedStructure,
+        success: response.data.success
+      }
+      
+    } catch (error: any) {
+      console.error('Failed to get suggestions:', error)
+      const fallbackSuggestions = `To ${goal}, consider:\n- Adding more instruments for fuller sound\n- Adjusting the song structure\n- Improving the chord progressions\n- Balancing the mix`
+      addMessage('assistant', fallbackSuggestions)
+      
+      return {
+        suggestions: fallbackSuggestions,
+        suggestedStructure: null,
+        success: false
+      }
+    } finally {
+      isGenerating.value = false
+    }
+  }
+
+  const getAvailableTools = async () => {
+    try {
+      const response = await api.get('/api/ai/available-tools')
+      return response.data
+    } catch (error) {
+      console.error('Failed to get available tools:', error)
+      return {
+        tools: [],
+        total_tools: 0,
+        agent_type: 'Fallback',
+        description: 'Basic AI assistant (advanced features unavailable)'
+      }
     }
   }
 
@@ -204,6 +461,80 @@ What specific aspect would you like me to help you with? I can create drum patte
     return provider?.models || []
   }
 
+  const generateEnhancedMockResponse = (userMessage: string, songStructure: any): string => {
+    const lowerMessage = userMessage.toLowerCase()
+    const numTracks = songStructure?.tracks?.length || 0
+    
+    if (lowerMessage.includes('intro')) {
+      return `I'll create an intro section for your song:
+
+**Intro Section Plan:**
+- Duration: 8 bars
+- Style: Soft build-up with filtered instruments
+- Key: ${songStructure?.key || 'C'} Major
+- Instruments: Piano arpeggios, soft pad, light percussion
+
+This intro will set the mood and smoothly lead into your main song sections.`
+    }
+    
+    if (lowerMessage.includes('bridge')) {
+      return `Adding a bridge section to create contrast:
+
+**Bridge Section Design:**
+- Chord progression: Different from verse/chorus
+- Dynamics: Building tension for final chorus
+- Instruments: String section, reduced drums
+- Duration: 8 bars
+
+The bridge will provide emotional contrast and keep listeners engaged.`
+    }
+    
+    if (lowerMessage.includes('analyze') || lowerMessage.includes('feedback')) {
+      return `**Song Analysis:**
+
+Current structure has ${numTracks} tracks.
+- Tempo: ${songStructure?.tempo || 120} BPM
+- Key: ${songStructure?.key || 'C'}
+- Duration: ${songStructure?.duration || 0} seconds
+
+**Suggestions:**
+${numTracks < 3 ? '- Add more instruments for fuller sound' : '- Good instrument variety'}
+${!songStructure?.tracks?.find((t: any) => t.instrument?.includes('bass')) ? '- Consider adding bass for low-end foundation' : '- Bass foundation is present'}
+- Balance the mix with appropriate volumes
+- Add reverb and effects for spatial depth`
+    }
+    
+    // Use the original mock response as fallback
+    return generateMockResponse(userMessage)
+  }
+
+  const generateFallbackAnalysis = (songStructure: any): string => {
+    const numTracks = songStructure?.tracks?.length || 0
+    const instruments = songStructure?.tracks?.map((t: any) => t.instrument).join(', ') || 'none'
+    
+    return `**Song Analysis (Offline Mode):**
+
+**Current Status:**
+- Tracks: ${numTracks}
+- Instruments: ${instruments}
+- Tempo: ${songStructure?.tempo || 120} BPM
+- Key: ${songStructure?.key || 'C'}
+- Duration: ${songStructure?.duration || 0} seconds
+
+**Recommendations:**
+${numTracks === 0 ? '- Start by adding some basic tracks (drums, bass, melody)' : 
+  numTracks < 3 ? '- Add more instruments for a fuller sound' : '- Good foundation established'}
+- Consider the song structure (intro, verse, chorus, bridge, outro)
+- Balance instruments with proper volume levels
+- Add effects like reverb and delay for depth
+
+**Next Steps:**
+- Use the timeline to arrange your clips
+- Experiment with different chord progressions
+- Add automation to create dynamic changes`
+  }
+
+  // Return all state and methods to make them available to components
   return {
     // State
     messages,
@@ -215,9 +546,19 @@ What specific aspect would you like me to help you with? I can create drum patte
     // Actions
     addMessage,
     sendMessage,
+    sendMusicAssistantMessage,
+    analyzeSong,
+    generateSongSection,
+    suggestModifications,
+    getAvailableTools,
     clearMessages,
     setProvider,
     setModel,
-    getAvailableModels
+    getAvailableModels,
+    
+    // Utility functions (may be useful for debugging)
+    generateMockResponse,
+    generateEnhancedMockResponse,
+    generateFallbackAnalysis
   }
 })

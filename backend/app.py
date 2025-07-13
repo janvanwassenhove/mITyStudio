@@ -37,7 +37,11 @@ def create_app(config_name='development'):
         GOOGLE_API_KEY=os.getenv('GOOGLE_API_KEY'),
         # Audio processing
         UPLOAD_FOLDER=os.getenv('UPLOAD_FOLDER', 'uploads'),
-        MAX_CONTENT_LENGTH=16 * 1024 * 1024,  # 16MB max file size
+        MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50MB max file size for voice training
+        # Voice training directories
+        VOICES_DIR=os.getenv('VOICES_DIR', 'app/data/voices'),
+        TRAINING_DIR=os.getenv('TRAINING_DIR', 'app/data/training'), 
+        MODELS_DIR=os.getenv('MODELS_DIR', 'app/data/models'),
         # Redis for caching
         REDIS_URL=os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
     )
@@ -56,12 +60,13 @@ def create_app(config_name='development'):
     ])
     
     # Register blueprints
-    from app.api import ai_bp, audio_bp, project_bp, auth_bp
+    from app.api import ai_bp, audio_bp, project_bp, auth_bp, voice_bp
     
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
     app.register_blueprint(audio_bp, url_prefix='/api/audio')
     app.register_blueprint(project_bp, url_prefix='/api/projects')
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
+    app.register_blueprint(voice_bp, url_prefix='/api/voice')
     
     # Health check endpoint
     @app.route('/health')
@@ -76,6 +81,7 @@ def create_app(config_name='development'):
             'services': {
                 'ai': bool(app.config.get('OPENAI_API_KEY') or app.config.get('ANTHROPIC_API_KEY')),
                 'audio': True,
+                'voice': True,
                 'database': True
             }
         }

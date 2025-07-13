@@ -32,13 +32,19 @@
       </button>
       
       <button 
-        class="btn btn-ghost transport-btn"
+        class="btn btn-ghost transport-btn metronome-btn"
         @click="audioStore.toggleMetronome"
-        :class="{ active: audioStore.metronomeEnabled }"
+        :class="{ 
+          active: audioStore.metronomeEnabled,
+          'metronome-beat': metronomeBeat && audioStore.metronomeEnabled
+        }"
         :disabled="!audioStore.isInitialized"
       >
         <Clock class="icon" />
         {{ $t('playback.metronome') }}
+        <div v-if="audioStore.metronomeEnabled" class="metronome-indicator">
+          <div class="beat-dot" :class="{ 'beat-active': metronomeBeat }"></div>
+        </div>
       </button>
 
       <button 
@@ -48,15 +54,6 @@
       >
         <Music class="icon" />
         Generate Song
-      </button>
-
-      <button 
-        class="btn btn-secondary transport-btn"
-        @click="generateChordDemo"
-        :disabled="!audioStore.isInitialized"
-      >
-        <Music2 class="icon" />
-        Chord Demo
       </button>
 
       <!-- Manual Initialize Button -->
@@ -212,7 +209,6 @@ import {
   ZoomIn, 
   ZoomOut,
   Music,
-  Music2,
   RefreshCw
 } from 'lucide-vue-next'
 import * as Tone from 'tone'
@@ -224,8 +220,10 @@ const masterVolume = ref(audioStore.masterVolume)
 const songKey = ref(audioStore.songStructure.key)
 const showDebugInfo = ref(true) // Always show for debugging
 const audioContextState = ref('unknown')
+const metronomeBeat = ref(false)
 
-let contextCheckInterval: number | null = null
+let contextCheckInterval: any = null
+let metronomeBeatInterval: any = null
 
 const totalClips = computed(() => {
   return audioStore.songStructure.tracks.reduce((total, track) => total + track.clips.length, 0)
@@ -281,6 +279,7 @@ onUnmounted(() => {
     clearInterval(contextCheckInterval)
     contextCheckInterval = null
   }
+  stopMetronomeBeatVisualization()
 })
 
 watch(() => audioStore.songStructure.tempo, (newTempo) => {
@@ -306,6 +305,48 @@ watch(() => audioStore.isInitializing, (newValue) => {
 
 watch(() => audioStore.initializationError, (newValue) => {
   console.log('🔍 Store initializationError changed to:', newValue)
+})
+
+// Watch for metronome and playing state changes to manage beat visualization
+watch([() => audioStore.metronomeEnabled, () => audioStore.isPlaying], ([metronomeEnabled, isPlaying]) => {
+  if (metronomeEnabled && isPlaying) {
+    startMetronomeBeatVisualization()
+  } else {
+    stopMetronomeBeatVisualization()
+  }
+})
+
+const startMetronomeBeatVisualization = () => {
+  if (metronomeBeatInterval) {
+    clearInterval(metronomeBeatInterval)
+  }
+  
+  const beatInterval = (60 / tempo.value) * 1000 // milliseconds per beat
+  metronomeBeatInterval = setInterval(() => {
+    if (audioStore.metronomeEnabled && audioStore.isPlaying) {
+      metronomeBeat.value = true
+      // Turn off the beat indicator after a brief flash
+      setTimeout(() => {
+        metronomeBeat.value = false
+      }, 100)
+    }
+  }, beatInterval)
+}
+
+const stopMetronomeBeatVisualization = () => {
+  if (metronomeBeatInterval) {
+    clearInterval(metronomeBeatInterval)
+    metronomeBeatInterval = null
+  }
+  metronomeBeat.value = false
+}
+
+// Watch tempo changes to update beat visualization
+watch(() => audioStore.songStructure.tempo, (newTempo) => {
+  tempo.value = newTempo
+  if (audioStore.metronomeEnabled && audioStore.isPlaying) {
+    startMetronomeBeatVisualization()
+  }
 })
 
 const MAX_INIT_RETRIES = 5
@@ -382,31 +423,7 @@ const togglePlayback = async () => {
 }
 
 const generateSong = () => {
-  audioStore.generateAndScheduleSong()
-}
-
-const generateChordDemo = async () => {
-  // Create a demo track with chord progression if none exists
-  if (audioStore.totalTracks === 0) {
-    // Add a piano track for demo
-    const trackId = audioStore.addTrack('Demo Piano', 'piano')
-    if (trackId) {
-      // Enable looping for better demo experience
-      audioStore.isLooping = true
-      // Generate a I-V-vi-IV progression
-      await audioStore.generateChordProgression(trackId, 'I-V-vi-IV', 0, 2, 1)
-      console.log('Demo chord progression created!')
-    }
-  } else {
-    // Generate chords for the first track
-    const firstTrack = audioStore.songStructure.tracks[0]
-    if (firstTrack) {
-      // Enable looping for better demo experience
-      audioStore.isLooping = true
-      await audioStore.generateChordProgression(firstTrack.id, 'I-V-vi-IV', 0, 2, 1)
-      console.log('Chord progression added to existing track!')
-    }
-  }
+  audioStore.play()
 }
 
 const updateTempo = () => {
@@ -592,6 +609,7 @@ const zoomOut = () => {
   outline: none;
   cursor: pointer;
   -webkit-appearance: none;
+  appearance: none;
 }
 
 .volume-slider:disabled {
@@ -721,6 +739,7 @@ const zoomOut = () => {
   padding: 0.25rem 0.5rem;
   border-radius: 4px;
   border: 1px solid;
+  display:none;
 }
 
 .error-details {
@@ -741,6 +760,38 @@ const zoomOut = () => {
 .debug-info small {
   color: var(--primary);
   font-size: 0.6875rem;
+}
+
+/* Metronome beat indicator */
+.metronome-btn {
+  position: relative;
+}
+
+.metronome-indicator {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+}
+
+.beat-dot {
+  width: 100%;
+  height: 100%;
+  background: var(--primary);
+  border-radius: 50%;
+  opacity: 0.3;
+  transition: all 0.1s ease;
+}
+
+.beat-dot.beat-active {
+  opacity: 1;
+  transform: scale(1.3);
+  box-shadow: 0 0 8px var(--primary);
+}
+
+.metronome-btn.metronome-beat {
+  background: rgba(var(--primary-rgb, 0, 123, 255), 0.1);
 }
 
 @keyframes pulse {

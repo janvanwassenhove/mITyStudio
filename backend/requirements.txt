@@ -25,3 +25,19 @@ pytest-flask==1.3.0
 black==24.8.0
 flake8==7.1.1
 mypy==1.11.2
+
+# PyTorch for DiffSinger voice training and synthesis
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Transcription packages for voice training
+openai-whisper>=20231117
+SpeechRecognition>=3.14.0
+# SpeechRecognition>=3.10.0
+# pyaudio>=0.2.11
+
+# Optional transcription dependencies
+# Uncomment to enable advanced transcription features
+# openai-whisper==20230314
+# SpeechRecognition==3.10.0
