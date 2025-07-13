@@ -1,0 +1,147 @@
+{
+  "app": {
+    "title": "mITy Studio",
+    "description": "Creëer, bewerk en produceer muziek met gemak.",
+    "welcome": "Welkom bij mITy Studio!",
+    "loading": "Laden...",
+    "error": "Er is een fout opgetreden. Probeer het opnieuw.",
+    "subtitle": "Jouw muziekproductiestudio in de cloud."
+  },
+  "header": {
+    "title": "mITy Studio",
+    "settings": "Instellingen",
+    "help": "Help",
+    "logout": "Uitloggen",
+    "newProject": "Nieuw Project",
+    "openProject": "Project Openen",
+    "saveProject": "Project Opslaan",
+    "export": "Project Exporteren"
+  },
+  "tracks": {
+    "title": "Tracks",
+    "addTrack": "Track Toevoegen",
+    "empty": "Nog geen tracks",
+    "addFirst": "Voeg je eerste track toe",
+    "volume": "Volume",
+    "pan": "Panorama",
+    "effects": "Effecten",
+    "mute": "Dempen",
+    "unmute": "Dempen opheffen",
+    "solo": "Solo",
+    "deleteTrack": "Track Verwijderen",
+    "changeInstrument": "Instrument/sample wijzigen",
+    "selectInstrument": "Selecteer Instrument of Sample",
+    "instruments": "Instrumenten",
+    "samples": "Samples",
+    "key": "Toonsoort",
+    "tempo": "Tempo",
+    "timeSignature": "Maatsoort"
+  },
+  "effects": {
+    "reverb": "Reverb",
+    "delay": "Delay",
+    "distortion": "Vervorming"
+  },
+  "instruments": {
+    "piano": "Piano",
+    "drums": "Drums",
+    "bass": "Bas",
+    "guitar": "Gitaar",
+    "synth": "Synthesizer",
+    "vocals": "Zang"
+  },
+  "playback": {
+    "play": "Afspelen",
+    "pause": "Pauzeren",
+    "stop": "Stoppen",
+    "record": "Opnemen",
+    "loop": "Herhalen",
+    "metronome": "Metronoom",
+    "tempo": "Tempo",
+    "volume": "Volume",
+    "generateSong": "Lied Genereren",
+    "initializeAudio": "Audio Initialiseren",
+    "retryAudio": "Audio Opnieuw Proberen",
+    "reset": "Resetten",
+    "initializing": "Initialiseren...",
+    "bpm": "BPM"
+  },
+  "ai": {
+    "title": "AI Assistent",
+    "placeholder": "Vraag me alles over muziekproductie...",
+    "send": "Versturen",
+    "provider": "Provider",
+    "model": "Model",
+    "generating": "Genereren...",
+    "clear": "Wissen",
+    "welcomeTitle": "Welkom bij mITyStudio AI!",
+    "welcomeSubtitle": "Ik help je geweldige muziek te maken. Vraag me over:",
+    "helpList": [
+      "🎵 Muziekcompositie en arrangement",
+      "🎛️ Audioproductietechnieken",
+      "🎹 Instrumentsuggesties en tips",
+      "🎚️ Mixing en effecten begeleiding",
+      "🎼 Muziektheorie en akkoordprogressies"
+    ],
+    "quickSuggestions": [
+      "Help me een lied schrijven",
+      "Suggereer akkoordprogressies",
+      "Leg muziektheorie uit",
+      "Hoe mix ik vocals?"
+    ],
+    "online": "Online",
+    "offline": "Offline",
+    "apiKeyRequired": "API-sleutel vereist",
+    "apiKeySet": "API-sleutel ingesteld",
+    "checking": "Controleren..."
+  },
+  "json": {
+    "title": "Liedstructuur",
+    "export": "Exporteren",
+    "import": "Importeren",
+    "reset": "Resetten",
+    "format": "JSON Formatteren",
+    "copy": "JSON Kopiëren",
+    "paste": "JSON Plakken",
+    "tracks": "Tracks",
+    "duration": "Duur",
+    "lastUpdated": "Laatst bijgewerkt"
+  },
+  "languages": {
+    "en": "Engels",
+    "es": "Spaans",
+    "nl": "Nederlands",
+    "fr": "Frans",
+    "de": "Duits",
+    "it": "Italiaans"
+  },
+  "welcome": {
+    "title": "Welkom bij mITyStudio",
+    "subtitle": "Jouw browser-gebaseerde DAW voor muziekcreatie",
+    "audioReady": "Audiosysteem klaar om te initialiseren",
+    "audioInitializing": "Audiosysteem initialiseren...",
+    "audioSuccess": "Audiosysteem klaar! 🎵 Welkomstmelodie afspelen...",
+    "audioError": "Audio-initialisatie mislukt. Probeer het opnieuw.",
+    "startCreation": "🚀 Start Muziek Creatie",
+    "retrySetup": "🔄 Audio Setup Opnieuw Proberen",
+    "letsCreate": "🎶 Laten We Muziek Maken!",
+    "initializing": "⏳ Audio Initialiseren...",
+    "troubleshootingTitle": "💡 Probleemoplossing tips:",
+    "troubleshootingTips": [
+      "Zorg ervoor dat je browser audio toestaat",
+      "Controleer of je apparaat niet gedempt is",
+      "Probeer de pagina te vernieuwen en opnieuw te klikken",
+      "Sommige browsers vereisen meerdere klikken om audio te starten"
+    ],
+    "features": [
+      "🎹 Creëer tracks met samples en synthesizers",
+      "🎵 Naadloze audio-afspeling met bewegende afspeelkop",
+      "🎛️ Professionele DAW-functies in je browser"
+    ]
+  },
+  "dialogs": {
+    "newProject": "Een nieuw project maken? Niet-opgeslagen wijzigingen gaan verloren.",
+    "invalidProject": "Ongeldig projectbestand",
+    "exportSoon": "Exportfunctionaliteit komt binnenkort!"
+  }
+}

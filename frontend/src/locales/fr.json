@@ -1,0 +1,147 @@
+{
+  "app": {
+    "title": "mITy Studio",
+    "description": "Créez, éditez et produisez de la musique avec facilité.",
+    "welcome": "Bienvenue dans mITy Studio !",
+    "loading": "Chargement...",
+    "error": "Une erreur s'est produite. Veuillez réessayer.",
+    "subtitle": "Votre studio de production musicale dans le cloud."
+  },
+  "header": {
+    "title": "mITy Studio",
+    "settings": "Paramètres",
+    "help": "Aide",
+    "logout": "Déconnexion",
+    "newProject": "Nouveau Projet",
+    "openProject": "Ouvrir Projet",
+    "saveProject": "Sauvegarder Projet",
+    "export": "Exporter Projet"
+  },
+  "tracks": {
+    "title": "Pistes",
+    "addTrack": "Ajouter Piste",
+    "empty": "Aucune piste pour le moment",
+    "addFirst": "Ajoutez votre première piste",
+    "volume": "Volume",
+    "pan": "Panoramique",
+    "effects": "Effets",
+    "mute": "Muet",
+    "unmute": "Activer le son",
+    "solo": "Solo",
+    "deleteTrack": "Supprimer Piste",
+    "changeInstrument": "Changer d'instrument/échantillon",
+    "selectInstrument": "Sélectionner Instrument ou Échantillon",
+    "instruments": "Instruments",
+    "samples": "Échantillons",
+    "key": "Clé",
+    "tempo": "Tempo",
+    "timeSignature": "Signature rythmique"
+  },
+  "effects": {
+    "reverb": "Réverbération",
+    "delay": "Délai",
+    "distortion": "Distorsion"
+  },
+  "instruments": {
+    "piano": "Piano",
+    "drums": "Batterie",
+    "bass": "Basse",
+    "guitar": "Guitare",
+    "synth": "Synthétiseur",
+    "vocals": "Voix"
+  },
+  "playback": {
+    "play": "Lecture",
+    "pause": "Pause",
+    "stop": "Arrêt",
+    "record": "Enregistrer",
+    "loop": "Boucle",
+    "metronome": "Métronome",
+    "tempo": "Tempo",
+    "volume": "Volume",
+    "generateSong": "Générer Chanson",
+    "initializeAudio": "Initialiser Audio",
+    "retryAudio": "Réessayer Audio",
+    "reset": "Réinitialiser",
+    "initializing": "Initialisation...",
+    "bpm": "BPM"
+  },
+  "ai": {
+    "title": "Assistant IA",
+    "placeholder": "Demandez-moi tout sur la production musicale...",
+    "send": "Envoyer",
+    "provider": "Fournisseur",
+    "model": "Modèle",
+    "generating": "Génération...",
+    "clear": "Effacer",
+    "welcomeTitle": "Bienvenue dans mITyStudio AI !",
+    "welcomeSubtitle": "Je suis là pour vous aider à créer de la musique incroyable. Demandez-moi :",
+    "helpList": [
+      "🎵 Composition et arrangement musical",
+      "🎛️ Techniques de production audio",
+      "🎹 Suggestions d'instruments et conseils",
+      "🎚️ Mixage et guidage des effets",
+      "🎼 Théorie musicale et progressions d'accords"
+    ],
+    "quickSuggestions": [
+      "Aidez-moi à écrire une chanson",
+      "Suggérez des progressions d'accords",
+      "Expliquez la théorie musicale",
+      "Comment mixer les voix ?"
+    ],
+    "online": "En ligne",
+    "offline": "Hors ligne",
+    "apiKeyRequired": "Clé API requise",
+    "apiKeySet": "Clé API définie",
+    "checking": "Vérification..."
+  },
+  "json": {
+    "title": "Structure de Chanson",
+    "export": "Exporter",
+    "import": "Importer",
+    "reset": "Réinitialiser",
+    "format": "Formater JSON",
+    "copy": "Copier JSON",
+    "paste": "Coller JSON",
+    "tracks": "Pistes",
+    "duration": "Durée",
+    "lastUpdated": "Dernière mise à jour"
+  },
+  "languages": {
+    "en": "Anglais",
+    "es": "Espagnol",
+    "nl": "Néerlandais",
+    "fr": "Français",
+    "de": "Allemand",
+    "it": "Italien"
+  },
+  "welcome": {
+    "title": "Bienvenue dans mITyStudio",
+    "subtitle": "Votre DAW basé sur navigateur pour la création musicale",
+    "audioReady": "Système audio prêt à initialiser",
+    "audioInitializing": "Initialisation du système audio...",
+    "audioSuccess": "Système audio prêt ! 🎵 Lecture de la mélodie de bienvenue...",
+    "audioError": "Échec de l'initialisation audio. Veuillez réessayer.",
+    "startCreation": "🚀 Commencer la Création Musicale",
+    "retrySetup": "🔄 Réessayer la Configuration Audio",
+    "letsCreate": "🎶 Créons de la Musique !",
+    "initializing": "⏳ Initialisation Audio...",
+    "troubleshootingTitle": "💡 Conseils de dépannage :",
+    "troubleshootingTips": [
+      "Assurez-vous que votre navigateur autorise l'audio",
+      "Vérifiez que votre appareil n'est pas en sourdine",
+      "Essayez d'actualiser la page et de cliquer à nouveau",
+      "Certains navigateurs nécessitent plusieurs clics pour démarrer l'audio"
+    ],
+    "features": [
+      "🎹 Créez des pistes avec des échantillons et des synthétiseurs",
+      "🎵 Lecture audio transparente avec tête de lecture mobile",
+      "🎛️ Fonctionnalités DAW professionnelles dans votre navigateur"
+    ]
+  },
+  "dialogs": {
+    "newProject": "Créer un nouveau projet ? Les modifications non sauvegardées seront perdues.",
+    "invalidProject": "Fichier de projet invalide",
+    "exportSoon": "La fonctionnalité d'exportation arrive bientôt !"
+  }
+}

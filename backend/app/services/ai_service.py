@@ -172,15 +172,80 @@ class AIService:
         melodies, instruments, and effects.
         
         When appropriate, suggest actionable items that can be implemented in the DAW.
-        Be helpful, creative, and knowledgeable about music production."""
+        Be helpful, creative, and knowledgeable about music production.
+
+CRITICAL: When creating song text, lyrics, or vocals, you MUST provide them in the following exact JSON structure:
+
+LYRICS TRACK STRUCTURE:
+```json
+{
+  "id": "track-lyrics",
+  "name": "Lyrics & Vocals", 
+  "instrument": "vocals",
+  "category": "vocals",
+  "volume": 0.8,
+  "pan": 0,
+  "muted": false,
+  "solo": false,
+  "clips": [...],
+  "effects": { "reverb": 0, "delay": 0, "distortion": 0 }
+}
+```
+
+LYRICS CLIP STRUCTURE (REQUIRED FORMAT):
+```json
+{
+  "id": "clip-lyrics-1",
+  "trackId": "track-lyrics", 
+  "startTime": 4,
+  "duration": 2,
+  "type": "lyrics",
+  "instrument": "vocals",
+  "volume": 0.8,
+  "effects": { "reverb": 0, "delay": 0, "distortion": 0 },
+  "voices": [
+    {
+      "voice_id": "soprano01",
+      "lyrics": [
+        {
+          "text": "Shine",
+          "notes": ["E4", "F4"],
+          "start": 0.0,
+          "durations": [0.4, 0.4]
+        },
+        {
+          "text": "on", 
+          "notes": ["G4"],
+          "start": 1.0,
+          "duration": 0.6
+        }
+      ]
+    }
+  ]
+}
+```
+
+IMPORTANT RULES FOR LYRICS:
+- ALWAYS provide lyrics in the above JSON format when asked to create lyrics or vocals
+- Use "voices" array for multi-voice structure
+- Each voice has "voice_id" and "lyrics" array
+- Each lyric fragment has "text", "notes", "start", and either "duration" (single note) OR "durations" (multiple notes)
+- For single notes: use "duration" (number)
+- For multiple notes: use "durations" (array of numbers)
+- Always set effects to { "reverb": 0, "delay": 0, "distortion": 0 } unless specified
+- Use proper voice_ids like "soprano01", "alto01", "tenor01", "bass01"
+- Generate appropriate musical notes (e.g., C4, D4, E4, F4, G4, A4, B4) based on the song key
+- Calculate start times and durations that make musical sense"""
         
         if context:
             if context.get('tracks'):
                 base_prompt += f"\n\nCurrent project has {len(context['tracks'])} tracks."
             if context.get('tempo'):
                 base_prompt += f" Tempo: {context['tempo']} BPM."
+                base_prompt += f" Use this tempo to calculate appropriate durations for lyrics timing."
             if context.get('key'):
                 base_prompt += f" Key: {context['key']}."
+                base_prompt += f" Generate notes that fit this key for the lyrics."
         
         return base_prompt
     
@@ -471,3 +536,180 @@ class AIService:
         }
         
         return major_keys.get(key, major_keys['C'])
+
+    def _contains_lyrics_json(self, content: str) -> bool:
+        """Check if the AI response contains lyrics JSON structure"""
+        try:
+            import re
+            
+            # Look for JSON patterns that might contain lyrics
+            json_patterns = [
+                r'```json\s*([\s\S]*?)\s*```',  # JSON code blocks
+                r'```\s*([\s\S]*?)\s*```',      # Generic code blocks
+                r'\{[\s\S]*?"voices"\s*:[\s\S]*?\}',  # Direct voices structure
+                r'\{[\s\S]*?"type"\s*:\s*"lyrics"[\s\S]*?\}',  # Lyrics clip structure
+                r'\{[\s\S]*?"instrument"\s*:\s*"vocals"[\s\S]*?\}',  # Vocals instrument
+                r'\{[\s\S]*?"category"\s*:\s*"vocals"[\s\S]*?\}'     # Vocals category
+            ]
+            
+            for pattern in json_patterns:
+                matches = re.findall(pattern, content, re.IGNORECASE | re.DOTALL)
+                for match in matches:
+                    try:
+                        # Try to parse as JSON
+                        json_data = json.loads(match)
+                        
+                        # Check if it contains lyrics-related structures
+                        if self._is_lyrics_json_structure(json_data):
+                            return True
+                            
+                    except json.JSONDecodeError:
+                        continue
+            
+            # Also check for explicit mentions of lyrics with structured content
+            lyrics_indicators = [
+                r'lyrics?\s*:',
+                r'voices?\s*:',
+                r'"text"\s*:',
+                r'"notes"\s*:',
+                r'"duration"?\s*:',
+                r'voice_id'
+            ]
+            
+            json_like_content = re.search(r'\{[\s\S]*\}', content)
+            if json_like_content:
+                json_content = json_like_content.group()
+                if any(re.search(indicator, json_content, re.IGNORECASE) for indicator in lyrics_indicators):
+                    # Try to find complete JSON structures
+                    potential_jsons = re.findall(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content)
+                    for potential_json in potential_jsons:
+                        try:
+                            parsed = json.loads(potential_json)
+                            if self._is_lyrics_json_structure(parsed):
+                                return True
+                        except json.JSONDecodeError:
+                            continue
+            
+            return False
+            
+        except Exception:
+            return False
+    
+    def _is_lyrics_json_structure(self, data: dict) -> bool:
+        """Check if JSON data contains lyrics structure"""
+        if not isinstance(data, dict):
+            return False
+        
+        # Check for track structure with vocals
+        if (data.get("instrument") == "vocals" or 
+            data.get("category") == "vocals" or
+            "clips" in data):
+            return True
+        
+        # Check for clip structure with lyrics
+        if (data.get("type") == "lyrics" and
+            data.get("instrument") == "vocals"):
+            return True
+        
+        # Check for voices array (direct lyrics structure)
+        if "voices" in data and isinstance(data["voices"], list):
+            # Validate that voices contain lyrics structure
+            for voice in data["voices"]:
+                if isinstance(voice, dict):
+                    if "voice_id" in voice and "lyrics" in voice:
+                        lyrics = voice["lyrics"]
+                        if isinstance(lyrics, list) and lyrics:
+                            # Check if lyrics contain proper structure
+                            sample_lyric = lyrics[0]
+                            if (isinstance(sample_lyric, dict) and 
+                                "text" in sample_lyric and 
+                                "notes" in sample_lyric):
+                                return True
+            return True
+        
+        # Check for lyrics array directly (in case it's a voice object)
+        if "lyrics" in data and isinstance(data["lyrics"], list):
+            if data["lyrics"]:
+                sample_lyric = data["lyrics"][0]
+                if (isinstance(sample_lyric, dict) and 
+                    "text" in sample_lyric and 
+                    "notes" in sample_lyric):
+                    return True
+        
+        # Check for individual lyric fragment
+        if (isinstance(data, dict) and 
+            "text" in data and 
+            "notes" in data and 
+            ("duration" in data or "durations" in data)):
+            return True
+        
+        return False
+    
+    def _extract_lyrics_json_data(self, content: str) -> dict:
+        """Extract lyrics JSON data from AI response"""
+        try:
+            import re
+            
+            # Pattern to find JSON blocks with improved matching
+            json_patterns = [
+                r'```json\s*([\s\S]*?)\s*```',  # JSON code blocks
+                r'```\s*([\s\S]*?)\s*```',      # Generic code blocks
+                r'\{(?:[^{}]|(?:\{(?:[^{}]|\{[^{}]*\})*\}))*\}',  # Nested JSON objects
+            ]
+            
+            found_jsons = []
+            
+            for pattern in json_patterns:
+                matches = re.findall(pattern, content, re.DOTALL)
+                for match in matches:
+                    try:
+                        # Try to parse as JSON
+                        json_data = json.loads(match)
+                        
+                        # Check if it contains lyrics data
+                        if self._is_lyrics_json_structure(json_data):
+                            found_jsons.append({
+                                'json': json_data,
+                                'raw': match,
+                                'integration_mode': 'auto'
+                            })
+                            
+                    except json.JSONDecodeError:
+                        continue
+            
+            # If we found multiple JSON objects, prefer the most complete one
+            if found_jsons:
+                # Sort by completeness (prefer tracks over clips over fragments)
+                def json_completeness_score(json_obj):
+                    data = json_obj['json']
+                    score = 0
+                    
+                    # Track structure gets highest score
+                    if 'clips' in data and data.get('instrument') == 'vocals':
+                        score += 100
+                    
+                    # Clip structure gets medium score
+                    elif data.get('type') == 'lyrics' and 'voices' in data:
+                        score += 50
+                    
+                    # Voice/lyrics array gets lower score
+                    elif 'voices' in data or 'lyrics' in data:
+                        score += 25
+                    
+                    # Add bonus for completeness
+                    if 'startTime' in data:
+                        score += 10
+                    if 'duration' in data:
+                        score += 10
+                    if 'effects' in data:
+                        score += 5
+                    
+                    return score
+                
+                found_jsons.sort(key=json_completeness_score, reverse=True)
+                return found_jsons[0]
+            
+            return {}
+            
+        except Exception:
+            return {}

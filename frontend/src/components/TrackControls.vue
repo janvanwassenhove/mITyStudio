@@ -3,21 +3,21 @@
     <div class="controls-header">
       <div class="header-title">
         <Layers class="header-icon" />
-        <h3>Tracks</h3>
+        <h3>{{ $t('tracks.title') }}</h3>
       </div>
       
       <button class="btn btn-primary add-track-btn" @click="addNewTrack">
         <Plus class="icon" />
-        Add Track
+        {{ $t('tracks.addTrack') }}
       </button>
     </div>
     
     <div class="tracks-list">
       <div v-if="tracks.length === 0" class="empty-state">
         <Music class="empty-icon" />
-        <p>No tracks yet</p>
+        <p>{{ $t('tracks.empty') }}</p>
         <button class="btn btn-ghost" @click="addNewTrack">
-          Add your first track
+          {{ $t('tracks.addFirst') }}
         </button>
       </div>
       

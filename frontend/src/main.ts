@@ -11,6 +11,10 @@ import App from './App.vue'
 // Import translations
 import en from './locales/en.json'
 import es from './locales/es.json'
+import nl from './locales/nl.json'
+import fr from './locales/fr.json'
+import de from './locales/de.json'
+import it from './locales/it.json'
 
 const i18n = createI18n({
   legacy: false,
@@ -19,7 +23,11 @@ const i18n = createI18n({
   globalInjection: true,
   messages: {
     en,
-    es
+    es,
+    nl,
+    fr,
+    de,
+    it
   }
 })
 

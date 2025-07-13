@@ -318,14 +318,19 @@ import {
   Plus, Edit, Copy, Drum, Guitar, Piano, Mic, Zap
 } from 'lucide-vue-next'
 import { drawWaveform } from '../utils/waveform'
+import { storeToRefs } from 'pinia'
 
 const sampleStore = useSampleStore()
 const audioStore = useAudioStore()
 
-// Destructure store properties
+// Destructure reactive properties with storeToRefs
 const {
   localSamples, isLoading, loadingProgress,
-  sortBy, sortOrder, filteredSamples, categories, totalSamples, totalSize,
+  sortBy, sortOrder, filteredSamples, categories, totalSamples, totalSize
+} = storeToRefs(sampleStore)
+
+// Destructure methods directly (they don't need reactivity)
+const {
   formatFileSize, formatDuration, loadSamples, removeSample,
   updateSampleCategory, updateSampleTags, clearAllSamples
 } = sampleStore
@@ -509,7 +514,7 @@ const duplicateSample = () => {
       name: `${original.name} (Copy)`,
       createdAt: new Date().toISOString()
     }
-    localSamples.push(duplicate)
+    localSamples.value.push(duplicate)
   }
   contextMenu.value.show = false
 }
@@ -527,7 +532,7 @@ const closeEditModal = () => {
 
 const saveEditModal = () => {
   const sample = editModal.value.sample
-  const originalSample = localSamples.find(s => s.id === sample.id)
+  const originalSample = localSamples.value.find(s => s.id === sample.id)
   
   if (originalSample) {
     originalSample.name = sample.name
@@ -628,7 +633,7 @@ const stopWaveformAnimation = () => {
 // Watch for waveform updates
 watch(filteredSamples, async () => {
   await nextTick()
-  filteredSamples.forEach(sample => {
+  filteredSamples.value.forEach(sample => {
     if (sample.waveform && waveformCanvases.value[sample.id]) {
       drawWaveform(waveformCanvases.value[sample.id], sample.waveform)
       // If playing, animate
@@ -642,7 +647,7 @@ watch(filteredSamples, async () => {
 // Watch for changes in totalSamples and isLoading to trigger UI update
 watch([totalSamples, isLoading], async () => {
   await nextTick()
-  filteredSamples.forEach(sample => {
+  filteredSamples.value.forEach(sample => {
     if (sample.waveform && waveformCanvases.value[sample.id]) {
       drawWaveform(waveformCanvases.value[sample.id], sample.waveform)
     }

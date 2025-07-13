@@ -205,6 +205,7 @@ interface ChatAction {
   icon: any
   action: string
   params?: any
+  data?: any
 }
 
 const audioStore = useAudioStore()
@@ -487,6 +488,9 @@ const executeAction = (action: ChatAction) => {
     case 'add_vocal_track':
       addVocalTrack()
       break
+    case 'add_lyrics_json':
+      addLyricsFromJSON(action.data)
+      break
     case 'new_project':
       createNewProject()
       break
@@ -635,6 +639,79 @@ const addVocalTrack = () => {
     })
     
     sendMessage(`🎤 Added vocal track with professional effects chain! Ready for recording.`)
+  }
+}
+
+const addLyricsFromJSON = (lyricsData: any) => {
+  try {
+    if (!lyricsData || !lyricsData.json) {
+      console.warn('No lyrics JSON data provided')
+      sendMessage('❌ No lyrics data to add. Please generate lyrics first.')
+      return
+    }
+
+    const lyricsJSON = lyricsData.json
+    console.log('Adding lyrics from JSON:', lyricsJSON)
+
+    // Check if it's a complete track or just a clip
+    if (lyricsJSON.clips && lyricsJSON.instrument === 'vocals') {
+      // It's a complete track - add the entire track
+      const trackId = audioStore.addTrack(lyricsJSON.name || 'Lyrics & Vocals', 'vocals')
+      if (trackId) {
+        // Update track properties
+        audioStore.updateTrack(trackId, {
+          volume: lyricsJSON.volume || 0.8,
+          pan: lyricsJSON.pan || 0,
+          effects: lyricsJSON.effects || { reverb: 0, delay: 0, distortion: 0 }
+        })
+
+        // Add all clips from the track
+        for (const clip of lyricsJSON.clips) {
+          audioStore.addClip(trackId, {
+            ...clip,
+            trackId: trackId
+          })
+        }
+
+        sendMessage(`🎤 Added complete lyrics track with ${lyricsJSON.clips.length} clips! Your vocals are ready to shine.`)
+      }
+    } else if (lyricsJSON.type === 'lyrics' && lyricsJSON.voices) {
+      // It's a single clip - find or create vocals track
+      let vocalsTrack = audioStore.songStructure.tracks.find(t => t.instrument === 'vocals')
+      let trackId = vocalsTrack?.id
+
+      if (!trackId) {
+        // Create new vocals track
+        trackId = audioStore.addTrack('Lyrics & Vocals', 'vocals')
+        if (trackId) {
+          audioStore.updateTrack(trackId, {
+            volume: 0.8,
+            pan: 0,
+            effects: { reverb: 0, delay: 0, distortion: 0 }
+          })
+        }
+      }
+
+      if (trackId) {
+        // Add the lyrics clip
+        audioStore.addClip(trackId, {
+          ...lyricsJSON,
+          trackId: trackId
+        })
+
+        const voiceCount = lyricsJSON.voices?.length || 1
+        const lyricsCount = lyricsJSON.voices?.reduce((total: number, voice: any) => total + (voice.lyrics?.length || 0), 0) || 0
+        
+        sendMessage(`🎵 Added lyrics clip with ${voiceCount} voice(s) and ${lyricsCount} lyric fragments! Your song has words now.`)
+      }
+    } else {
+      console.warn('Unknown lyrics JSON structure:', lyricsJSON)
+      sendMessage('❌ Unknown lyrics format. Please check the JSON structure.')
+    }
+
+  } catch (error) {
+    console.error('Error adding lyrics from JSON:', error)
+    sendMessage(`❌ Error adding lyrics: ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
 

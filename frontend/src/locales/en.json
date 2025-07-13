@@ -24,7 +24,18 @@
     "addFirst": "Add your first track",
     "volume": "Volume",
     "pan": "Pan",
-    "effects": "Effects"
+    "effects": "Effects",
+    "mute": "Mute",
+    "unmute": "Unmute",
+    "solo": "Solo",
+    "deleteTrack": "Delete Track",
+    "changeInstrument": "Change instrument/sample",
+    "selectInstrument": "Select Instrument or Sample",
+    "instruments": "Instruments",
+    "samples": "Samples",
+    "key": "Key",
+    "tempo": "Tempo",
+    "timeSignature": "Time Signature"
   },
   "effects": {
     "reverb": "Reverb",
@@ -47,7 +58,13 @@
     "loop": "Loop",
     "metronome": "Metronome",
     "tempo": "Tempo",
-    "volume": "Volume"
+    "volume": "Volume",
+    "generateSong": "Generate Song",
+    "initializeAudio": "Initialize Audio",
+    "retryAudio": "Retry Audio",
+    "reset": "Reset",
+    "initializing": "Initializing...",
+    "bpm": "BPM"
   },
   "ai": {
     "title": "AI Assistant",
@@ -55,12 +72,76 @@
     "send": "Send",
     "provider": "Provider",
     "model": "Model",
-    "generating": "Generating..."
+    "generating": "Generating...",
+    "clear": "Clear",
+    "welcomeTitle": "Welcome to mITyStudio AI!",
+    "welcomeSubtitle": "I'm here to help you create amazing music. Ask me about:",
+    "helpList": [
+      "🎵 Music composition and arrangement",
+      "🎛️ Audio production techniques",
+      "🎹 Instrument suggestions and tips",
+      "🎚️ Mixing and effects guidance",
+      "🎼 Music theory and chord progressions"
+    ],
+    "quickSuggestions": [
+      "Help me write a song",
+      "Suggest chord progressions",
+      "Explain music theory",
+      "How to mix vocals?"
+    ],
+    "online": "Online",
+    "offline": "Offline",
+    "apiKeyRequired": "API Key Required",
+    "apiKeySet": "API Key Set",
+    "checking": "Checking..."
   },
   "json": {
     "title": "Song Structure",
     "export": "Export",
     "import": "Import",
-    "reset": "Reset"
+    "reset": "Reset",
+    "format": "Format JSON",
+    "copy": "Copy JSON",
+    "paste": "Paste JSON",
+    "tracks": "Tracks",
+    "duration": "Duration",
+    "lastUpdated": "Last updated"
+  },
+  "languages": {
+    "en": "English",
+    "es": "Español",
+    "nl": "Nederlands",
+    "fr": "Français",
+    "de": "Deutsch",
+    "it": "Italiano"
+  },
+  "welcome": {
+    "title": "Welcome to mITyStudio",
+    "subtitle": "Your browser-based DAW for music creation",
+    "audioReady": "Audio system ready to initialize",
+    "audioInitializing": "Initializing audio system...",
+    "audioSuccess": "Audio system ready! 🎵 Playing welcome tune...",
+    "audioError": "Audio initialization failed. Please try again.",
+    "startCreation": "🚀 Start Music Creation",
+    "retrySetup": "🔄 Retry Audio Setup",
+    "letsCreate": "🎶 Let's Create Music!",
+    "initializing": "⏳ Initializing Audio...",
+    "troubleshootingTitle": "💡 Troubleshooting tips:",
+    "troubleshootingTips": [
+      "Make sure your browser allows audio",
+      "Check that your device is not muted",
+      "Try refreshing the page and clicking again",
+      "Some browsers require multiple clicks to start audio"
+    ],
+    "features": [
+      "🎹 Create tracks with samples and synthesizers",
+      "🎵 Seamless audio playback with moving playhead",
+      "🎛️ Professional DAW features in your browser"
+    ]
+  },
+  "dialogs": {
+    "newProject": "Create a new project? Unsaved changes will be lost.",
+    "invalidProject": "Invalid project file",
+    "exportSoon": "Export functionality coming soon!"
   }
 }

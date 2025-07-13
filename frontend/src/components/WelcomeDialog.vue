@@ -2,27 +2,27 @@
   <div v-if="showDialog" class="welcome-overlay">
     <div class="welcome-dialog">
       <div class="welcome-header">
-        <h2>🎵 Welcome to mITyStudio</h2>
-        <p>Your browser-based DAW for music creation</p>
+        <h2>🎵 {{ $t('welcome.title') }}</h2>
+        <p>{{ $t('welcome.subtitle') }}</p>
       </div>
       
       <div class="welcome-content">
         <div class="audio-status">
           <div v-if="audioStatus === 'pending'" class="status-item">
             <span class="status-icon">🔊</span>
-            <span>Audio system ready to initialize</span>
+            <span>{{ $t('welcome.audioReady') }}</span>
           </div>
           <div v-else-if="audioStatus === 'initializing'" class="status-item">
             <span class="status-icon loading">⏳</span>
-            <span>Initializing audio system...</span>
+            <span>{{ $t('welcome.audioInitializing') }}</span>
           </div>
           <div v-else-if="audioStatus === 'success'" class="status-item success">
             <span class="status-icon">✅</span>
-            <span>Audio system ready! 🎵 Playing welcome tune...</span>
+            <span>{{ $t('welcome.audioSuccess') }}</span>
           </div>
           <div v-else-if="audioStatus === 'error'" class="status-item error">
             <span class="status-icon">❌</span>
-            <span>Audio initialization failed. Please try again.</span>
+            <span>{{ $t('welcome.audioError') }}</span>
           </div>
         </div>
 
@@ -32,7 +32,7 @@
             @click="initializeAudio" 
             class="primary-button"
           >
-            🚀 Start Music Creation
+            {{ $t('welcome.startCreation') }}
           </button>
           
           <button 
@@ -40,7 +40,7 @@
             @click="initializeAudio" 
             class="retry-button"
           >
-            🔄 Retry Audio Setup
+            {{ $t('welcome.retrySetup') }}
           </button>
           
           <button 
@@ -48,7 +48,7 @@
             @click="closeDialog" 
             class="success-button"
           >
-            🎶 Let's Create Music!
+            {{ $t('welcome.letsCreate') }}
           </button>
           
           <button 
@@ -56,24 +56,24 @@
             disabled
             class="loading-button"
           >
-            ⏳ Initializing Audio...
+            {{ $t('welcome.initializing') }}
           </button>
         </div>
 
         <div v-if="audioStatus === 'error'" class="error-help">
-          <p>💡 <strong>Troubleshooting tips:</strong></p>
+          <p>{{ $t('welcome.troubleshootingTitle') }}</p>
           <ul>
-            <li>Make sure your browser allows audio</li>
-            <li>Check that your device is not muted</li>
-            <li>Try refreshing the page and clicking again</li>
-            <li>Some browsers require multiple clicks to start audio</li>
+            <li>{{ $t('welcome.troubleshootingTips.0') }}</li>
+            <li>{{ $t('welcome.troubleshootingTips.1') }}</li>
+            <li>{{ $t('welcome.troubleshootingTips.2') }}</li>
+            <li>{{ $t('welcome.troubleshootingTips.3') }}</li>
           </ul>
         </div>
 
         <div class="welcome-info">
-          <p>🎹 Create tracks with samples and synthesizers</p>
-          <p>🎵 Seamless audio playback with moving playhead</p>
-          <p>🎛️ Professional DAW features in your browser</p>
+          <p>{{ $t('welcome.features.0') }}</p>
+          <p>{{ $t('welcome.features.1') }}</p>
+          <p>{{ $t('welcome.features.2') }}</p>
         </div>
       </div>
     </div>
@@ -82,8 +82,10 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAudioStore } from '../stores/audioStore'
 
+const { t } = useI18n()
 const audioStore = useAudioStore()
 
 // Show dialog if audio is not initialized (manual control for dismissal)

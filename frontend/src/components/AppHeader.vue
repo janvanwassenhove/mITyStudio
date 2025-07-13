@@ -32,8 +32,12 @@
       
       <div class="header-controls">
         <select v-model="currentLocale" @change="changeLocale" class="input select locale-select">
-          <option value="en">English</option>
-          <option value="es">Español</option>
+          <option value="en">{{ $t('languages.en') }}</option>
+          <option value="es">{{ $t('languages.es') }}</option>
+          <option value="nl">{{ $t('languages.nl') }}</option>
+          <option value="fr">{{ $t('languages.fr') }}</option>
+          <option value="de">{{ $t('languages.de') }}</option>
+          <option value="it">{{ $t('languages.it') }}</option>
         </select>
         
         <ThemeToggle />
@@ -51,7 +55,7 @@ import { useThemeStore } from '../stores/themeStore'
 import { Music, FileText, FolderOpen, Save, Download } from 'lucide-vue-next'
 import ThemeToggle from './ThemeToggle.vue'
 
-const { locale } = useI18n()
+const { locale, t } = useI18n()
 const audioStore = useAudioStore()
 const themeStore = useThemeStore()
 
@@ -62,7 +66,7 @@ const changeLocale = () => {
 }
 
 const newProject = () => {
-  if (confirm('Create a new project? Unsaved changes will be lost.')) {
+  if (confirm(t('dialogs.newProject'))) {
     // Reset to default song structure
     audioStore.loadSongStructure({
       id: `project-${Date.now()}`,
@@ -91,7 +95,7 @@ const openProject = () => {
           const songStructure = JSON.parse(e.target?.result as string)
           audioStore.loadSongStructure(songStructure)
         } catch (error) {
-          alert('Invalid project file')
+          alert(t('dialogs.invalidProject'))
         }
       }
       reader.readAsText(file)
@@ -113,7 +117,7 @@ const saveProject = () => {
 
 const exportProject = () => {
   // Export functionality would be implemented here
-  alert('Export functionality coming soon!')
+  alert(t('dialogs.exportSoon'))
 }
 
 onMounted(() => {
