@@ -850,7 +850,7 @@ const toggleCategory = (name: string) => {
   display: flex;
   flex-direction: column;
   /* Responsive height: aligns with playback controls + timeline ruler */
-  height: calc(var(--timeline-ruler-height, 87px) + var(--playback-controls-height, 64px));
+  height: calc(var(--timeline-ruler-height, 72px) + var(--playback-controls-height, 64px));
   box-sizing: border-box;
 }
 

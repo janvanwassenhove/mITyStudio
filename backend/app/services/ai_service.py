@@ -210,6 +210,22 @@ class AIService:
                 'icon': 'Plus'
             })
         
+        # Check for lyrics JSON in response
+        if self._contains_lyrics_json(content):
+            actions.append({
+                'label': 'Add Lyrics to Song',
+                'action': 'add_lyrics_json',
+                'icon': 'Music',
+                'data': self._extract_lyrics_json_data(content)
+            })
+        
+        if "add" in content.lower() and ("lyrics" in content.lower() or "vocals" in content.lower()):
+            actions.append({
+                'label': 'Add Vocals',
+                'action': 'add_vocals',
+                'icon': 'Mic'
+            })
+        
         return actions
     
     def _fallback_response(self, message: str, context: Dict) -> Dict:
