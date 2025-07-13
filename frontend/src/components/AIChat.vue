@@ -434,9 +434,274 @@ function openApiKeyLink() {
   window.open(apiKeyLink.value, '_blank')
 }
 
+// Add global toggle function for JSON blocks
+const toggleJsonBlock = (elementId: string) => {
+  const content = document.getElementById(elementId)
+  const toggle = document.getElementById(`toggle-${elementId}`)
+  
+  if (content && toggle) {
+    if (content.style.display === 'none') {
+      content.style.display = 'block'
+      toggle.textContent = '‹'
+    } else {
+      content.style.display = 'none'
+      toggle.textContent = '›'
+    }
+  }
+}
+
+// Global JSON action handlers
+const applySongStructureFromJSON = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const songStructure = JSON.parse(jsonContent)
+    applySongStructureChanges(songStructure)
+  } catch (error) {
+    console.error('Error applying song structure from JSON:', error)
+    sendMessage('❌ Error applying song structure. Please check the JSON format.')
+  }
+}
+
+const addTrackFromJSON = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const trackData = JSON.parse(jsonContent)
+    
+    const trackId = audioStore.addTrack(trackData.name || `${trackData.instrument} Track`, trackData.instrument)
+    if (trackId) {
+      if (trackData.volume !== undefined || trackData.pan !== undefined || trackData.effects) {
+        audioStore.updateTrack(trackId, {
+          volume: trackData.volume || 0.8,
+          pan: trackData.pan || 0,
+          effects: trackData.effects || { reverb: 0, delay: 0, distortion: 0 }
+        })
+      }
+      
+      if (trackData.clips && Array.isArray(trackData.clips)) {
+        for (const clip of trackData.clips) {
+          audioStore.addClip(trackId, { ...clip, trackId: trackId })
+        }
+      }
+      
+      sendMessage(`✅ Added ${trackData.name || trackData.instrument} track with ${trackData.clips?.length || 0} clips!`)
+    }
+  } catch (error) {
+    console.error('Error adding track from JSON:', error)
+    sendMessage('❌ Error adding track. Please check the JSON format.')
+  }
+}
+
+const addChordProgressionFromJSON = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const chordData = JSON.parse(jsonContent)
+    
+    const instrument = chordData.instrument || 'piano'
+    const trackName = chordData.name || 'Chord Progression'
+    const trackId = audioStore.addTrack(trackName, instrument)
+    
+    if (trackId) {
+      let chords: any[] = chordData.chords || chordData.pattern || []
+      
+      for (let i = 0; i < chords.length; i++) {
+        const chord = chords[i]
+        const duration = chord.duration || 4
+        const startTime = chord.time || (i * duration)
+        
+        audioStore.addClip(trackId, {
+          startTime: startTime,
+          duration: duration,
+          type: 'synth',
+          instrument: instrument,
+          notes: [chord.chord || chord.name || 'C4'],
+          volume: chordData.volume || 0.7,
+          effects: chordData.effects || { reverb: 0.2, delay: 0, distortion: 0 }
+        })
+      }
+      
+      sendMessage(`🎹 Added chord progression with ${chords.length} chords!`)
+    }
+  } catch (error) {
+    console.error('Error adding chord progression from JSON:', error)
+    sendMessage('❌ Error adding chord progression. Please check the JSON format.')
+  }
+}
+
+const addDrumPatternFromJSON = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const drumData = JSON.parse(jsonContent)
+    
+    const trackName = drumData.name || 'Drum Pattern'
+    const trackId = audioStore.addTrack(trackName, 'drums')
+    
+    if (trackId) {
+      const barsCount = drumData.bars || 4
+      const barDuration = drumData.barDuration || 4
+      
+      for (let bar = 0; bar < barsCount; bar++) {
+        audioStore.addClip(trackId, {
+          startTime: bar * barDuration,
+          duration: barDuration,
+          type: 'synth',
+          instrument: 'drums',
+          notes: ['C2'],
+          volume: drumData.volume || 0.8,
+          effects: drumData.effects || { reverb: 0.1, delay: 0, distortion: 0 }
+        })
+      }
+      
+      sendMessage(`🥁 Added drum pattern with ${barsCount} bars!`)
+    }
+  } catch (error) {
+    console.error('Error adding drum pattern from JSON:', error)
+    sendMessage('❌ Error adding drum pattern. Please check the JSON format.')
+  }
+}
+
+const addBassLineFromJSON = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const bassData = JSON.parse(jsonContent)
+    
+    const trackName = bassData.name || 'Bass Line'
+    const trackId = audioStore.addTrack(trackName, 'bass')
+    
+    if (trackId) {
+      const notes = bassData.notes || bassData.pattern || []
+      const duration = bassData.duration || 16
+      
+      audioStore.addClip(trackId, {
+        startTime: 0,
+        duration: duration,
+        type: 'synth',
+        instrument: 'bass',
+        notes: notes.length > 0 ? notes : ['C2'],
+        volume: bassData.volume || 0.8,
+        effects: bassData.effects || { reverb: 0, delay: 0, distortion: 0.1 }
+      })
+      
+      sendMessage(`🎸 Added bass line!`)
+    }
+  } catch (error) {
+    console.error('Error adding bass line from JSON:', error)
+    sendMessage('❌ Error adding bass line. Please check the JSON format.')
+  }
+}
+
+const addMelodyFromJSON = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const melodyData = JSON.parse(jsonContent)
+    
+    const instrument = melodyData.instrument || 'synth'
+    const trackName = melodyData.name || 'Melody'
+    const trackId = audioStore.addTrack(trackName, instrument)
+    
+    if (trackId) {
+      const notes = melodyData.notes || melodyData.pattern || []
+      const duration = melodyData.duration || 16
+      
+      audioStore.addClip(trackId, {
+        startTime: 0,
+        duration: duration,
+        type: 'synth',
+        instrument: instrument,
+        notes: notes.length > 0 ? notes : ['C4'],
+        volume: melodyData.volume || 0.7,
+        effects: melodyData.effects || { reverb: 0.3, delay: 0.1, distortion: 0 }
+      })
+      
+      sendMessage(`🎼 Added melody track with ${getInstrumentIcon(instrument)} ${instrument} sound!`)
+    }
+  } catch (error) {
+    console.error('Error adding melody from JSON:', error)
+    sendMessage('❌ Error adding melody. Please check the JSON format.')
+  }
+}
+
+const addLyricsFromJSONAction = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const lyricsData = JSON.parse(jsonContent)
+    addLyricsFromJSON({ json: lyricsData })
+  } catch (error) {
+    console.error('Error adding lyrics from JSON:', error)
+    sendMessage('❌ Error adding lyrics. Please check the JSON format.')
+  }
+}
+
+const applyEffectsFromJSON = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const effectsData = JSON.parse(jsonContent)
+    
+    if (effectsData.track_id && effectsData.effects) {
+      audioStore.updateTrack(effectsData.track_id, { effects: effectsData.effects })
+      sendMessage(`🎛️ Applied effects to track ${effectsData.track_id}!`)
+    } else if (effectsData.effects && audioStore.songStructure.tracks.length > 0) {
+      const lastTrack = audioStore.songStructure.tracks[audioStore.songStructure.tracks.length - 1]
+      audioStore.updateTrack(lastTrack.id, { effects: effectsData.effects })
+      sendMessage(`🎛️ Applied effects configuration to ${lastTrack.name}!`)
+    }
+  } catch (error) {
+    console.error('Error applying effects from JSON:', error)
+    sendMessage('❌ Error applying effects. Please check the JSON format.')
+  }
+}
+
+const applyMixFromJSON = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const mixData = JSON.parse(jsonContent)
+    
+    if (mixData.tracks && Array.isArray(mixData.tracks)) {
+      for (const trackMix of mixData.tracks) {
+        if (trackMix.id && (trackMix.volume !== undefined || trackMix.pan !== undefined)) {
+          const updateData: any = {}
+          if (trackMix.volume !== undefined) updateData.volume = trackMix.volume
+          if (trackMix.pan !== undefined) updateData.pan = trackMix.pan
+          if (trackMix.effects) updateData.effects = trackMix.effects
+          
+          audioStore.updateTrack(trackMix.id, updateData)
+        }
+      }
+      sendMessage(`🎚️ Applied mix settings to ${mixData.tracks.length} tracks!`)
+    } else if (mixData.volume !== undefined || mixData.pan !== undefined) {
+      const lastTrack = audioStore.songStructure.tracks[audioStore.songStructure.tracks.length - 1]
+      if (lastTrack) {
+        const updateData: any = {}
+        if (mixData.volume !== undefined) updateData.volume = mixData.volume
+        if (mixData.pan !== undefined) updateData.pan = mixData.pan
+        if (mixData.effects) updateData.effects = mixData.effects
+        
+        audioStore.updateTrack(lastTrack.id, updateData)
+        sendMessage(`🎚️ Applied mix settings to ${lastTrack.name}!`)
+      }
+    }
+  } catch (error) {
+    console.error('Error applying mix from JSON:', error)
+    sendMessage('❌ Error applying mix settings. Please check the JSON format.')
+  }
+}
+
 onMounted(() => {
   // Focus the input
   messageInput.value?.focus()
+  
+  // Make toggle function globally available for onclick handlers
+  ;(window as any).toggleJsonBlock = toggleJsonBlock
+  
+  // Make JSON action functions globally available
+  ;(window as any).applySongStructureFromJSON = applySongStructureFromJSON
+  ;(window as any).addTrackFromJSON = addTrackFromJSON
+  ;(window as any).addChordProgressionFromJSON = addChordProgressionFromJSON
+  ;(window as any).addDrumPatternFromJSON = addDrumPatternFromJSON
+  ;(window as any).addBassLineFromJSON = addBassLineFromJSON
+  ;(window as any).addMelodyFromJSON = addMelodyFromJSON
+  ;(window as any).addLyricsFromJSONAction = addLyricsFromJSONAction
+  ;(window as any).applyEffectsFromJSON = applyEffectsFromJSON
+  ;(window as any).applyMixFromJSON = applyMixFromJSON
 })
 
 // Methods
@@ -514,6 +779,92 @@ const applySongStructureChanges = async (songStructure: any) => {
     // Stop any current playback to prevent conflicts
     if (audioStore.isPlaying) {
       audioStore.stop()
+    }
+    
+    // Extract lyrics from tracks/clips if not already present at top level
+    if (!songStructure.lyrics && songStructure.tracks) {
+      let extractedLyricsText = ''
+      
+      for (const track of songStructure.tracks) {
+        if (track.clips) {
+          for (const clip of track.clips) {
+            if (clip.voices) {
+              for (const voice of clip.voices) {
+                if (voice.lyrics) {
+                  for (const lyric of voice.lyrics) {
+                    if (lyric.text) {
+                      extractedLyricsText += lyric.text + '\n'
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+      
+      if (extractedLyricsText.trim()) {
+        songStructure.lyrics = extractedLyricsText.trim()
+        console.log('Extracted lyrics from tracks/clips for lyrics panel')
+      }
+    } else if (songStructure.lyrics) {
+      // If song-level lyrics exist, ensure clips are synchronized
+      const updateClipsWithLyrics = (structure: any, lyrics: string) => {
+        if (!structure.tracks) return structure
+        
+        const lyricsLines = lyrics.split('\n').filter(line => line.trim().length > 0)
+        let currentLineIndex = 0
+        
+        const updatedTracks = structure.tracks.map((track: any) => {
+          if (track.instrument === 'vocals' && track.clips) {
+            const updatedClips = track.clips.map((clip: any) => {
+              if (clip.voices) {
+                const updatedVoices = clip.voices.map((voice: any) => {
+                  if (voice.lyrics) {
+                    const updatedLyrics = voice.lyrics.map((lyric: any) => {
+                      if (currentLineIndex < lyricsLines.length) {
+                        const result = {
+                          ...lyric,
+                          text: lyricsLines[currentLineIndex]
+                        }
+                        currentLineIndex++
+                        return result
+                      }
+                      return lyric
+                    })
+                    
+                    return {
+                      ...voice,
+                      lyrics: updatedLyrics
+                    }
+                  }
+                  return voice
+                })
+                
+                return {
+                  ...clip,
+                  voices: updatedVoices
+                }
+              }
+              return clip
+            })
+            
+            return {
+              ...track,
+              clips: updatedClips
+            }
+          }
+          return track
+        })
+        
+        return {
+          ...structure,
+          tracks: updatedTracks
+        }
+      }
+      
+      songStructure = updateClipsWithLyrics(songStructure, songStructure.lyrics)
+      console.log('Synchronized clips with song-level lyrics in song structure changes')
     }
     
     // Load the new song structure into the audio store
@@ -653,6 +1004,9 @@ const addLyricsFromJSON = (lyricsData: any) => {
     const lyricsJSON = lyricsData.json
     console.log('Adding lyrics from JSON:', lyricsJSON)
 
+    // Extract lyrics text for the lyrics panel
+    let extractedLyricsText = ''
+
     // Check if it's a complete track or just a clip
     if (lyricsJSON.clips && lyricsJSON.instrument === 'vocals') {
       // It's a complete track - add the entire track
@@ -665,12 +1019,25 @@ const addLyricsFromJSON = (lyricsData: any) => {
           effects: lyricsJSON.effects || { reverb: 0, delay: 0, distortion: 0 }
         })
 
-        // Add all clips from the track
+        // Add all clips from the track and extract lyrics
         for (const clip of lyricsJSON.clips) {
           audioStore.addClip(trackId, {
             ...clip,
             trackId: trackId
           })
+          
+          // Extract lyrics text from clip
+          if (clip.voices) {
+            for (const voice of clip.voices) {
+              if (voice.lyrics) {
+                for (const lyric of voice.lyrics) {
+                  if (lyric.text) {
+                    extractedLyricsText += lyric.text + '\n'
+                  }
+                }
+              }
+            }
+          }
         }
 
         sendMessage(`🎤 Added complete lyrics track with ${lyricsJSON.clips.length} clips! Your vocals are ready to shine.`)
@@ -699,6 +1066,19 @@ const addLyricsFromJSON = (lyricsData: any) => {
           trackId: trackId
         })
 
+        // Extract lyrics text from single clip
+        if (lyricsJSON.voices) {
+          for (const voice of lyricsJSON.voices) {
+            if (voice.lyrics) {
+              for (const lyric of voice.lyrics) {
+                if (lyric.text) {
+                  extractedLyricsText += lyric.text + '\n'
+                }
+              }
+            }
+          }
+        }
+
         const voiceCount = lyricsJSON.voices?.length || 1
         const lyricsCount = lyricsJSON.voices?.reduce((total: number, voice: any) => total + (voice.lyrics?.length || 0), 0) || 0
         
@@ -707,6 +1087,75 @@ const addLyricsFromJSON = (lyricsData: any) => {
     } else {
       console.warn('Unknown lyrics JSON structure:', lyricsJSON)
       sendMessage('❌ Unknown lyrics format. Please check the JSON structure.')
+    }
+
+    // Update the song structure with extracted lyrics text for the lyrics panel
+    if (extractedLyricsText.trim()) {
+      // Create a helper function to update clips with synchronized lyrics
+      const updateClipsWithLyrics = (structure: any, lyrics: string) => {
+        if (!structure.tracks) return structure
+        
+        const lyricsLines = lyrics.split('\n').filter(line => line.trim().length > 0)
+        let currentLineIndex = 0
+        
+        const updatedTracks = structure.tracks.map((track: any) => {
+          if (track.instrument === 'vocals' && track.clips) {
+            const updatedClips = track.clips.map((clip: any) => {
+              if (clip.voices) {
+                const updatedVoices = clip.voices.map((voice: any) => {
+                  if (voice.lyrics) {
+                    const updatedLyrics = voice.lyrics.map((lyric: any) => {
+                      if (currentLineIndex < lyricsLines.length) {
+                        const result = {
+                          ...lyric,
+                          text: lyricsLines[currentLineIndex]
+                        }
+                        currentLineIndex++
+                        return result
+                      }
+                      return lyric
+                    })
+                    
+                    return {
+                      ...voice,
+                      lyrics: updatedLyrics
+                    }
+                  }
+                  return voice
+                })
+                
+                return {
+                  ...clip,
+                  voices: updatedVoices
+                }
+              }
+              return clip
+            })
+            
+            return {
+              ...track,
+              clips: updatedClips
+            }
+          }
+          return track
+        })
+        
+        return {
+          ...structure,
+          tracks: updatedTracks
+        }
+      }
+      
+      let updatedStructure = {
+        ...audioStore.songStructure,
+        lyrics: extractedLyricsText.trim()
+      }
+      
+      // Synchronize lyrics between song level and clips
+      updatedStructure = updateClipsWithLyrics(updatedStructure, extractedLyricsText.trim())
+      
+      audioStore.loadSongStructure(updatedStructure)
+      console.log('Lyrics text added to song structure and synchronized with clips')
     }
 
   } catch (error) {
@@ -772,12 +1221,136 @@ const scrollToBottom = () => {
 }
 
 const formatMessage = (content: string): string => {
-  // Convert markdown-like formatting to HTML
+  // First handle JSON code blocks (```json...```) and make them collapsible with action buttons
+  content = content.replace(/```json\n?([\s\S]*?)```/g, (_, jsonContent) => {
+    const uniqueId = 'json-' + Math.random().toString(36).substr(2, 9)
+    const actionButtons = generateActionButtonsFromJSON(jsonContent.trim())
+    
+    return `<div class="json-code-block">
+      <div class="json-header" onclick="toggleJsonBlock('${uniqueId}')">
+        <span class="json-label">JSON Structure</span>
+        <span class="json-toggle" id="toggle-${uniqueId}">›</span>
+      </div>
+      <pre class="json-content" id="${uniqueId}" style="display: none;"><code>${jsonContent.trim()}</code></pre>
+      ${actionButtons}
+    </div>`
+  })
+  
+  // Handle regular code blocks
+  content = content.replace(/```(\w+)?\n?([\s\S]*?)```/g, (_, lang, code) => {
+    return `<pre class="code-block ${lang || ''}"><code>${code.trim()}</code></pre>`
+  })
+  
+  // Convert other markdown-like formatting to HTML
   return content
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/`(.*?)`/g, '<code>$1</code>')
     .replace(/\n/g, '<br>')
+}
+
+const generateActionButtonsFromJSON = (jsonContent: string): string => {
+  try {
+    const jsonData = JSON.parse(jsonContent)
+    const buttons: string[] = []
+    
+    // Detect different types of JSON structures and generate appropriate action buttons
+    
+    // Complete song structure
+    if (jsonData.tracks && Array.isArray(jsonData.tracks)) {
+      buttons.push(`<button class="json-action-btn" onclick="applySongStructureFromJSON('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">🎵</span> Apply Song Structure
+      </button>`)
+    }
+    
+    // Single track
+    if (jsonData.name && jsonData.instrument && (jsonData.clips || jsonData.type)) {
+      const instrument = jsonData.instrument
+      const trackName = jsonData.name
+      
+      buttons.push(`<button class="json-action-btn" onclick="addTrackFromJSON('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">${getInstrumentIcon(instrument)}</span> Add ${trackName} Track
+      </button>`)
+    }
+    
+    // Chord progression
+    if (jsonData.chords || (jsonData.pattern && jsonData.pattern.some && jsonData.pattern.some((p: any) => p.chord))) {
+      buttons.push(`<button class="json-action-btn" onclick="addChordProgressionFromJSON('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">🎹</span> Add Chord Progression
+      </button>`)
+    }
+    
+    // Drum pattern
+    if (jsonData.instrument === 'drums' || jsonData.type === 'drum_pattern' || 
+        (jsonData.pattern && jsonData.pattern.some && jsonData.pattern.some((p: any) => p.drum || p.note === 'kick' || p.note === 'snare'))) {
+      buttons.push(`<button class="json-action-btn" onclick="addDrumPatternFromJSON('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">🥁</span> Add Drum Pattern
+      </button>`)
+    }
+    
+    // Bass line
+    if (jsonData.instrument === 'bass' || jsonData.type === 'bass_line') {
+      buttons.push(`<button class="json-action-btn" onclick="addBassLineFromJSON('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">🎸</span> Add Bass Line
+      </button>`)
+    }
+    
+    // Melody/lead
+    if (jsonData.instrument === 'lead' || jsonData.instrument === 'synth' || jsonData.type === 'melody') {
+      buttons.push(`<button class="json-action-btn" onclick="addMelodyFromJSON('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">🎼</span> Add Melody
+      </button>`)
+    }
+    
+    // Lyrics/vocals
+    if (jsonData.instrument === 'vocals' || jsonData.type === 'lyrics' || jsonData.voices || 
+        (jsonData.clips && jsonData.clips.some && jsonData.clips.some((c: any) => c.voices))) {
+      buttons.push(`<button class="json-action-btn" onclick="addLyricsFromJSONAction('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">🎤</span> Add Lyrics & Vocals
+      </button>`)
+    }
+    
+    // Effects configuration
+    if (jsonData.effects && typeof jsonData.effects === 'object') {
+      buttons.push(`<button class="json-action-btn" onclick="applyEffectsFromJSON('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">🎛️</span> Apply Effects
+      </button>`)
+    }
+    
+    // Mix settings
+    if (jsonData.mix || (jsonData.tracks && jsonData.tracks.some && jsonData.tracks.some((t: any) => t.volume !== undefined || t.pan !== undefined))) {
+      buttons.push(`<button class="json-action-btn" onclick="applyMixFromJSON('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">🎚️</span> Apply Mix Settings
+      </button>`)
+    }
+    
+    return buttons.length > 0 ? `<div class="json-actions">${buttons.join('')}</div>` : ''
+    
+  } catch (error) {
+    // If JSON parsing fails, don't show action buttons
+    console.warn('Failed to parse JSON for action buttons:', error)
+    return ''
+  }
+}
+
+const getInstrumentIcon = (instrument: string): string => {
+  const icons: Record<string, string> = {
+    'piano': '🎹',
+    'drums': '🥁',
+    'bass': '🎸',
+    'guitar': '🎸',
+    'vocals': '🎤',
+    'synth': '🎛️',
+    'lead': '🎼',
+    'pad': '🌊',
+    'strings': '🎻',
+    'brass': '🎺',
+    'woodwind': '🎷',
+    'percussion': '🥁',
+    'organ': '⛪',
+    'harp': '🪕'
+  }
+  return icons[instrument.toLowerCase()] || '🎵'
 }
 
 const formatTime = (date: Date): string => {
@@ -1061,6 +1634,9 @@ const toggleVoiceInput = () => {
   color: var(--text);
   line-height: 1.5;
   font-size: 0.875rem;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .message.user .message-text {
@@ -1307,6 +1883,247 @@ const toggleVoiceInput = () => {
   height: 20px;
 }
 
+/* JSON Code Block Styles */
+.json-code-block {
+  margin: 0.75rem 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--background);
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  /* Ensure containment within message */
+  overflow-x: hidden;
+}
+
+.json-header {
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: all 0.2s ease;
+  user-select: none;
+  font-size: 0.875rem;
+}
+
+.json-header:hover {
+  background: var(--border);
+  transform: translateY(-1px);
+}
+
+.json-label {
+  font-weight: 600;
+  color: var(--text);
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.json-label::before {
+  content: "{ }";
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  color: var(--primary);
+  font-weight: bold;
+  font-size: 1rem;
+  background: rgba(108, 99, 255, 0.1);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid rgba(108, 99, 255, 0.2);
+}
+
+.json-toggle {
+  color: var(--text-secondary);
+  font-size: 1rem;
+  transition: all 0.2s ease;
+  line-height: 1;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.25rem;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+}
+
+.json-toggle:hover {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.json-content {
+  margin: 0;
+  padding: 1rem;
+  background: var(--background);
+  overflow-x: auto;
+  border: none;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--text);
+  white-space: pre;
+  max-height: 400px;
+  overflow-y: auto;
+  width: 100%;
+  box-sizing: border-box;
+  border-top: 1px solid var(--border);
+  /* Ensure proper containment */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.json-content::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.json-content::-webkit-scrollbar-track {
+  background: var(--surface);
+  border-radius: 4px;
+}
+
+.json-content::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.json-content::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+.json-content code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  white-space: pre;
+  word-wrap: normal;
+  overflow-wrap: normal;
+}
+
+/* JSON Action Buttons */
+.json-actions {
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: flex-start;
+}
+
+.json-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  min-height: 32px;
+  text-decoration: none;
+}
+
+.json-action-btn:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(108, 99, 255, 0.3);
+}
+
+.json-action-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 1px 4px rgba(108, 99, 255, 0.4);
+}
+
+.json-action-btn .action-icon {
+  font-size: 1rem;
+  line-height: 1;
+  display: inline-block;
+  min-width: 16px;
+  text-align: center;
+}
+
+/* Responsive design for action buttons */
+@media (max-width: 768px) {
+  .json-actions {
+    padding: 0.5rem;
+    gap: 0.25rem;
+  }
+  
+  .json-action-btn {
+    padding: 0.375rem 0.5rem;
+    font-size: 0.8125rem;
+    min-height: 28px;
+  }
+  
+  .json-action-btn .action-icon {
+    font-size: 0.875rem;
+  }
+}
+
+/* Regular code blocks */
+.code-block {
+  margin: 0.75rem 0;
+  padding: 1rem;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.code-block::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.code-block::-webkit-scrollbar-track {
+  background: var(--surface);
+  border-radius: 4px;
+}
+
+.code-block::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.code-block::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+.code-block code {
+  background: none;
+  padding: 0;
+  color: var(--text);
+  font-family: inherit;
+  font-size: inherit;
+  white-space: pre;
+  word-wrap: normal;
+  overflow-wrap: normal;
+}
+
 @media (max-width: 768px) {
   .message-content {
     max-width: 90%;
@@ -1326,6 +2143,31 @@ const toggleVoiceInput = () => {
   
   .input-actions {
     justify-content: flex-start;
+  }
+  
+  .json-content {
+    font-size: 0.75rem;
+    max-height: 250px;
+    padding: 0.75rem;
+  }
+  
+  .json-header {
+    padding: 0.5rem 0.75rem;
+  }
+  
+  .json-label {
+    font-size: 0.8125rem;
+  }
+  
+  .json-label::before {
+    font-size: 0.875rem;
+    padding: 0.125rem 0.375rem;
+  }
+  
+  .code-block {
+    font-size: 0.75rem;
+    padding: 0.75rem;
+    max-height: 250px;
   }
 }
 </style>

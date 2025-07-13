@@ -37,8 +37,43 @@
         </div>
         
         <div class="song-details">
-          <h2 class="song-name">{{ audioStore.songStructure.name }}</h2>
-          <p class="artist-name">{{ (audioStore.songStructure as any).artist || 'Unknown Artist' }}</p>
+          <div class="song-name-container">
+            <h2 
+              v-if="!isEditingSongName" 
+              class="song-name"
+              @click="startEditingSongName"
+              :title="'Click to edit'"
+            >
+              {{ songName }}
+            </h2>
+            <input 
+              v-else
+              v-model="songName"
+              class="song-name-input"
+              @blur="updateSongName"
+              @keydown="handleSongNameKeydown"
+              maxlength="100"
+            />
+          </div>
+          
+          <div class="artist-name-container">
+            <p 
+              v-if="!isEditingArtist"
+              class="artist-name"
+              @click="startEditingArtist"
+              :title="'Click to edit'"
+            >
+              {{ artistName }}
+            </p>
+            <input 
+              v-else
+              v-model="artistName"
+              class="artist-name-input"
+              @blur="updateArtistName"
+              @keydown="handleArtistNameKeydown"
+              maxlength="100"
+            />
+          </div>
           
           <div class="json-stats">
             <div class="stat-item">
@@ -132,7 +167,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, nextTick } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
 import { 
   Code, 
@@ -142,6 +177,7 @@ import {
   RotateCcw, 
   Download,
   ChevronDown,
+  Image,
   Sparkles,
   Upload
 } from 'lucide-vue-next'
@@ -157,6 +193,13 @@ const isJSONExpanded = ref(false)
 const isLyricsExpanded = ref(false)
 const lyricsContent = ref('')
 const isGeneratingCover = ref(false)
+const generatingCover = ref(false)
+
+// Editable song info
+const songName = ref('')
+const artistName = ref('')
+const isEditingSongName = ref(false)
+const isEditingArtist = ref(false)
 
 // Watch for changes in song structure and update JSON content
 watch(() => audioStore.songStructure, (newStructure) => {
@@ -168,7 +211,95 @@ watch(() => audioStore.songStructure, (newStructure) => {
   if (lyricsContent.value !== lyrics) {
     lyricsContent.value = lyrics
   }
+  // Update song name and artist when song structure changes
+  if (songName.value !== newStructure.name) {
+    songName.value = newStructure.name || 'Untitled Song'
+  }
+  const artist = (newStructure as any).artist || 'Unknown Artist'
+  if (artistName.value !== artist) {
+    artistName.value = artist
+  }
 }, { deep: true, immediate: true })
+
+// Watch for manual lyrics changes and auto-update
+watch(() => lyricsContent.value, (newLyrics) => {
+  // Only auto-update if the lyrics section is expanded and user is actively editing
+  if (isLyricsExpanded.value && newLyrics !== (audioStore.songStructure as any).lyrics) {
+    // Debounce the update to avoid excessive updates while typing
+    if (lyricsUpdateTimeout.value) {
+      window.clearTimeout(lyricsUpdateTimeout.value)
+    }
+    lyricsUpdateTimeout.value = window.setTimeout(() => {
+      updateLyricsInJSON()
+    }, 1000) // Update after 1 second of no changes
+  }
+})
+
+const lyricsUpdateTimeout = ref<number | null>(null)
+
+const updateSongName = () => {
+  const updatedStructure = {
+    ...audioStore.songStructure,
+    name: songName.value.trim() || 'Untitled Song'
+  }
+  audioStore.loadSongStructure(updatedStructure)
+  isEditingSongName.value = false
+  console.log('Song name updated:', songName.value)
+}
+
+const updateArtistName = () => {
+  const updatedStructure = {
+    ...audioStore.songStructure,
+    artist: artistName.value.trim() || 'Unknown Artist'
+  }
+  audioStore.loadSongStructure(updatedStructure)
+  isEditingArtist.value = false
+  console.log('Artist name updated:', artistName.value)
+}
+
+const startEditingSongName = () => {
+  isEditingSongName.value = true
+  // Focus the input after Vue updates the DOM
+  nextTick(() => {
+    const input = document.querySelector('.song-name-input') as HTMLInputElement
+    if (input) {
+      input.focus()
+      input.select()
+    }
+  })
+}
+
+const startEditingArtist = () => {
+  isEditingArtist.value = true
+  // Focus the input after Vue updates the DOM
+  nextTick(() => {
+    const input = document.querySelector('.artist-name-input') as HTMLInputElement
+    if (input) {
+      input.focus()
+      input.select()
+    }
+  })
+}
+
+const handleSongNameKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Enter') {
+    updateSongName()
+  } else if (event.key === 'Escape') {
+    // Revert to original value
+    songName.value = audioStore.songStructure.name || 'Untitled Song'
+    isEditingSongName.value = false
+  }
+}
+
+const handleArtistNameKeydown = (event: KeyboardEvent) => {
+  if (event.key === 'Enter') {
+    updateArtistName()
+  } else if (event.key === 'Escape') {
+    // Revert to original value
+    artistName.value = (audioStore.songStructure as any).artist || 'Unknown Artist'
+    isEditingArtist.value = false
+  }
+}
 
 const handleJSONChange = () => {
   isEditing.value = true
@@ -187,14 +318,106 @@ const handleLyricsChange = () => {
   // Optional: You can add real-time validation or other logic here
 }
 
+const extractLyricsFromClips = (songStructure: any): string => {
+  let extractedLyricsText = ''
+  
+  if (songStructure.tracks) {
+    for (const track of songStructure.tracks) {
+      if (track.clips) {
+        for (const clip of track.clips) {
+          if (clip.voices) {
+            for (const voice of clip.voices) {
+              if (voice.lyrics) {
+                for (const lyric of voice.lyrics) {
+                  if (lyric.text) {
+                    extractedLyricsText += lyric.text + '\n'
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  
+  return extractedLyricsText.trim()
+}
+
+const updateClipsWithLyrics = (songStructure: any, newLyrics: string): any => {
+  if (!songStructure.tracks) return songStructure
+  
+  // Split lyrics into lines for distribution
+  const lyricsLines = newLyrics.split('\n').filter(line => line.trim().length > 0)
+  let currentLineIndex = 0
+  
+  // Find vocal tracks and update their clips with lyrics
+  const updatedTracks = songStructure.tracks.map((track: any) => {
+    if (track.instrument === 'vocals' && track.clips) {
+      const updatedClips = track.clips.map((clip: any) => {
+        if (clip.voices) {
+          const updatedVoices = clip.voices.map((voice: any) => {
+            if (voice.lyrics) {
+              // Distribute lyrics lines across the existing lyric entries
+              const updatedLyrics = voice.lyrics.map((lyric: any) => {
+                if (currentLineIndex < lyricsLines.length) {
+                  const updatedLyric = {
+                    ...lyric,
+                    text: lyricsLines[currentLineIndex]
+                  }
+                  currentLineIndex++
+                  return updatedLyric
+                } else {
+                  // If we have more lyric entries than lines, clear the excess
+                  return {
+                    ...lyric,
+                    text: ''
+                  }
+                }
+              })
+              
+              return {
+                ...voice,
+                lyrics: updatedLyrics
+              }
+            }
+            return voice
+          })
+          
+          return {
+            ...clip,
+            voices: updatedVoices
+          }
+        }
+        return clip
+      })
+      
+      return {
+        ...track,
+        clips: updatedClips
+      }
+    }
+    return track
+  })
+  
+  return {
+    ...songStructure,
+    tracks: updatedTracks
+  }
+}
+
 const updateLyricsInJSON = () => {
   try {
-    const updatedStructure = {
+    let updatedStructure = {
       ...audioStore.songStructure,
       lyrics: lyricsContent.value
     }
+    
+    // Also update lyrics within clips to keep them synchronized
+    updatedStructure = updateClipsWithLyrics(updatedStructure, lyricsContent.value)
+    
     audioStore.loadSongStructure(updatedStructure)
-    console.log('Lyrics updated in song structure')
+    console.log('Lyrics updated in song structure and synchronized with clips')
   } catch (error) {
     console.error('Failed to update lyrics:', error)
   }
@@ -235,40 +458,29 @@ const uploadCover = () => {
 }
 
 const generateCover = async () => {
-  if (isGeneratingCover.value) return
-  
-  isGeneratingCover.value = true
-  
+  const prompt = window.prompt('Describe your album cover (e.g. "A retro synthwave city at night")')
+  if (!prompt) return
+  generatingCover.value = true
   try {
-    const prompt = createCoverPrompt()
-    const response = await fetch('/api/ai/generate-image', {
+    const response = await fetch('/api/ai/generate/image', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt,
-        size: '512x512',
-        style: 'album_cover'
-      })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
     })
-    
-    if (!response.ok) {
-      throw new Error('Failed to generate cover image')
-    }
-    
     const data = await response.json()
-    if (data.imageUrl) {
-      updateAlbumCover(data.imageUrl)
+    if (data.success && data.image_url) {
+      const updatedStructure = {
+        ...audioStore.songStructure,
+        albumCover: data.image_url
+      }
+      audioStore.loadSongStructure(updatedStructure)
     } else {
-      throw new Error('No image URL received')
+      alert(data.error || 'Failed to generate image')
     }
-  } catch (error) {
-    console.error('Error generating cover:', error)
-    // You could show a toast notification here
-    alert('Failed to generate cover image. Please try again or upload an image instead.')
+  } catch (e) {
+    alert('Failed to generate image')
   } finally {
-    isGeneratingCover.value = false
+    generatingCover.value = false
   }
 }
 
@@ -327,6 +539,20 @@ const validateAndApplyJSON = () => {
       throw new Error('Invalid song structure format')
     }
     
+    // Extract lyrics from tracks/clips if not already present at top level
+    if (!parsedJSON.lyrics && parsedJSON.tracks) {
+      const extractedLyricsText = extractLyricsFromClips(parsedJSON)
+      
+      if (extractedLyricsText) {
+        parsedJSON.lyrics = extractedLyricsText
+        console.log('Extracted lyrics from tracks/clips for lyrics panel in JSON validation')
+      }
+    } else if (parsedJSON.lyrics) {
+      // If song-level lyrics exist, ensure clips are synchronized
+      updateClipsWithLyrics(parsedJSON, parsedJSON.lyrics)
+      console.log('Synchronized clips with song-level lyrics in JSON validation')
+    }
+    
     // Apply the changes with enhanced JSON configuration support
     audioStore.loadSongStructure(parsedJSON)
     
@@ -334,7 +560,7 @@ const validateAndApplyJSON = () => {
     audioStore.initializeTrackConfigurations()
     
     jsonError.value = ''
-    console.log('JSON structure applied with track configurations initialized')
+    console.log('JSON structure applied with track configurations initialized and lyrics synchronized')
   } catch (error) {
     jsonError.value = error instanceof Error ? error.message : 'Invalid JSON format'
     // Revert to current structure
@@ -539,6 +765,28 @@ const formatDate = (dateString: string) => {
   font-weight: 600;
   color: var(--text);
   line-height: 1.2;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.song-name:hover {
+  background-color: var(--border);
+}
+
+.song-name-input {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--background);
+  border: 2px solid var(--primary);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  outline: none;
+  width: 100%;
+  margin: 0 0 0.25rem 0;
+  line-height: 1.2;
 }
 
 .artist-name {
@@ -546,6 +794,32 @@ const formatDate = (dateString: string) => {
   font-size: 0.875rem;
   color: var(--text-secondary);
   font-weight: 500;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.artist-name:hover {
+  background-color: var(--border);
+}
+
+.artist-name-input {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: var(--background);
+  border: 2px solid var(--primary);
+  border-radius: 4px;
+  padding: 0.25rem 0.5rem;
+  outline: none;
+  width: 100%;
+  margin: 0 0 1rem 0;
+}
+
+.song-name-container,
+.artist-name-container {
+  width: 100%;
 }
 
 .json-stats {
@@ -791,6 +1065,15 @@ const formatDate = (dateString: string) => {
   .lyrics-editor {
     font-size: 0.8125rem;
     min-height: 120px;
+  }
+  
+  .song-name-input,
+  .artist-name-input {
+    font-size: 1rem;
+  }
+  
+  .song-name {
+    font-size: 1.125rem;
   }
   
   .json-footer {

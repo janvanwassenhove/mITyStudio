@@ -37,6 +37,7 @@ def create_app(config_name='development'):
         GOOGLE_API_KEY=os.getenv('GOOGLE_API_KEY'),
         # Audio processing
         UPLOAD_FOLDER=os.getenv('UPLOAD_FOLDER', 'uploads'),
+        SAMPLES_FOLDER=os.path.join(os.getenv('UPLOAD_FOLDER', 'uploads'), 'samples'),
         MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50MB max file size for voice training
         # Voice training directories
         VOICES_DIR=os.getenv('VOICES_DIR', 'app/data/voices'),
@@ -60,13 +61,14 @@ def create_app(config_name='development'):
     ])
     
     # Register blueprints
-    from app.api import ai_bp, audio_bp, project_bp, auth_bp, voice_bp
+    from app.api import ai_bp, audio_bp, project_bp, auth_bp, voice_bp, sample_bp
     
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
     app.register_blueprint(audio_bp, url_prefix='/api/audio')
     app.register_blueprint(project_bp, url_prefix='/api/projects')
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(voice_bp, url_prefix='/api/voice')
+    app.register_blueprint(sample_bp, url_prefix='/api/samples')
     
     # Health check endpoint
     @app.route('/health')

@@ -1,20 +1,24 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
+import { sampleApiService, type BackendSample } from '../services/sampleApiService'
 
 export interface LocalSample {
   id: string
   name: string
-  file: File
   url: string
   duration: number
   size: number
-  type: string
+  type?: string
   category: SampleCategory
   tags: string[]
   bpm?: number
   key?: string
   createdAt: string
   waveform?: number[]
+  sampleRate?: number
+  channels?: number
+  audioFeatures?: Record<string, any>
+  isFromBackend?: boolean // Flag to indicate if sample is stored in backend
 }
 
 export type SampleCategory = 
@@ -304,186 +308,152 @@ export const useSampleStore = defineStore('samples', () => {
     return [...new Set(tags)] // Remove duplicates
   }
 
-  // Load samples from files
+  // Load samples from files - uploads to backend and syncs local state
   const loadSamples = async (files: FileList | File[]) => {
     if (!files.length) return
 
     isLoading.value = true
     loadingProgress.value = 0
 
-    const fileArray = Array.from(files)
-    const validFiles = fileArray.filter(file => 
-      file.type.startsWith('audio/') || 
-      /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name)
-    )
-
-    if (validFiles.length === 0) {
-      isLoading.value = false
-      throw new Error('No valid audio files found')
-    }
-
-    const newSamples: LocalSample[] = []
-
-    for (let i = 0; i < validFiles.length; i++) {
-      const file = validFiles[i]
-      
-      try {
-        // Create object URL for playback
-        const url = URL.createObjectURL(file)
-        
-        // Analyze audio file
-        const audioData = await analyzeAudioFile(file)
-        
-        // Categorize sample
-        const category = categorizeSample(file, audioData)
-        
-        // Generate tags
-        const tags = generateTags(file, category, audioData)
-        
-        const sample: LocalSample = {
-          id: `local-${Date.now()}-${i}`,
-          name: file.name.replace(/\.[^/.]+$/, ''), // Remove extension
-          file,
-          url,
-          duration: audioData.duration,
-          size: file.size,
-          type: file.type || 'audio/unknown',
-          category,
-          tags,
-          bpm: audioData.bpm,
-          key: audioData.key,
-          waveform: audioData.waveform,
-          createdAt: new Date().toISOString()
+    try {
+      // Convert FileList to FileList if needed
+      const fileList = files instanceof FileList ? files : {
+        length: files.length,
+        item: (index: number) => files[index],
+        [Symbol.iterator]: function* () {
+          for (let i = 0; i < files.length; i++) {
+            yield files[i]
+          }
         }
-        
-        newSamples.push(sample)
-        
-      } catch (error) {
-        console.warn(`Failed to process ${file.name}:`, error)
-      }
+      } as FileList
+
+      // Upload files to backend
+      const response = await sampleApiService.uploadSamples(fileList)
       
-      loadingProgress.value = ((i + 1) / validFiles.length) * 100
+      if (response.success) {
+        // Convert backend samples to local format and add to store
+        const newSamples = response.samples.map(sampleApiService.backendToLocalSample)
+        localSamples.value.push(...newSamples)
+        
+        loadingProgress.value = 100
+        console.log(`Successfully loaded ${response.uploaded_count} samples`)
+      }
+    } catch (error) {
+      console.error('Failed to load samples:', error)
+      throw error
+    } finally {
+      isLoading.value = false
+      loadingProgress.value = 0
     }
+  }
 
-    // Add to store
-    localSamples.value.push(...newSamples)
-    
-    isLoading.value = false
-    loadingProgress.value = 0
+  // Sync samples from backend
+  const syncSamplesFromBackend = async () => {
+    try {
+      const response = await sampleApiService.getSamples({
+        sort_by: sortBy.value,
+        sort_order: sortOrder.value,
+        category: selectedCategory.value !== 'uncategorized' ? selectedCategory.value : undefined,
+        search: searchQuery.value || undefined
+      })
 
-    return newSamples
+      if (response.success) {
+        localSamples.value = response.samples.map(sampleApiService.backendToLocalSample)
+      }
+    } catch (error) {
+      console.error('Failed to sync samples from backend:', error)
+    }
   }
 
   // Remove sample
-  const removeSample = (sampleId: string) => {
-    const index = localSamples.value.findIndex(s => s.id === sampleId)
-    if (index !== -1) {
-      const sample = localSamples.value[index]
-      URL.revokeObjectURL(sample.url) // Clean up object URL
-      localSamples.value.splice(index, 1)
+  const removeSample = async (sampleId: string) => {
+    try {
+      // Remove from backend if it's a backend sample
+      const sample = localSamples.value.find(s => s.id === sampleId)
+      if (sample?.isFromBackend) {
+        await sampleApiService.deleteSample(sampleId)
+      }
+      
+      // Remove from local store
+      const index = localSamples.value.findIndex(s => s.id === sampleId)
+      if (index !== -1) {
+        localSamples.value.splice(index, 1)
+      }
+    } catch (error) {
+      console.error('Failed to remove sample:', error)
+      throw error
     }
   }
 
   // Update sample category
-  const updateSampleCategory = (sampleId: string, category: SampleCategory) => {
+  const updateSampleCategory = async (sampleId: string, category: SampleCategory) => {
     const sample = localSamples.value.find(s => s.id === sampleId)
     if (sample) {
+      // Update local state immediately
       sample.category = category
-      // Update tags to include new category
-      if (!sample.tags.includes(category)) {
-        sample.tags.push(category)
+      
+      // Update backend if it's a backend sample
+      if (sample.isFromBackend) {
+        try {
+          await sampleApiService.updateSample(sampleId, { category })
+        } catch (error) {
+          console.error('Failed to update sample category on backend:', error)
+          // Optionally revert local change
+        }
       }
     }
   }
 
   // Update sample tags
-  const updateSampleTags = (sampleId: string, tags: string[]) => {
+  const updateSampleTags = async (sampleId: string, tags: string[]) => {
     const sample = localSamples.value.find(s => s.id === sampleId)
     if (sample) {
+      // Update local state immediately
       sample.tags = [...new Set(tags)] // Remove duplicates
+      
+      // Update backend if it's a backend sample
+      if (sample.isFromBackend) {
+        try {
+          await sampleApiService.updateSample(sampleId, { tags })
+        } catch (error) {
+          console.error('Failed to update sample tags on backend:', error)
+          // Optionally revert local change
+        }
+      }
     }
   }
 
   // Clear all samples
-  const clearAllSamples = () => {
-    // Clean up object URLs
-    localSamples.value.forEach(sample => {
-      URL.revokeObjectURL(sample.url)
-    })
-    localSamples.value = []
-  }
-
-  // Export sample library
-  const exportSampleLibrary = () => {
-    const exportData = localSamples.value.map(sample => ({
-      id: sample.id,
-      name: sample.name,
-      duration: sample.duration,
-      size: sample.size,
-      type: sample.type,
-      category: sample.category,
-      tags: sample.tags,
-      bpm: sample.bpm,
-      key: sample.key,
-      createdAt: sample.createdAt
-    }))
-    
-    return JSON.stringify(exportData, null, 2)
-  }
-
-  // Get sample by ID
-  const getSample = (sampleId: string) => {
-    return localSamples.value.find(s => s.id === sampleId)
-  }
-
-  // Format file size
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B'
-    const k = 1024
-    const sizes = ['B', 'KB', 'MB', 'GB']
-    const i = Math.floor(Math.log(bytes) / Math.log(k))
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-  }
-
-  // Format duration
-  const formatDuration = (seconds: number): string => {
-    const mins = Math.floor(seconds / 60)
-    const secs = Math.floor(seconds % 60)
-    return `${mins}:${secs.toString().padStart(2, '0')}`
-  }
-
-  // --- Persistence helpers ---
-  const SAMPLES_STORAGE_KEY = 'mitystudio_samples_v1'
-
-  // Save sample metadata to localStorage (excluding File objects)
-  const saveSamplesToStorage = () => {
-    const metadata = localSamples.value.map(sample => {
-      const { file, ...meta } = sample
-      return meta
-    })
-    localStorage.setItem(SAMPLES_STORAGE_KEY, JSON.stringify(metadata))
-  }
-
-  // Load sample metadata from localStorage
-  const loadSamplesFromStorage = () => {
-    const raw = localStorage.getItem(SAMPLES_STORAGE_KEY)
-    if (!raw) return
+  const clearAllSamples = async () => {
     try {
-      const metadata = JSON.parse(raw)
-      if (Array.isArray(metadata)) {
-        // Restore as much as possible (file will be undefined)
-        localSamples.value = metadata.map((meta: any) => ({ ...meta, file: undefined }))
+      // If samples are from backend, delete them there too
+      const backendSampleIds = localSamples.value
+        .filter(sample => sample.isFromBackend)
+        .map(sample => sample.id)
+      
+      if (backendSampleIds.length > 0) {
+        await sampleApiService.bulkDeleteSamples(backendSampleIds)
       }
-    } catch (e) {
-      console.warn('Failed to load samples from storage:', e)
+      
+      // Clear local store
+      localSamples.value = []
+    } catch (error) {
+      console.error('Failed to clear samples:', error)
+      throw error
     }
   }
 
-  // Watch for changes and persist
-  watch(localSamples, saveSamplesToStorage, { deep: true })
+  // Initialize by syncing with backend
+  const initializeStore = async () => {
+    try {
+      await syncSamplesFromBackend()
+    } catch (error) {
+      console.error('Failed to initialize sample store:', error)
+    }
+  }
 
   // Call on store init
-  loadSamplesFromStorage()
+  initializeStore()
 
   return {
     // State

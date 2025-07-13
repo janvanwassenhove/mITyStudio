@@ -1242,3 +1242,69 @@ def get_all_available_instruments():
     except Exception as e:
         current_app.logger.error(f"Error getting all available instruments: {str(e)}")
         return []
+
+
+@ai_bp.route('/generate/image', methods=['POST'])
+@handle_errors
+def generate_image():
+    """
+    Generate AI album cover images
+    """
+    try:
+        data = request.get_json()
+        prompt = data.get('prompt', '')
+        provider = data.get('provider', 'openai')
+        size = data.get('size', '1024x1024')
+        quality = data.get('quality', 'standard')
+        style = data.get('style', 'vivid')
+        
+        if not prompt:
+            return jsonify({'error': 'Prompt is required'}), 400
+        
+        # Initialize AI service
+        ai_service = AIService()
+        
+        # Check if OpenAI is available for image generation
+        if provider == 'openai' and not ai_service.openai_client:
+            return jsonify({'error': 'OpenAI API not configured'}), 400
+        
+        # Generate image using simplified approach
+        if provider == 'openai' and ai_service.openai_client:
+            try:
+                # Enhance prompt for album cover context
+                enhanced_prompt = f"Album cover art: {prompt}. Professional music album cover design, high quality, artistic, suitable for music streaming platforms."
+                
+                response = ai_service.openai_client.images.generate(
+                    model="dall-e-3",
+                    prompt=enhanced_prompt,
+                    size=size,
+                    quality=quality,
+                    style=style,
+                    n=1
+                )
+                
+                image_url = response.data[0].url
+                revised_prompt = getattr(response.data[0], 'revised_prompt', enhanced_prompt)
+                
+                return jsonify({
+                    'success': True,
+                    'image_url': image_url,
+                    'revised_prompt': revised_prompt,
+                    'original_prompt': prompt,
+                    'provider': provider,
+                    'model': 'dall-e-3',
+                    'size': size,
+                    'quality': quality,
+                    'style': style,
+                    'timestamp': datetime.utcnow().isoformat()
+                })
+                
+            except Exception as e:
+                current_app.logger.error(f"OpenAI image generation error: {str(e)}")
+                return jsonify({'error': f'Image generation failed: {str(e)}'}), 500
+        
+        return jsonify({'error': 'Image generation provider not available'}), 400
+        
+    except Exception as e:
+        current_app.logger.error(f"Image generation error: {str(e)}")
+        return jsonify({'error': 'Failed to generate image'}), 500

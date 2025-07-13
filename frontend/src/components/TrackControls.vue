@@ -205,36 +205,31 @@
             <div v-if="activeTab === 'instruments'" class="instruments-categories-list">
               <template v-if="instrumentsByCategory.length">
                 <div v-for="group in instrumentsByCategory" :key="group.name" class="instrument-category-group" style="margin-bottom: 1.5em;">
-                  <div class="category-header" @click="toggleCategory(group.name)" style="cursor:pointer;display:flex;align-items:center;padding:1em 0;border-bottom:1px solid #eee;">
-                    <component :is="getCategoryIcon(group.name)" class="icon" style="font-size:1.5em;margin-right:0.7em;color:#7b7bff;" />
-                    <span style="font-weight:bold;font-size:1.1em;flex:1;text-align:left;">{{ group.name }}</span>
-                    <span v-if="expandedCategory === group.name"><ChevronDown class="icon" /></span>
-                    <span v-else><ChevronRight class="icon" /></span>
+                  <div class="category-header" @click="toggleCategory(group.name)">
+                    <component :is="getCategoryIcon(group.name)" class="category-icon" />
+                    <span class="category-name">{{ group.name }}</span>
+                    <span class="instrument-count">({{ group.instruments.length }})</span>
+                    <component :is="expandedCategory === group.name ? ChevronDown : ChevronRight" class="chevron-icon" />
                   </div>
                   <transition name="fade">
-                    <div v-if="expandedCategory === group.name" class="category-instruments-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1em;margin-top:1em;">
-                      <button
+                    <div v-if="expandedCategory === group.name" class="category-instruments-grid">
+                      <div
                         v-for="instrument in group.instruments"
                         :key="instrument.value"
                         class="instrument-card"
-                        :class="{ 
-                          'selected': selectedInstrumentValue === instrument.value,
-                          'sample-based': instrument.type === 'sample',
-                          'synth-based': instrument.type === 'synth'
-                        }"
+                        :class="{ 'selected': selectedInstrumentValue === instrument.value }"
                         @click="selectInstrument(instrument.value)"
-                        style="background:#f8f9fa;border:1px solid #e0e0e0;border-radius:10px;padding:1.2em 1em;text-align:left;display:flex;align-items:center;gap:1em;transition:box-shadow .2s;box-shadow:0 1px 2px rgba(0,0,0,0.02);cursor:pointer;"
                       >
-                        <div class="instrument-icon">
-                          <component :is="getInstrumentIcon(instrument.value || instrument.name)" class="icon" style="font-size:2em;color:#7b7bff;" />
+                        <div class="instrument-header">
+                          <div class="instrument-icon">
+                            <component :is="getInstrumentIcon(instrument.value || instrument.name)" class="icon" />
+                          </div>
+                          <div class="instrument-info">
+                            <h4 class="instrument-name">{{ instrument.name || instrument.display_name }}</h4>
+                            <p class="instrument-description">{{ instrument.description }}</p>
+                          </div>
                         </div>
-                        <div class="instrument-info">
-                          <h4 style="margin:0 0 0.2em 0;font-size:1.1em;">{{ instrument.name || instrument.display_name }}</h4>
-                          <p style="margin:0 0 0.2em 0;font-size:0.95em;color:#888;">{{ instrument.description }}</p>
-                          <span v-if="instrument.type === 'sample'" class="sample-type-label" style="font-size:0.85em;color:#7b7bff;">Sample-based</span>
-                          <span v-else class="synth-type-label" style="font-size:0.85em;color:#aaa;">Synthesized</span>
-                        </div>
-                      </button>
+                      </div>
                     </div>
                   </transition>
                 </div>
@@ -245,42 +240,79 @@
             </div>
             
             <!-- Samples Tab -->
-            <div v-if="activeTab === 'samples'" class="samples-grid">
-              <div class="sample-category" v-for="category in sampleCategories" :key="category.name">
-                <h4 class="category-title">{{ category.name }}</h4>
-                <div class="samples-list">
-                  <div
-                    v-for="sample in category.samples"
-                    :key="sample.id"
-                    class="sample-card"
-                    :class="{ 'selected': selectedInstrumentValue === sample.id }"
-                    @click="selectSample(sample)"
-                  >
-                    <div class="sample-icon">
-                      <component :is="getSampleIcon(category.name)" class="icon" />
-                    </div>
-                    <div class="sample-info">
-                      <h5>{{ sample.name }}</h5>
-                      <p>{{ sample.duration }}s</p>
-                      <!-- Waveform Canvas -->
-                      <canvas
-                        v-if="sample.waveform && sample.waveform.length"
-                        :ref="el => setWaveformCanvasRef(el, sample.id)"
-                        class="sample-waveform-canvas"
-                        width="120"
-                        height="24"
-                        style="display: block; margin-top: 4px; background: rgba(255,255,255,0.05); border-radius: 4px;"
-                      ></canvas>
-                    </div>
-                    <button 
-                      class="play-sample-btn"
-                      @click.stop="previewSample(sample)"
-                      :disabled="isPreviewPlaying"
-                    >
-                      <Play v-if="!isPreviewPlaying || previewingSample !== sample.id" class="icon" />
-                      <Square v-else class="icon" />
-                    </button>
+            <div v-if="activeTab === 'samples'" class="samples-section">
+              <div v-if="sampleCategories.length === 0" class="empty-samples-state">
+                <FileAudio class="empty-icon" />
+                <h4>No samples available</h4>
+                <p>Load samples in the Sample Library to use them here</p>
+              </div>
+              
+              <div v-else class="samples-categories-list">
+                <div v-for="category in sampleCategories" :key="category.name" class="sample-category-group">
+                  <div class="category-header" @click="toggleSampleCategory(category.name)">
+                    <component :is="getSampleIcon(category.name)" class="category-icon" />
+                    <span class="category-name">{{ category.name }}</span>
+                    <span class="sample-count">({{ category.samples.length }})</span>
+                    <component :is="expandedSampleCategory === category.name ? ChevronDown : ChevronRight" class="chevron-icon" />
                   </div>
+                  
+                  <transition name="fade">
+                    <div v-if="expandedSampleCategory === category.name" class="category-samples-grid">
+                      <div
+                        v-for="sample in category.samples"
+                        :key="sample.id"
+                        class="sample-card"
+                        :class="{ 'selected': selectedInstrumentValue === sample.id }"
+                        @click="selectSample(sample)"
+                      >
+                        <div class="sample-header">
+                          <div class="sample-icon">
+                            <component :is="getSampleIcon(category.name)" class="icon" />
+                          </div>
+
+                          <div class="sample-waveform" v-if="sample.waveform && sample.waveform.length">
+                            <canvas 
+                              :ref="el => setWaveformCanvasRef(el, sample.id)"
+                              class="waveform-canvas"
+                              :width="120"
+                              :height="32"
+                            ></canvas>
+                          </div>
+
+                          <div class="sample-actions">
+                            <button 
+                              class="action-btn play-btn"
+                              @click.stop="previewSample(sample)"
+                              :disabled="isPreviewPlaying && previewingSample !== sample.id"
+                            >
+                              <Play v-if="!isPreviewPlaying || previewingSample !== sample.id" class="icon" />
+                              <Square v-else class="icon" />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div class="sample-info">
+                          <h4 class="sample-name" :title="sample.name">{{ sample.name }}</h4>
+                          <div class="sample-meta">
+                            <span class="duration">{{ formatDuration(sample.duration) }}</span>
+                            <span v-if="sample.bpm" class="bpm">{{ sample.bpm }} BPM</span>
+                          </div>
+                          <div v-if="sample.tags && sample.tags.length" class="sample-tags">
+                            <span 
+                              v-for="tag in sample.tags.slice(0, 3)" 
+                              :key="tag" 
+                              class="tag"
+                            >
+                              {{ tag }}
+                            </span>
+                            <span v-if="sample.tags.length > 3" class="tag-more">
+                              +{{ sample.tags.length - 3 }}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </transition>
                 </div>
               </div>
             </div>
@@ -553,6 +585,14 @@ function debugLog(...args: any[]) {
   }
 }
 
+// Format duration in seconds to MM:SS format
+const formatDuration = (duration: number): string => {
+  if (!duration || isNaN(duration)) return '0:00'
+  const minutes = Math.floor(duration / 60)
+  const seconds = Math.floor(duration % 60)
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
 const addNewTrack = () => {
   // Instead of adding immediately, open the instrument/sample selector dialog
   selectedTrackForInstrument.value = null // No track yet, will create after selection
@@ -782,6 +822,11 @@ watch(sampleCategories, (newCats) => {
       }
     })
   })
+  
+  // Auto-expand first category if none is expanded and categories exist
+  if (newCats.length > 0 && !expandedSampleCategory.value) {
+    expandedSampleCategory.value = newCats[0].name
+  }
 })
 
 const updateTrackName = (trackId: string, name: string) => {
@@ -851,9 +896,14 @@ function getInputValue(event: Event): string {
 }
 
 const expandedCategory = ref<string | null>(null)
+const expandedSampleCategory = ref<string | null>(null)
 
 const toggleCategory = (name: string) => {
   expandedCategory.value = expandedCategory.value === name ? null : name
+}
+
+const toggleSampleCategory = (name: string) => {
+  expandedSampleCategory.value = expandedSampleCategory.value === name ? null : name
 }
 </script>
 
@@ -1198,8 +1248,8 @@ const toggleCategory = (name: string) => {
   background: var(--surface);
   border-radius: 12px;
   width: 90vw;
-  max-width: 800px;
-  max-height: 80vh;
+  max-width: 900px;
+  max-height: 85vh;
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border);
@@ -1266,142 +1316,127 @@ const toggleCategory = (name: string) => {
   height: 16px;
 }
 
+/* Category Header Styles */
+.category-header {
+  display: flex;
+  align-items: center;
+  padding: 1rem 0;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.category-header:hover {
+  background: var(--background);
+}
+
+.category-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--primary);
+  margin-right: 0.75rem;
+}
+
+.category-name {
+  font-weight: 600;
+  font-size: 1.1rem;
+  flex: 1;
+  color: var(--text);
+}
+
+.chevron-icon {
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+  transition: transform 0.2s ease;
+}
+
+.instruments-categories-list {
+  padding: 0.5rem;
+}
+
+.instrument-category-group {
+  margin-bottom: 1.5rem;
+}
+
+.instrument-count {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-left: 0.5rem;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
 .selection-content {
   flex: 1;
   overflow-y: auto;
   padding: 1rem;
 }
 
-.instruments-grid {
+.category-instruments-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 0.75rem;
-  padding: 0.5rem;
+  margin-top: 1rem;
+  padding: 0.5rem 0;
 }
 
 .instrument-card {
-  background: var(--background);
-  border: 2px solid var(--border);
-  border-radius: 12px;
-  padding: 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0;
   cursor: pointer;
   transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  text-align: left;
-  position: relative;
-  min-height: 60px;
+  overflow: hidden;
 }
 
 .instrument-card:hover {
   border-color: var(--primary);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .instrument-card.selected {
   border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary);
   background: var(--primary);
+}
+
+.instrument-card.selected .instrument-name,
+.instrument-card.selected .instrument-description {
   color: white;
 }
 
-.instrument-card.selected .instrument-info h4,
-.instrument-card.selected .instrument-info p {
-  color: white;
-}
-
-.instrument-card.sample-based {
-  border: 2px solid rgba(34, 197, 94, 0.4);
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.05), rgba(34, 197, 94, 0.02));
-}
-
-.instrument-card.sample-based:hover {
-  border-color: rgba(34, 197, 94, 0.6);
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.1), rgba(34, 197, 94, 0.05));
-}
-
-.instrument-card.sample-based.selected {
-  border-color: rgb(34, 197, 94);
-  background: linear-gradient(135deg, rgb(34, 197, 94), rgba(34, 197, 94, 0.8));
-}
-
-.instrument-card.synth-based {
-  border: 2px solid rgba(168, 85, 247, 0.4);
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.05), rgba(168, 85, 247, 0.02));
-}
-
-.instrument-card.synth-based:hover {
-  border-color: rgba(168, 85, 247, 0.6);
-  background: linear-gradient(135deg, rgba(168, 85, 247, 0.1), rgba(168, 85, 247, 0.05));
-}
-
-.instrument-card.synth-based.selected {
-  border-color: rgb(168, 85, 247);
-  background: linear-gradient(135deg, rgb(168, 85, 247), rgba(168, 85, 247, 0.8));
+.instrument-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
 }
 
 .instrument-icon {
-  position: relative;
-  width: 40px;
-  height: 40px;
-  background: var(--surface);
-  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  background: var(--gradient-primary);
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  transition: all 0.2s ease;
 }
 
 .instrument-icon .icon {
-  width: 20px;
-  height: 20px;
-  color: var(--text-secondary);
-  transition: all 0.2s ease;
-}
-
-.instrument-card:hover .instrument-icon {
-  background: var(--border);
-}
-
-.instrument-card.sample-based .instrument-icon {
-  background: rgba(34, 197, 94, 0.1);
-}
-
-.instrument-card.sample-based .instrument-icon .icon {
-  color: rgb(34, 197, 94);
-}
-
-.instrument-card.synth-based .instrument-icon {
-  background: rgba(168, 85, 247, 0.1);
-}
-
-.instrument-card.synth-based .instrument-icon .icon {
-  color: rgb(168, 85, 247);
-}
-
-.instrument-card.selected .instrument-icon {
-  background: rgba(255, 255, 255, 0.2);
-}
-
-.instrument-card.selected .instrument-icon .icon {
+  width: 16px;
+  height: 16px;
   color: white;
-}
-
-.sample-badge {
-  position: absolute;
-  top: -6px;
-  right: -6px;
-  background: rgb(34, 197, 94);
-  color: white;
-  font-size: 9px;
-  padding: 2px 5px;
-  border-radius: 8px;
-  font-weight: 600;
-  white-space: nowrap;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-  z-index: 10;
 }
 
 .instrument-info {
@@ -1409,18 +1444,18 @@ const toggleCategory = (name: string) => {
   min-width: 0;
 }
 
-.instrument-info h4 {
-  font-size: 0.95rem;
+.instrument-name {
+  font-size: 0.875rem;
   font-weight: 600;
   margin: 0 0 0.25rem 0;
-  color: var(--text-primary);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.instrument-info p {
-  font-size: 0.8rem;
+.instrument-description {
+  font-size: 0.75rem;
   color: var(--text-secondary);
   margin: 0;
   line-height: 1.3;
@@ -1429,127 +1464,233 @@ const toggleCategory = (name: string) => {
   white-space: nowrap;
 }
 
-.sample-type-label,
-.synth-type-label {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  display: inline-block;
-  padding: 2px 6px;
-  border-radius: 4px;
-  transition: all 0.2s ease;
-  margin-top: 4px;
+/* Sample Section Styles */
+.samples-section {
+  padding: 0.5rem;
 }
 
-.sample-type-label {
-  color: rgb(34, 197, 94);
-  background: rgba(34, 197, 94, 0.1);
+.samples-categories-list {
+  padding: 0.5rem 0;
 }
 
-.synth-type-label {
-  color: rgb(168, 85, 247);
-  background: rgba(168, 85, 247, 0.1);
+.sample-category-group {
+  margin-bottom: 1.5rem;
 }
 
-.instrument-card.selected .sample-type-label,
-.instrument-card.selected .synth-type-label {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
+.sample-count {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+  margin-left: 0.5rem;
 }
 
-/* Sample Card Styles */
+.category-samples-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.5rem 0;
+}
+
+.empty-samples-state {
+  text-align: center;
+  padding: 3rem 1rem;
+  color: var(--text-secondary);
+}
+
+.empty-samples-state .empty-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 1rem;
+  opacity: 0.5;
+}
+
+.empty-samples-state h4 {
+  margin: 0 0 0.5rem 0;
+  color: var(--text);
+}
+
+.empty-samples-state p {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
 .samples-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: 0.75rem;
 }
 
 .sample-card {
-  background: var(--background);
-  border: 2px solid var(--border);
+  background: var(--surface);
+  border: 1px solid var(--border);
   border-radius: 8px;
-  padding: 0.75rem;
+  overflow: hidden;
   cursor: pointer;
   transition: all 0.2s ease;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  text-align: left;
-  position: relative;
 }
 
 .sample-card:hover {
   border-color: var(--primary);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .sample-card.selected {
   border-color: var(--primary);
-  background: var(--primary);
-  color: white;
+  box-shadow: 0 0 0 2px var(--primary);
 }
 
-.sample-card.selected .sample-info h5,
-.sample-card.selected .sample-info p {
-  color: white;
+.sample-header {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem;
+  gap: 0.75rem;
 }
 
-.sample-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.sample-info h5 {
-  font-size: 0.9rem;
-  font-weight: 600;
-  margin: 0 0 0.25rem 0;
-  color: var(--text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sample-info p {
-  font-size: 0.75rem;
-  color: var(--text-secondary);
-  margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.play-sample-btn {
+.sample-icon {
   width: 32px;
   height: 32px;
-  border: none;
-  background: var(--surface);
+  background: var(--gradient-primary);
   border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.sample-icon .icon {
+  width: 16px;
+  height: 16px;
+  color: white;
+}
+
+.sample-waveform {
+  flex: 1;
+  margin: 0 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.waveform-canvas {
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.sample-actions {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.action-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s ease;
-  flex-shrink: 0;
+  color: var(--text-secondary);
 }
 
-.play-sample-btn:hover {
+.action-btn:hover {
+  background: var(--border);
+  color: var(--text);
+}
+
+.action-btn.play-btn:hover {
   background: var(--primary);
   color: white;
 }
 
-.play-sample-btn .icon {
-  width: 12px;
-  height: 12px;
+.action-btn .icon {
+  width: 14px;
+  height: 14px;
 }
 
-.sample-card.selected .play-sample-btn {
-  background: rgba(255, 255, 255, 0.2);
+.sample-info {
+  padding: 0 0.75rem 0.75rem 0.75rem;
 }
 
-.sample-card.selected .play-sample-btn:hover {
-  background: rgba(255, 255, 255, 0.3);
+.sample-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin: 0 0 0.5rem 0;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sample-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.category-badge {
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 0.125rem 0.5rem;
+  border-radius: 12px;
+  text-transform: capitalize;
+}
+
+.category-bass {
+  background: rgba(34, 197, 94, 0.1);
+  color: rgb(34, 197, 94);
+}
+
+.category-drums {
+  background: rgba(239, 68, 68, 0.1);
+  color: rgb(239, 68, 68);
+}
+
+.category-melodic {
+  background: rgba(59, 130, 246, 0.1);
+  color: rgb(59, 130, 246);
+}
+
+.category-vocals {
+  background: rgba(168, 85, 247, 0.1);
+  color: rgb(168, 85, 247);
+}
+
+.category-other {
+  background: rgba(107, 114, 128, 0.1);
+  color: rgb(107, 114, 128);
+}
+
+.duration,
+.bpm {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.sample-tags {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.tag {
+  font-size: 0.625rem;
+  background: var(--border);
+  color: var(--text-secondary);
+  padding: 0.125rem 0.375rem;
+  border-radius: 8px;
+  font-weight: 500;
+}
+
+.tag-more {
+  font-size: 0.625rem;
+  color: var(--text-secondary);
+  font-weight: 500;
 }
 
 /* Responsive Design */
