@@ -35,7 +35,7 @@
         <SampleLibrary />
       </div>
       
-      <!-- JSON Song Structure Tab (replaces Effects) -->
+      <!-- Song Structure Tab (replaces Effects) -->
       <div v-if="activeTab === 'effects'" class="tab-panel">
         <JSONStructurePanel />
       </div>
@@ -218,7 +218,7 @@ const tabs = [
   { id: 'chords', name: 'Chords', icon: Music2 },
   { id: 'lyrics', name: 'Lyrics & Vocals', icon: Mic },
   { id: 'samples', name: 'Samples', icon: FileAudio },
-  { id: 'effects', name: 'JSON Song Structure', icon: Sliders }, // Renamed tab for clarity
+  { id: 'effects', name: 'Song', icon: Sliders }, // Song structure panel
   { id: 'settings', name: 'Settings', icon: Settings }, // Ensure settings tab remains
 ]
 

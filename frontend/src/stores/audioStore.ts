@@ -1442,11 +1442,12 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     updateSongStructure()
   }
 
-  const addTrack = (name: string, instrument: string, sampleUrl?: string) => {
+  const addTrack = (name: string, instrument: string, sampleUrl?: string, category?: string) => {
     const newTrack: Track = {
       id: `track-${Date.now()}`,
       name,
       instrument,
+      category,
       volume: 0.8,
       pan: 0,
       muted: false,
@@ -2136,6 +2137,8 @@ Check your web server configuration to ensure it can serve audio files from: ${s
       'bass': 'strings',
       'drums': 'percussion',
       'synth': 'synths',
+      'synth-pad': 'synths',
+      'synth-lead': 'synths',
       'violin': 'strings',
       'trumpet': 'brass',
       'horn': 'brass',

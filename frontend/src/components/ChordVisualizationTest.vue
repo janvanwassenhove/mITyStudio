@@ -15,7 +15,7 @@
         </div>
         <div class="detail-row">
           <label>Duration:</label>
-          <span>{{ selectedClip.duration }}s</span>
+          <span>{{ clipDuration }}s</span>
         </div>
         <div class="detail-row">
           <label>Type:</label>
@@ -120,6 +120,32 @@
     <!-- Sample Duration Editor -->
     <div v-if="selectedClip" class="sample-duration-editor">
       <div class="editor-section">
+        <h4>Clip Duration</h4>
+        <p class="section-description">
+          Total duration of the clip
+        </p>
+        
+        <div class="duration-control">
+          <label for="clipDuration">Clip duration:</label>
+          <div class="duration-input-group">
+            <input 
+              id="clipDuration"
+              type="range"
+              v-model.number="clipDuration"
+              @input="updateClipDuration"
+              class="duration-slider"
+              min="1"
+              max="30"
+              step="0.5"
+            />
+            <span class="duration-value">{{ clipDuration }}s</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="section-separator"></div>
+
+      <div class="editor-section">
         <h4>Sample Duration</h4>
         <p class="section-description">
           How long each chord plays before moving to the next
@@ -128,28 +154,28 @@
         <div class="duration-control">
           <label for="sampleDuration">Duration per chord:</label>
           <div class="duration-input-group">
-            <select 
+            <input 
               id="sampleDuration"
+              type="range"
               v-model.number="sampleDuration"
-              @change="updateSampleDuration"
-              class="duration-select"
-            >
-              <option value="0.5">0.5 seconds</option>
-              <option value="1">1 second</option>
-              <option value="2">2 seconds</option>
-              <option value="4">4 seconds</option>
-            </select>
+              @input="updateSampleDuration"
+              class="duration-slider"
+              min="0.1"
+              max="5"
+              step="0.1"
+            />
+            <span class="duration-value">{{ sampleDuration }}s</span>
           </div>
         </div>
 
         <div class="duration-info">
           <div class="info-row">
             <span>Total clip duration:</span>
-            <span>{{ selectedClip.duration }}s</span>
+            <span>{{ clipDuration }}s</span>
           </div>
           <div class="info-row">
             <span>Loops per clip:</span>
-            <span>{{ Math.ceil(selectedClip.duration / sampleDuration) }}</span>
+            <span>{{ Math.ceil(clipDuration / sampleDuration) }}</span>
           </div>
         </div>
       </div>
@@ -165,7 +191,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, computed, onMounted } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
 
 const audioStore = useAudioStore()
@@ -173,6 +199,7 @@ const audioStore = useAudioStore()
 // State for chord editing
 const chordSequence = ref<string[]>([])
 const sampleDuration = ref(1)
+const clipDuration = ref(4)
 
 // Drag and drop state
 const dragState = ref({
@@ -244,84 +271,67 @@ const availableChords = computed(() => {
   return chords
 })
 
-// Load clip data into the editor
-const loadClipData = () => {
-  if (!selectedClip.value) {
-    chordSequence.value = []
-    sampleDuration.value = 1
-    return
-  }
-  
-  // Load chord sequence from clip notes
-  const clipNotes = selectedClip.value.notes || []
-  console.log('Loading clip data - notes:', clipNotes)
-  
-  // Load the chord sequence as-is (validation will happen in the availableChords watcher)
-  chordSequence.value = [...clipNotes]
-  
-  console.log('Loaded chord sequence:', chordSequence.value)
-  
-  // Load sample duration - ensure it's one of the allowed values
-  const allowedDurations = [0.5, 1, 2, 4]
-  const clipDuration = selectedClip.value.sampleDuration || 1
-  
-  // Find the closest allowed duration if the clip has an invalid value
-  const closestDuration = allowedDurations.reduce((prev, curr) => 
-    Math.abs(curr - clipDuration) < Math.abs(prev - clipDuration) ? curr : prev
-  )
-  
-  sampleDuration.value = closestDuration
-}
-
 // Watch for clip selection changes
 watch(
-  selectedClip,
-  (newClip, oldClip) => {
-    console.log('Clip selection changed:', { 
+  [selectedClip, availableChords],
+  ([newClip, newChords], [oldClip]) => {
+    console.log('Clip or chords changed:', { 
       newClip: newClip?.id, 
       oldClip: oldClip?.id,
       newClipNotes: newClip?.notes,
-      instrument: newClip?.instrument
+      instrument: newClip?.instrument,
+      chordsAvailable: newChords.length
     })
+    
     if (newClip) {
-      loadClipData()
+      // Load chord sequence from clip notes
+      const clipNotes = newClip.notes || []
+      console.log('Loading chord sequence from clip:', clipNotes)
+      chordSequence.value = [...clipNotes]
+      
+      // Load sample duration - clamp to slider range
+      const clipSampleDuration = newClip.sampleDuration || 1
+      
+      // Clamp the duration to the slider's min/max range
+      const clampedSampleDuration = Math.max(0.5, Math.min(4, clipSampleDuration))
+      
+      sampleDuration.value = clampedSampleDuration
+      
+      // Load clip duration - clamp to slider range
+      const clipTotalDuration = newClip.duration || 4
+      
+      // Clamp the duration to the slider's min/max range
+      const clampedClipDuration = Math.max(1, Math.min(30, clipTotalDuration))
+      
+      clipDuration.value = clampedClipDuration
+      
+      console.log('Loaded chord sequence:', chordSequence.value)
+      
+      // Validate chords if available
+      if (newChords.length > 0 && chordSequence.value.length > 0) {
+        const availableValues = newChords.map(c => c.value)
+        const hasInvalidChords = chordSequence.value.some(chord => !availableValues.includes(chord))
+        
+        if (hasInvalidChords) {
+          console.log('Found invalid chords, replacing with valid ones')
+          chordSequence.value = chordSequence.value.map(chord => {
+            if (availableValues.includes(chord)) {
+              return chord
+            }
+            console.warn(`✗ Chord "${chord}" not available, defaulting to first available chord`)
+            return newChords[0]?.value || 'C_major'
+          })
+          console.log('Final validated chord sequence:', chordSequence.value)
+        }
+      }
     } else {
       chordSequence.value = []
       sampleDuration.value = 1
-    }
-  },
-  { immediate: false }
-)
-
-// Watch for changes in available chords and re-validate the sequence if needed
-watch(
-  availableChords,
-  (newChords) => {
-    console.log('Available chords changed:', newChords.length, 'chords available')
-    if (newChords.length > 0 && chordSequence.value.length > 0) {
-      // Re-validate existing chords when available chords change
-      const availableValues = newChords.map(c => c.value)
-      console.log('Validating existing chord sequence:', chordSequence.value)
-      chordSequence.value = chordSequence.value.map(chord => {
-        if (availableValues.includes(chord)) {
-          console.log(`✓ Chord "${chord}" is valid`)
-          return chord
-        }
-        console.warn(`✗ Chord "${chord}" not available for current instrument, defaulting to first available chord`)
-        return newChords[0]?.value || 'C_major'
-      })
-      console.log('Final validated chord sequence:', chordSequence.value)
+      clipDuration.value = 4
     }
   },
   { immediate: true }
 )
-
-// Load clip data on mount if there's already a selected clip
-onMounted(() => {
-  if (selectedClip.value) {
-    loadClipData()
-  }
-})
 
 // Add a new chord to the sequence
 const addChord = () => {
@@ -371,6 +381,23 @@ const updateSampleDuration = () => {
       // Update the clip with new sample duration
       audioStore.updateClip(track.id, clip.id, {
         sampleDuration: sampleDuration.value
+      })
+      break
+    }
+  }
+}
+
+// Update the clip duration
+const updateClipDuration = () => {
+  if (!selectedClip.value) return
+  
+  // Find the track and clip
+  for (const track of audioStore.songStructure.tracks) {
+    const clip = track.clips.find(c => c.id === selectedClip.value!.id)
+    if (clip) {
+      // Update the clip with new duration
+      audioStore.updateClip(track.id, clip.id, {
+        duration: clipDuration.value
       })
       break
     }
@@ -655,6 +682,21 @@ const handleDrop = (targetIndex: number) => {
   margin-bottom: 1.5rem;
 }
 
+.section-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 1rem 0;
+  opacity: 0.5;
+}
+
+.editor-section {
+  margin-bottom: 1.5rem;
+}
+
+.editor-section:last-child {
+  margin-bottom: 0;
+}
+
 .editor-section h4 {
   margin: 0 0 0.5rem 0;
   color: var(--text-primary);
@@ -692,6 +734,72 @@ const handleDrop = (targetIndex: number) => {
   color: var(--text-primary);
   width: 80px;
   font-family: 'Courier New', monospace;
+}
+
+.duration-slider {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  margin-right: 1rem;
+}
+
+.duration-slider::-webkit-slider-thumb {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.duration-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.duration-slider:hover::-webkit-slider-thumb {
+  background: var(--primary-hover);
+}
+
+.duration-slider:hover::-moz-range-thumb {
+  background: var(--primary-hover);
+}
+
+.duration-slider::-webkit-slider-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+}
+
+.duration-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--border);
+  border: none;
+}
+
+.duration-value {
+  min-width: 3rem;
+  text-align: center;
+  color: var(--text-primary);
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  font-weight: 500;
+  background: var(--background);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
 }
 
 .duration-select {

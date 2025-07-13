@@ -107,6 +107,13 @@
     "duration": "Duration",
     "lastUpdated": "Last updated"
   },
+  "song": {
+    "title": "Song",
+    "changeCover": "Change Album Cover",
+    "generateCover": "Generate AI Cover",
+    "uploadCover": "Upload Cover",
+    "lyricsPlaceholder": "Enter your lyrics here...\n\nVerse 1:\n\nChorus:\n\nVerse 2:\n\nBridge:\n\nChorus:"
+  },
   "languages": {
     "en": "English",
     "es": "Español",

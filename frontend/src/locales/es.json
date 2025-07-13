@@ -107,6 +107,13 @@
     "duration": "Duración",
     "lastUpdated": "Última actualización"
   },
+  "song": {
+    "title": "Canción",
+    "changeCover": "Cambiar Portada del Álbum",
+    "generateCover": "Generar Portada IA",
+    "uploadCover": "Subir Portada",
+    "lyricsPlaceholder": "Ingresa tu letra aquí...\n\nVersículo 1:\n\nCoro:\n\nVersículo 2:\n\nPuente:\n\nCoro:"
+  },
   "languages": {
     "en": "Inglés",
     "es": "Español",

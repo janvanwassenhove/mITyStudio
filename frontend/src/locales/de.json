@@ -107,6 +107,13 @@
     "duration": "Dauer",
     "lastUpdated": "Zuletzt aktualisiert"
   },
+  "song": {
+    "title": "Song",
+    "changeCover": "Albumcover Ändern",
+    "generateCover": "KI Cover Generieren",
+    "uploadCover": "Cover Hochladen",
+    "lyricsPlaceholder": "Gib deine Liedtexte hier ein...\n\nStrophe 1:\n\nRefrain:\n\nStrophe 2:\n\nBridge:\n\nRefrain:"
+  },
   "languages": {
     "en": "Englisch",
     "es": "Spanisch",

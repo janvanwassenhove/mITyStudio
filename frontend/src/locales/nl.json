@@ -107,6 +107,13 @@
     "duration": "Duur",
     "lastUpdated": "Laatst bijgewerkt"
   },
+  "song": {
+    "title": "Lied",
+    "changeCover": "Albumhoes Wijzigen",
+    "generateCover": "AI Hoes Genereren",
+    "uploadCover": "Hoes Uploaden",
+    "lyricsPlaceholder": "Voer je songtekst hier in...\n\nVers 1:\n\nRefrein:\n\nVers 2:\n\nBrug:\n\nRefrein:"
+  },
   "languages": {
     "en": "Engels",
     "es": "Spaans",

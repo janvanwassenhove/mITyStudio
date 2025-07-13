@@ -107,6 +107,13 @@
     "duration": "Durée",
     "lastUpdated": "Dernière mise à jour"
   },
+  "song": {
+    "title": "Chanson",
+    "changeCover": "Changer la Pochette d'Album",
+    "generateCover": "Générer Pochette IA",
+    "uploadCover": "Télécharger Pochette",
+    "lyricsPlaceholder": "Entrez vos paroles ici...\n\nCouplet 1:\n\nRefrain:\n\nCouplet 2:\n\nPont:\n\nRefrain:"
+  },
   "languages": {
     "en": "Anglais",
     "es": "Espagnol",

@@ -5,7 +5,6 @@ on:
     branches: ['**']  # Trigger on all branches
     paths-ignore:
       - 'docs/**'         # Prevent infinite loop when docs are updated
-      - 'ARCHITECTURE.md' # Prevent infinite loop when architecture doc is updated
       - '*.md'           # Ignore other markdown files to prevent loops
 
 jobs:

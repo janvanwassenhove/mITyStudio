@@ -107,6 +107,13 @@
     "duration": "Durata",
     "lastUpdated": "Ultimo aggiornamento"
   },
+  "song": {
+    "title": "Canzone",
+    "changeCover": "Cambia Copertina Album",
+    "generateCover": "Genera Copertina IA",
+    "uploadCover": "Carica Copertina",
+    "lyricsPlaceholder": "Inserisci i tuoi testi qui...\n\nStrofa 1:\n\nRitornello:\n\nStrofa 2:\n\nPonte:\n\nRitornello:"
+  },
   "languages": {
     "en": "Inglese",
     "es": "Spagnolo",

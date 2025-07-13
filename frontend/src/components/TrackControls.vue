@@ -567,13 +567,25 @@ const applySelection = () => {
   if (!selectedTrackForInstrument.value) {
     // Create new track
     let instrumentName = getInstrumentDisplayName(selectedInstrumentValue.value)
+    let instrumentCategory: string | undefined
+    
     // If it's a sample, use sample name
     for (const category of sampleCategories.value) {
       const sample = category.samples.find((s: any) => s.id === selectedInstrumentValue.value)
       if (sample) instrumentName = sample.name
     }
-    const trackId = audioStore.addTrack(`New ${instrumentName}`, selectedInstrumentValue.value)
-    debugLog('Added new track', { trackId, instrument: selectedInstrumentValue.value })
+    
+    // Find the category from allSampleInstruments
+    for (const category of allSampleInstruments.value) {
+      const instrument = category.instruments.find((inst: any) => inst.name === selectedInstrumentValue.value || inst.value === selectedInstrumentValue.value)
+      if (instrument) {
+        instrumentCategory = category.name.toLowerCase()
+        break
+      }
+    }
+    
+    const trackId = audioStore.addTrack(`New ${instrumentName}`, selectedInstrumentValue.value, undefined, instrumentCategory)
+    debugLog('Added new track', { trackId, instrument: selectedInstrumentValue.value, category: instrumentCategory })
     if (trackId) {
       selectedTrack.value = trackId
     }
@@ -581,8 +593,20 @@ const applySelection = () => {
     return
   }
   // Otherwise, update existing track
+  let instrumentCategory: string | undefined
+  
+  // Find the category from allSampleInstruments
+  for (const category of allSampleInstruments.value) {
+    const instrument = category.instruments.find((inst: any) => inst.name === selectedInstrumentValue.value || inst.value === selectedInstrumentValue.value)
+    if (instrument) {
+      instrumentCategory = category.name.toLowerCase()
+      break
+    }
+  }
+  
   audioStore.updateTrack(selectedTrackForInstrument.value, {
-    instrument: selectedInstrumentValue.value
+    instrument: selectedInstrumentValue.value,
+    category: instrumentCategory
   })
   closeInstrumentSelector()
 }
@@ -858,7 +882,7 @@ const toggleCategory = (name: string) => {
   display: flex;
   align-items: center; 
   gap: 0.75rem;
-  margin-bottom: 1rem;
+  margin-bottom: 1.5rem;
 }
 
 .header-icon {
