@@ -1,24 +1,22 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
-import { sampleApiService, type BackendSample } from '../services/sampleApiService'
+import { sampleIndexedDB } from '../services/sampleIndexedDB'
 
 export interface LocalSample {
   id: string
   name: string
+  file?: File // Optional since it may not be available after restoration
+  fileId: string // Reference to IndexedDB stored file
   url: string
   duration: number
   size: number
-  type?: string
+  type: string
   category: SampleCategory
   tags: string[]
   bpm?: number
   key?: string
   createdAt: string
   waveform?: number[]
-  sampleRate?: number
-  channels?: number
-  audioFeatures?: Record<string, any>
-  isFromBackend?: boolean // Flag to indicate if sample is stored in backend
 }
 
 export type SampleCategory = 
@@ -308,151 +306,295 @@ export const useSampleStore = defineStore('samples', () => {
     return [...new Set(tags)] // Remove duplicates
   }
 
-  // Load samples from files - uploads to backend and syncs local state
+  // Load samples from files
   const loadSamples = async (files: FileList | File[]) => {
     if (!files.length) return
 
     isLoading.value = true
     loadingProgress.value = 0
 
-    try {
-      // Convert FileList to FileList if needed
-      const fileList = files instanceof FileList ? files : {
-        length: files.length,
-        item: (index: number) => files[index],
-        [Symbol.iterator]: function* () {
-          for (let i = 0; i < files.length; i++) {
-            yield files[i]
-          }
-        }
-      } as FileList
+    const fileArray = Array.from(files)
+    const validFiles = fileArray.filter(file => 
+      file.type.startsWith('audio/') || 
+      /\.(mp3|wav|ogg|m4a|aac|flac)$/i.test(file.name)
+    )
 
-      // Upload files to backend
-      const response = await sampleApiService.uploadSamples(fileList)
-      
-      if (response.success) {
-        // Convert backend samples to local format and add to store
-        const newSamples = response.samples.map(sampleApiService.backendToLocalSample)
-        localSamples.value.push(...newSamples)
-        
-        loadingProgress.value = 100
-        console.log(`Successfully loaded ${response.uploaded_count} samples`)
-      }
-    } catch (error) {
-      console.error('Failed to load samples:', error)
-      throw error
-    } finally {
+    if (validFiles.length === 0) {
       isLoading.value = false
-      loadingProgress.value = 0
+      throw new Error('No valid audio files found')
     }
-  }
 
-  // Sync samples from backend
-  const syncSamplesFromBackend = async () => {
-    try {
-      const response = await sampleApiService.getSamples({
-        sort_by: sortBy.value,
-        sort_order: sortOrder.value,
-        category: selectedCategory.value !== 'uncategorized' ? selectedCategory.value : undefined,
-        search: searchQuery.value || undefined
-      })
+    const newSamples: LocalSample[] = []
 
-      if (response.success) {
-        localSamples.value = response.samples.map(sampleApiService.backendToLocalSample)
+    for (let i = 0; i < validFiles.length; i++) {
+      const file = validFiles[i]
+      
+      try {
+        // Store file in IndexedDB first
+        const fileId = await sampleIndexedDB.storeFile(file)
+        
+        // Create object URL for immediate playback
+        const url = URL.createObjectURL(file)
+        
+        // Analyze audio file
+        const audioData = await analyzeAudioFile(file)
+        
+        // Categorize sample
+        const category = categorizeSample(file, audioData)
+        
+        // Generate tags
+        const tags = generateTags(file, category, audioData)
+        
+        const sample: LocalSample = {
+          id: `local-${Date.now()}-${i}`,
+          name: file.name.replace(/\.[^/.]+$/, ''), // Remove extension
+          file,
+          fileId, // Store IndexedDB reference
+          url,
+          duration: audioData.duration,
+          size: file.size,
+          type: file.type || 'audio/unknown',
+          category,
+          tags,
+          bpm: audioData.bpm,
+          key: audioData.key,
+          waveform: audioData.waveform,
+          createdAt: new Date().toISOString()
+        }
+        
+        newSamples.push(sample)
+        
+      } catch (error) {
+        console.warn(`Failed to process ${file.name}:`, error)
       }
-    } catch (error) {
-      console.error('Failed to sync samples from backend:', error)
+      
+      loadingProgress.value = ((i + 1) / validFiles.length) * 100
     }
+
+    // Add to store
+    localSamples.value.push(...newSamples)
+    
+    isLoading.value = false
+    loadingProgress.value = 0
+
+    return newSamples
   }
 
   // Remove sample
   const removeSample = async (sampleId: string) => {
-    try {
-      // Remove from backend if it's a backend sample
-      const sample = localSamples.value.find(s => s.id === sampleId)
-      if (sample?.isFromBackend) {
-        await sampleApiService.deleteSample(sampleId)
+    const index = localSamples.value.findIndex(s => s.id === sampleId)
+    if (index !== -1) {
+      const sample = localSamples.value[index]
+      
+      // Clean up object URL
+      if (sample.url) {
+        URL.revokeObjectURL(sample.url)
       }
       
-      // Remove from local store
-      const index = localSamples.value.findIndex(s => s.id === sampleId)
-      if (index !== -1) {
-        localSamples.value.splice(index, 1)
+      // Remove from IndexedDB
+      try {
+        await sampleIndexedDB.deleteFile(sample.fileId)
+      } catch (error) {
+        console.warn(`Failed to delete file from IndexedDB: ${error}`)
       }
-    } catch (error) {
-      console.error('Failed to remove sample:', error)
-      throw error
+      
+      // Remove from store
+      localSamples.value.splice(index, 1)
     }
   }
 
   // Update sample category
-  const updateSampleCategory = async (sampleId: string, category: SampleCategory) => {
+  const updateSampleCategory = (sampleId: string, category: SampleCategory) => {
     const sample = localSamples.value.find(s => s.id === sampleId)
     if (sample) {
-      // Update local state immediately
       sample.category = category
-      
-      // Update backend if it's a backend sample
-      if (sample.isFromBackend) {
-        try {
-          await sampleApiService.updateSample(sampleId, { category })
-        } catch (error) {
-          console.error('Failed to update sample category on backend:', error)
-          // Optionally revert local change
-        }
+      // Update tags to include new category
+      if (!sample.tags.includes(category)) {
+        sample.tags.push(category)
       }
     }
   }
 
   // Update sample tags
-  const updateSampleTags = async (sampleId: string, tags: string[]) => {
+  const updateSampleTags = (sampleId: string, tags: string[]) => {
     const sample = localSamples.value.find(s => s.id === sampleId)
     if (sample) {
-      // Update local state immediately
       sample.tags = [...new Set(tags)] // Remove duplicates
-      
-      // Update backend if it's a backend sample
-      if (sample.isFromBackend) {
-        try {
-          await sampleApiService.updateSample(sampleId, { tags })
-        } catch (error) {
-          console.error('Failed to update sample tags on backend:', error)
-          // Optionally revert local change
-        }
-      }
     }
   }
 
   // Clear all samples
   const clearAllSamples = async () => {
-    try {
-      // If samples are from backend, delete them there too
-      const backendSampleIds = localSamples.value
-        .filter(sample => sample.isFromBackend)
-        .map(sample => sample.id)
-      
-      if (backendSampleIds.length > 0) {
-        await sampleApiService.bulkDeleteSamples(backendSampleIds)
+    // Clean up object URLs
+    localSamples.value.forEach(sample => {
+      if (sample.url) {
+        URL.revokeObjectURL(sample.url)
       }
-      
-      // Clear local store
-      localSamples.value = []
+    })
+    
+    // Clear from IndexedDB
+    try {
+      await sampleIndexedDB.clearAllFiles()
     } catch (error) {
-      console.error('Failed to clear samples:', error)
-      throw error
+      console.warn(`Failed to clear IndexedDB: ${error}`)
+    }
+    
+    // Clear from store
+    localSamples.value = []
+  }
+
+  // Export sample library
+  const exportSampleLibrary = () => {
+    const exportData = localSamples.value.map(sample => ({
+      id: sample.id,
+      name: sample.name,
+      duration: sample.duration,
+      size: sample.size,
+      type: sample.type,
+      category: sample.category,
+      tags: sample.tags,
+      bpm: sample.bpm,
+      key: sample.key,
+      createdAt: sample.createdAt
+    }))
+    
+    return JSON.stringify(exportData, null, 2)
+  }
+
+  // Get sample by ID
+  const getSample = (sampleId: string) => {
+    return localSamples.value.find(s => s.id === sampleId)
+  }
+
+  // Format file size
+  const formatFileSize = (bytes: number): string => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
+  }
+
+  // Format duration
+  const formatDuration = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // --- Persistence helpers ---
+  const SAMPLES_STORAGE_KEY = 'mitystudio_samples_v1'
+
+  // Save sample metadata to localStorage (excluding File objects)
+  const saveSamplesToStorage = () => {
+    const metadata = localSamples.value.map(sample => {
+      const { file, ...meta } = sample
+      return meta
+    })
+    localStorage.setItem(SAMPLES_STORAGE_KEY, JSON.stringify(metadata))
+  }
+
+  // Load sample metadata from localStorage and restore from IndexedDB
+  const loadSamplesFromStorage = async () => {
+    const raw = localStorage.getItem(SAMPLES_STORAGE_KEY)
+    if (!raw) return
+    
+    try {
+      const metadata = JSON.parse(raw)
+      if (Array.isArray(metadata)) {
+        const restoredSamples: LocalSample[] = []
+        
+        for (const meta of metadata) {
+          try {
+            // Try to restore the blob URL from IndexedDB
+            const url = await sampleIndexedDB.createBlobURL(meta.fileId)
+            
+            if (url) {
+              restoredSamples.push({
+                ...meta,
+                file: undefined, // File object not available after restoration
+                url // Restored blob URL
+              })
+            } else {
+              console.warn(`Could not restore file for sample: ${meta.name}`)
+              // Keep the sample but without a working URL
+              restoredSamples.push({
+                ...meta,
+                file: undefined,
+                url: '' // No working URL
+              })
+            }
+          } catch (error) {
+            console.warn(`Failed to restore sample ${meta.name}:`, error)
+          }
+        }
+        
+        localSamples.value = restoredSamples
+        console.log(`Restored ${restoredSamples.length} samples from storage`)
+      }
+    } catch (e) {
+      console.warn('Failed to load samples from storage:', e)
     }
   }
 
-  // Initialize by syncing with backend
+  // Get storage usage information
+  const getStorageInfo = async () => {
+    try {
+      const indexedDBInfo = await sampleIndexedDB.getStorageInfo()
+      const localStorageSize = localStorage.getItem(SAMPLES_STORAGE_KEY)?.length || 0
+      
+      return {
+        indexedDB: indexedDBInfo,
+        localStorage: {
+          metadataSize: localStorageSize * 2, // Approximate size in bytes (UTF-16)
+          samples: localSamples.value.length
+        },
+        total: {
+          samples: localSamples.value.length,
+          estimatedSize: indexedDBInfo.estimatedSize
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to get storage info:', error)
+      return null
+    }
+  }
+
+  // Restore a specific sample's file data
+  const restoreSampleFile = async (sampleId: string): Promise<File | null> => {
+    const sample = localSamples.value.find(s => s.id === sampleId)
+    if (!sample || !sample.fileId) return null
+    
+    try {
+      const file = await sampleIndexedDB.getFile(sample.fileId)
+      if (file) {
+        sample.file = file
+        // Update URL if needed
+        if (!sample.url) {
+          sample.url = URL.createObjectURL(file)
+        }
+      }
+      return file
+    } catch (error) {
+      console.warn(`Failed to restore file for sample ${sample.name}:`, error)
+      return null
+    }
+  }
+
+  // Watch for changes and persist metadata
+  watch(localSamples, saveSamplesToStorage, { deep: true })
+
+  // Initialize store - load samples from storage
   const initializeStore = async () => {
     try {
-      await syncSamplesFromBackend()
+      await sampleIndexedDB.init()
+      await loadSamplesFromStorage()
     } catch (error) {
-      console.error('Failed to initialize sample store:', error)
+      console.warn('Failed to initialize sample store:', error)
     }
   }
 
-  // Call on store init
+  // Call initialization
   initializeStore()
 
   return {
@@ -481,6 +623,8 @@ export const useSampleStore = defineStore('samples', () => {
     exportSampleLibrary,
     getSample,
     formatFileSize,
-    formatDuration
+    formatDuration,
+    getStorageInfo,
+    restoreSampleFile
   }
 })

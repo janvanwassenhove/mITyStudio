@@ -3,18 +3,11 @@ Database Models for mITyStudio Backend
 """
 
 from datetime import datetime
-from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON, Table
+from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, ForeignKey, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 
 Base = declarative_base()
-
-# Association table for many-to-many relationship between samples and tags
-sample_tags = Table('sample_tags',
-    Base.metadata,
-    Column('sample_id', String(36), ForeignKey('samples.id'), primary_key=True),
-    Column('tag_id', String(36), ForeignKey('tags.id'), primary_key=True)
-)
 
 
 class User(Base):
@@ -33,53 +26,6 @@ class User(Base):
     
     # Relationships
     projects = relationship("Project", back_populates="user", cascade="all, delete-orphan")
-    samples = relationship("Sample", back_populates="user", cascade="all, delete-orphan")
-
-
-class Sample(Base):
-    """Sample model for storing audio samples"""
-    __tablename__ = 'samples'
-    
-    id = Column(String(36), primary_key=True)  # UUID
-    name = Column(String(200), nullable=False)
-    original_filename = Column(String(255), nullable=False)
-    file_path = Column(String(500), nullable=False)  # Path to the actual file
-    file_size = Column(Integer, nullable=False)  # File size in bytes
-    duration = Column(Float, nullable=False)  # Duration in seconds
-    sample_rate = Column(Integer, nullable=False)
-    channels = Column(Integer, nullable=False)
-    
-    # Musical metadata
-    bpm = Column(Integer)  # Beats per minute
-    key = Column(String(10))  # Musical key (C, D#m, etc.)
-    category = Column(String(50), default='uncategorized')  # drums, bass, melodic, etc.
-    
-    # Audio analysis data
-    waveform_data = Column(JSON)  # Waveform peaks for visualization
-    audio_features = Column(JSON)  # Spectral features, tempo, etc.
-    
-    # User relationship
-    user_id = Column(String(36), ForeignKey('users.id'), nullable=False)
-    user = relationship("User", back_populates="samples")
-    
-    # Tags relationship
-    tags = relationship("Tag", secondary=sample_tags, back_populates="samples")
-    
-    # Timestamps
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-
-class Tag(Base):
-    """Tag model for categorizing samples"""
-    __tablename__ = 'tags'
-    
-    id = Column(String(36), primary_key=True)  # UUID
-    name = Column(String(50), unique=True, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Samples relationship
-    samples = relationship("Sample", secondary=sample_tags, back_populates="tags")
 
 
 class Project(Base):
