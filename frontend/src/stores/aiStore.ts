@@ -5,8 +5,8 @@ import { useAudioStore } from './audioStore'
 
 // Configure axios base URL for backend
 const API_BASE_URL = process.env.NODE_ENV === 'development' 
-  ? 'http://localhost:5000' 
-  : (window as any).electronAPI?.constants.BACKEND_URL || 'http://localhost:5000'
+  ? 'http://localhost:5001' 
+  : (window as any).electronAPI?.constants.BACKEND_URL || 'http://localhost:5001'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -173,7 +173,7 @@ export const useAIStore = defineStore('ai', () => {
         }
       })
 
-      const aiResponse = response.data.response
+      const aiResponse = response.data.content || response.data.response || 'No response received'
       const actions = response.data.actions || []
       
       // Add AI response with actions
@@ -228,7 +228,7 @@ export const useAIStore = defineStore('ai', () => {
         song_structure: songStructure
       })
 
-      const aiResponse = response.data.response
+      const aiResponse = response.data.content || response.data.response || 'No response received'
       const updatedStructure = response.data.updated_song_structure
       const toolsUsed = response.data.tools_used || []
       
@@ -324,7 +324,7 @@ export const useAIStore = defineStore('ai', () => {
       })
 
       const updatedStructure = response.data.updated_song_structure
-      const responseText = response.data.response
+      const responseText = response.data.content || response.data.response || 'Section generated successfully'
       
       addMessage('assistant', `**${sectionName.charAt(0).toUpperCase() + sectionName.slice(1)} Section Created:**\n\n${responseText}`)
       

@@ -117,7 +117,7 @@ class AIService:
     def chat_completion(self, message: str, provider: str = 'anthropic', 
                        model: str = 'claude-4-sonnet', context: Dict = None) -> Dict:
         """
-        Generate AI chat response using LangChain React Agent for music-related requests
+        Generate AI chat response using direct OpenAI/Anthropic clients
         """
         if context is None:
             context = {}
@@ -126,16 +126,7 @@ class AIService:
             logger = self._get_logger()
             logger.info(f"AI chat request - Provider: {provider}, Model: {model}")
             
-            # Check if this is a music-related request that should use LangChain
-            if self._is_music_related(message, context):
-                try:
-                    # Try to use LangChain service for enhanced music assistance
-                    return self._langchain_music_chat(message, provider, model, context)
-                except Exception as e:
-                    logger.warning(f"LangChain service not available, falling back to simple chat: {str(e)}")
-                    # Fall through to simple chat if LangChain fails
-            
-            # Use simple AI chat for non-music or when LangChain is unavailable
+            # Use direct AI clients for all requests (LangChain temporarily disabled)
             if provider == 'anthropic' and self.anthropic_client:
                 return self._anthropic_chat(message, model, context)
             elif provider == 'openai' and self.openai_client:

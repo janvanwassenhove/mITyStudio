@@ -1941,7 +1941,12 @@ const scrollToBottom = () => {
   }
 }
 
-const formatMessage = (content: string): string => {
+const formatMessage = (content: string | undefined): string => {
+  // Handle undefined or null content
+  if (!content || typeof content !== 'string') {
+    return ''
+  }
+  
   // First handle JSON code blocks (```json...```) and make them collapsible with action buttons
   content = content.replace(/```json\n?([\s\S]*?)```/g, (_, jsonContent) => {
     const uniqueId = 'json-' + Math.random().toString(36).substr(2, 9)

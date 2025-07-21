@@ -24,6 +24,10 @@
           <Save class="icon" />
           {{ $t('header.saveProject') }}
         </button>
+        <button class="btn btn-generate" @click="showGenerateSongDialog = true">
+          <Music class="icon" />
+          {{ $t('header.generateSong') }}
+        </button>
         <button class="btn btn-primary" @click="exportProject">
           <Download class="icon" />
           {{ $t('header.export') }}
@@ -45,6 +49,11 @@
       </div>
     </div>
   </header>
+  
+  <GenerateSongDialog 
+    :show="showGenerateSongDialog" 
+    @close="showGenerateSongDialog = false" 
+  />
 </template>
 
 <script setup lang="ts">
@@ -54,12 +63,14 @@ import { useAudioStore } from '../stores/audioStore'
 import { useThemeStore } from '../stores/themeStore'
 import { Music, FileText, FolderOpen, Save, Download } from 'lucide-vue-next'
 import ThemeToggle from './ThemeToggle.vue'
+import GenerateSongDialog from './GenerateSongDialog.vue'
 
 const { locale, t } = useI18n()
 const audioStore = useAudioStore()
 const themeStore = useThemeStore()
 
 const currentLocale = ref(locale.value)
+const showGenerateSongDialog = ref(false)
 
 const changeLocale = () => {
   locale.value = currentLocale.value
@@ -242,5 +253,41 @@ onMounted(() => {
 .theme-dark .app-header {
   backdrop-filter: blur(10px);
   background: color-mix(in srgb, var(--surface) 90%, transparent);
+}
+
+.btn-generate {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: white;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-generate:hover {
+  background: linear-gradient(135deg, #5855eb 0%, #7c3aed 100%);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  transform: translateY(-1px);
+}
+
+.btn-generate:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+}
+
+.btn-generate::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: left 0.6s;
+}
+
+.btn-generate:hover::before {
+  left: 100%;
 }
 </style>

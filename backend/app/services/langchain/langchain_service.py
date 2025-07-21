@@ -64,10 +64,12 @@ class LangChainService:
             openai_api_key = os.getenv('OPENAI_API_KEY')
             if openai_api_key and ChatOpenAI:
                 try:
+                    # Initialize with minimal parameters to avoid proxy conflicts
                     self.chat_openai = ChatOpenAI(
-                        api_key=openai_api_key,
-                        model="gpt-4",
-                        temperature=0.7
+                        openai_api_key=openai_api_key,
+                        model_name="gpt-4",
+                        temperature=0.7,
+                        max_retries=2
                     )
                 except Exception as e:
                     safe_log_error(f"ChatOpenAI initialization failed: {e}")
@@ -77,10 +79,12 @@ class LangChainService:
             anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
             if anthropic_api_key and ChatAnthropic:
                 try:
+                    # Initialize with minimal parameters to avoid proxy conflicts
                     self.chat_anthropic = ChatAnthropic(
-                        api_key=anthropic_api_key,
+                        anthropic_api_key=anthropic_api_key,
                         model="claude-3-sonnet-20240229",
-                        temperature=0.7
+                        temperature=0.7,
+                        max_retries=2
                     )
                 except Exception as e:
                     safe_log_error(f"ChatAnthropic initialization failed: {e}")

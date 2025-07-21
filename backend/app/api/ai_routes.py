@@ -6,7 +6,8 @@ Handles chat, music generation, and AI-powered composition features
 from flask import Blueprint, request, jsonify, current_app
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.services.ai_service import AIService
-from app.services.langchain_service import LangChainService
+# Temporarily disable LangChain service due to pydantic compatibility issues
+# from app.services.langchain_service import LangChainService
 from app.models.song_structure import SongStructure
 from app.utils.decorators import handle_errors
 import json
