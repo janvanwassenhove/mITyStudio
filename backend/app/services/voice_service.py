@@ -4,6 +4,7 @@ Main coordination service for voice management
 """
 
 import logging
+import os
 from typing import List, Dict, Optional, Any
 from pathlib import Path
 from werkzeug.datastructures import FileStorage
@@ -199,7 +200,7 @@ class VoiceService:
     # Private helper methods
     def _synthesize_with_model(self, voice_id: str, text: str, speed: float = 1.0,
                               pitch: float = 0.0, energy: float = 1.0) -> Optional[str]:
-        """Synthesize speech with a custom trained model using DiffSinger"""
+        """Synthesize speech with a custom trained model using RVC"""
         voice = self.voice_registry.get_voice(voice_id)
         
         if not voice or not voice.get('model_path'):
@@ -207,25 +208,22 @@ class VoiceService:
             return self._generate_custom_voice_audio(text, voice_id, voice)
         
         try:
-            # Use DiffSinger engine for synthesis with the custom model
+            # Use RVC service for synthesis with the custom model
             model_path = voice.get('model_path')
-            logger.info(f"Using DiffSinger synthesis for custom voice {voice_id} with model: {model_path}")
+            logger.info(f"Using RVC synthesis for custom voice {voice_id} with model: {model_path}")
             
             # Create output file
             import tempfile
             output_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
             output_file.close()
             
-            # Use DiffSinger engine for synthesis
-            from app.services.diffsinger_engine import DiffSingerEngine
-            diffsinger = DiffSingerEngine(
-                models_dir=str(self.models_dir),
-                data_dir=str(self.training_dir)
-            )
+            # Use RVC service for synthesis
+            from app.services.rvc_service import RVCService
+            rvc_service = RVCService()
             
-            result_path = diffsinger.synthesize(
+            result_path = rvc_service.synthesize_voice(
+                voice_id=voice_id,
                 text=text,
-                voice_model_path=model_path,
                 output_path=output_file.name,
                 speed=speed,
                 pitch=pitch,
@@ -282,10 +280,68 @@ class VoiceService:
                                      pitch: float, energy: float, notes: list = None,
                                      chord_name: str = None, start_time: float = 0.0,
                                      duration: float = None) -> str:
-        """Synthesize with custom voice model - simplified implementation"""
-        logger.info(f"Musical synthesis: voice={voice_id}, notes={notes}, chord={chord_name}")
+        """Synthesize with custom voice model using RVC"""
+        logger.info(f"RVC synthesis: voice={voice_id}, text='{text}', notes={notes}, chord={chord_name}")
         
-        # For now, use the musical audio generation
+        try:
+            # Check if this is an RVC trained voice
+            from app.services.rvc_service import RVCService
+            rvc_service = RVCService()
+            
+            # Get list of available RVC voices
+            rvc_voices = rvc_service.list_singing_voices()
+            
+            # Check if this voice exists in RVC
+            rvc_voice = None
+            for voice in rvc_voices:
+                if voice.get('voice_id') == voice_id:
+                    rvc_voice = voice
+                    break
+            
+            if rvc_voice and rvc_voice.get('status') == 'ready':
+                logger.info(f"Using RVC synthesis for trained voice: {voice_id}")
+                
+                # Use the proper RVC synthesis method with custom parameters
+                import tempfile
+                from pathlib import Path
+                
+                # Create output file
+                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f:
+                    output_path = Path(f.name)
+                
+                # Prepare parameters
+                voice_characteristics = rvc_voice.get('voice_characteristics', {})
+                notes_list = notes if isinstance(notes, list) else [notes] if notes else ['C4']
+                duration = duration or 4.0
+                
+                # Use the internal RVC synthesis method
+                audio_path = rvc_service._synthesize_with_rvc(
+                    voice_id=voice_id,
+                    text=text,
+                    notes=notes_list,
+                    duration=duration,
+                    output_path=output_path,
+                    characteristics=voice_characteristics
+                )
+                
+                if audio_path and os.path.exists(audio_path):
+                    logger.info(f"RVC synthesis successful: {audio_path}")
+                    return audio_path
+                else:
+                    logger.warning(f"RVC synthesis failed for {voice_id}, falling back to test singing")
+                    # Fallback to test singing if custom synthesis fails
+                    test_audio = rvc_service.synthesize_test_singing(voice_id)
+                    if test_audio and os.path.exists(test_audio):
+                        return test_audio
+                        
+            else:
+                logger.info(f"Voice {voice_id} not found in RVC or not ready, using musical fallback")
+                
+        except Exception as e:
+            logger.error(f"Error in RVC synthesis for {voice_id}: {e}")
+            logger.info("Falling back to musical audio generation")
+        
+        # Final fallback to musical audio generation
         return self.audio_generator.generate_musical_audio(text, voice_id, notes, chord_name, duration)
     
     def _combine_voice_fragments(self, fragment_audio_files: List[dict], total_duration: float) -> Optional[str]:

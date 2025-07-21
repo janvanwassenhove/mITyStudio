@@ -1,6 +1,6 @@
 """
 Neural Training Module
-Handles the neural network training components for DiffSinger
+Handles the neural network training components for RVC
 """
 
 import torch

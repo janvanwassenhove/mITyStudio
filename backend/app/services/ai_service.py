@@ -35,11 +35,38 @@ class AIService:
         openai_key = os.getenv('OPENAI_API_KEY')
         anthropic_key = os.getenv('ANTHROPIC_API_KEY')
         
+        logger = self._get_logger()
+        
         if openai_key:
-            self.openai_client = openai.OpenAI(api_key=openai_key)
+            try:
+                # Create OpenAI client with explicit minimal configuration
+                # to avoid any parameter conflicts from environment or global state
+                self.openai_client = openai.OpenAI(
+                    api_key=openai_key
+                )
+                logger.info("OpenAI client initialized successfully")
+            except Exception as e:
+                logger.error(f"OpenAI client initialization failed: {e}")
+                # Set to None but continue - we can still use Anthropic
+                self.openai_client = None
+        else:
+            logger.info("No OpenAI API key provided")
+            self.openai_client = None
         
         if anthropic_key:
-            self.anthropic_client = anthropic.Anthropic(api_key=anthropic_key)
+            try:
+                self.anthropic_client = anthropic.Anthropic(api_key=anthropic_key)
+                logger.info("Anthropic client initialized successfully")
+            except Exception as e:
+                logger.error(f"Anthropic client initialization failed: {e}")
+                self.anthropic_client = None
+        else:
+            logger.info("No Anthropic API key provided")
+            self.anthropic_client = None
+            
+        # Ensure at least one client is available
+        if not self.openai_client and not self.anthropic_client:
+            logger.warning("No AI clients available - service will use fallback responses")
     
     def _map_anthropic_model(self, model_id: str) -> str:
         """Map frontend model ID to actual Anthropic model name"""
@@ -90,7 +117,7 @@ class AIService:
     def chat_completion(self, message: str, provider: str = 'anthropic', 
                        model: str = 'claude-4-sonnet', context: Dict = None) -> Dict:
         """
-        Generate AI chat response
+        Generate AI chat response using LangChain React Agent for music-related requests
         """
         if context is None:
             context = {}
@@ -99,12 +126,30 @@ class AIService:
             logger = self._get_logger()
             logger.info(f"AI chat request - Provider: {provider}, Model: {model}")
             
+            # Check if this is a music-related request that should use LangChain
+            if self._is_music_related(message, context):
+                try:
+                    # Try to use LangChain service for enhanced music assistance
+                    return self._langchain_music_chat(message, provider, model, context)
+                except Exception as e:
+                    logger.warning(f"LangChain service not available, falling back to simple chat: {str(e)}")
+                    # Fall through to simple chat if LangChain fails
+            
+            # Use simple AI chat for non-music or when LangChain is unavailable
             if provider == 'anthropic' and self.anthropic_client:
                 return self._anthropic_chat(message, model, context)
             elif provider == 'openai' and self.openai_client:
                 return self._openai_chat(message, model, context)
+            elif self.anthropic_client:
+                # Fallback to Anthropic if requested provider is not available
+                logger.info(f"Falling back to Anthropic since {provider} is not available")
+                return self._anthropic_chat(message, model, context)
+            elif self.openai_client:
+                # Fallback to OpenAI if Anthropic is not available
+                logger.info(f"Falling back to OpenAI since {provider} is not available")
+                return self._openai_chat(message, model, context)
             else:
-                logger.warning(f"Provider {provider} not available or not configured")
+                logger.warning(f"No AI clients available")
                 return self._fallback_response(message, context)
         
         except Exception as e:
@@ -170,9 +215,49 @@ class AIService:
         You help users create music by providing advice on composition, arrangement, 
         production techniques, and music theory. You can suggest chord progressions, 
         melodies, instruments, and effects.
+
+        AVAILABLE SAMPLE LIBRARY:
+        The studio has an extensive sample library with instruments organized by categories:
+        - Brass: trumpet, trombone, french_horn, tuba
+        - Keyboards: piano, electric_piano, organ, synth
+        - Percussion: drums, timpani, xylophone, marimba  
+        - Strings: violin, viola, cello, double_bass, guitar, electric_guitar
+        - Synth: synth_lead, synth_pad, synth_bass, synth_arp
+        - Vocal: various vocal samples and voice types
+        - Woodwinds: flute, clarinet, saxophone, oboe
+
+        Each instrument has chord samples in multiple keys and variations. Always suggest 
+        instruments that are actually available in the sample library.
+
+        CURRENT PROJECT CONTEXT:"""
         
+        if context:
+            if context.get('tracks'):
+                tracks = context.get('tracks', [])
+                base_prompt += f"\n- Current project has {len(tracks)} tracks"
+                instruments = [track.get('instrument', 'unknown') for track in tracks]
+                base_prompt += f"\n- Current instruments: {', '.join(set(instruments))}"
+            
+            if context.get('tempo'):
+                base_prompt += f"\n- Tempo: {context['tempo']} BPM"
+                
+            if context.get('key'):
+                base_prompt += f"\n- Key: {context['key']}"
+                
+            if context.get('song_structure'):
+                structure = context.get('song_structure', {})
+                if structure.get('sections'):
+                    sections = [section.get('name', 'Unknown') for section in structure.get('sections', [])]
+                    base_prompt += f"\n- Song sections: {', '.join(sections)}"
+
+        base_prompt += """
+
         When appropriate, suggest actionable items that can be implemented in the DAW.
         Be helpful, creative, and knowledgeable about music production.
+
+        IMPORTANT: When users ask about instruments, chord progressions, or song structure,
+        be aware of what's currently available in their project and what instruments
+        are available in the sample library.
 
 CRITICAL: When creating song text, lyrics, or vocals, you MUST provide them in the following exact JSON structure:
 
@@ -237,15 +322,10 @@ IMPORTANT RULES FOR LYRICS:
 - Generate appropriate musical notes (e.g., C4, D4, E4, F4, G4, A4, B4) based on the song key
 - Calculate start times and durations that make musical sense"""
         
-        if context:
-            if context.get('tracks'):
-                base_prompt += f"\n\nCurrent project has {len(context['tracks'])} tracks."
-            if context.get('tempo'):
-                base_prompt += f" Tempo: {context['tempo']} BPM."
-                base_prompt += f" Use this tempo to calculate appropriate durations for lyrics timing."
-            if context.get('key'):
-                base_prompt += f" Key: {context['key']}."
-                base_prompt += f" Generate notes that fit this key for the lyrics."
+        if context and context.get('tempo'):
+            base_prompt += f"\n- Use the current tempo ({context['tempo']} BPM) to calculate appropriate durations for lyrics timing."
+        if context and context.get('key'):
+            base_prompt += f"\n- Generate notes that fit the current key ({context['key']}) for the lyrics."
         
         return base_prompt
     
@@ -293,6 +373,177 @@ IMPORTANT RULES FOR LYRICS:
         
         return actions
     
+    def _is_music_related(self, message: str, context: Dict = None) -> bool:
+        """Check if the message is music-related and should use LangChain tools"""
+        
+        # First, check if we have song structure context - strong indicator
+        if context and 'song_structure' in context:
+            return True
+        
+        # Define music-specific keywords (more specific to avoid false positives)
+        music_keywords = [
+            # Specific composition terms
+            'chord progression', 'melody', 'harmony', 'rhythm pattern', 'beat', 'tempo', 
+            'musical key', 'scale', 'chord', 'progression',
+            'verse', 'chorus', 'bridge', 'intro', 'outro', 'song structure',
+            
+            # Musical instruments (specific contexts)
+            'guitar', 'piano', 'drums', 'bass guitar', 'violin', 'vocals', 'synthesizer', 
+            'keyboard', 'trumpet', 'saxophone', 'flute', 'organ', 'string section',
+            
+            # Music production terms
+            'music track', 'mix music', 'master track', 'audio effect', 'reverb', 
+            'musical arrangement', 'song composition', 'music production',
+            
+            # Song/music specific phrases
+            'my song', 'this track', 'music piece', 'composition', 'arrange music',
+            'produce music', 'record music', 'musical instrument', 'song writing',
+            'music theory', 'musical note', 'music studio', 'audio recording'
+        ]
+        
+        message_lower = message.lower()
+        
+        # Check for specific music phrases and keywords
+        for keyword in music_keywords:
+            if keyword in message_lower:
+                return True
+        
+        # Also check for individual instrument names when used in musical context
+        instruments = ['guitar', 'piano', 'drums', 'bass', 'violin', 'vocals', 'synth', 'keyboard']
+        music_contexts = ['add', 'suggest', 'use', 'play', 'include', 'need', 'want', 'help with']
+        
+        for instrument in instruments:
+            if instrument in message_lower:
+                for context_word in music_contexts:
+                    if context_word in message_lower:
+                        return True
+        
+        # Check for musical action words combined with general terms
+        music_actions = ['compose', 'arrange', 'mix', 'produce', 'create music', 'write song']
+        for action in music_actions:
+            if action in message_lower:
+                return True
+        
+        # Not music-related
+        return False
+    
+    def _langchain_music_chat(self, message: str, provider: str, model: str, context: Dict) -> Dict:
+        """Use LangChain service for enhanced music assistance"""
+        try:
+            # Import LangChain service conditionally to avoid startup errors
+            from app.services.langchain_service import LangChainService
+            
+            langchain_service = LangChainService()
+            
+            # Extract song structure from context
+            song_structure = context.get('song_structure')
+            if not song_structure and context.get('tracks'):
+                # Build basic song structure from tracks if available
+                song_structure = {
+                    'tracks': context.get('tracks', []),
+                    'tempo': context.get('tempo', 120),
+                    'key': context.get('key', 'C'),
+                    'sections': context.get('sections', [])
+                }
+            
+            # Use LangChain service for music-aware chat
+            result = langchain_service.chat_with_music_assistant(
+                message=message,
+                song_structure=song_structure,
+                provider=provider
+            )
+            
+            # Transform LangChain response to match expected format
+            return {
+                'content': result['response'],
+                'actions': self._extract_actions_from_response(result['response']),
+                'timestamp': datetime.utcnow().isoformat(),
+                'provider': provider,
+                'model': model,
+                'updated_song_structure': result.get('updated_song_structure'),
+                'tools_used': result.get('tools_used', []),
+                'success': result.get('success', True)
+            }
+            
+        except (ImportError, RuntimeError) as e:
+            # LangChain service not available due to dependency issues
+            # Provide music-aware fallback response instead of failing
+            logger = self._get_logger()
+            logger.warning(f"LangChain not available, using music-aware fallback: {e}")
+            return self._music_aware_fallback(message, context, provider, model)
+        except Exception as e:
+            # Any other error with LangChain - also use fallback
+            logger = self._get_logger()
+            logger.error(f"LangChain service error, using fallback: {str(e)}")
+            return self._music_aware_fallback(message, context, provider, model)
+
+    def _music_aware_fallback(self, message: str, context: Dict, provider: str, model: str) -> Dict:
+        """Provide music-aware fallback responses when LangChain is unavailable"""
+        
+        # Analyze the song context if available
+        song_structure = context.get('song_structure', {})
+        tracks = song_structure.get('tracks', [])
+        tempo = song_structure.get('tempo', 120)
+        key = song_structure.get('key', 'C')
+        
+        message_lower = message.lower()
+        
+        # Generate context-aware responses based on the request type
+        if 'instrument' in message_lower or 'suggest' in message_lower:
+            if tracks:
+                existing_instruments = [track.get('instrument', 'unknown') for track in tracks]
+                response = f"I can see your song has {len(tracks)} track(s) with {', '.join(existing_instruments)}. "
+                
+                if 'drum' in message_lower:
+                    response += "Consider uploading drum samples for rhythmic foundation."
+                elif 'bass' in message_lower:
+                    response += "Bass would complement your existing tracks well."
+                elif 'guitar' in message_lower:
+                    response += "Guitar could add harmonic richness to your composition."
+                elif 'piano' in message_lower:
+                    response += "Piano could provide melodic foundation."
+                else:
+                    response += "Consider adding drums for rhythm, bass for foundation, or lead instruments for melody."
+            else:
+                response = "For a new song, start with a rhythm section (drums), add bass for foundation, then layer melodic instruments."
+        
+        elif 'chord' in message_lower or 'progression' in message_lower:
+            if key:
+                response = f"For a song in {key}, try these chord progressions: {key}-Am-F-G (pop), {key}-F-G-Am (emotional), or {key}-Em-F-G (uplifting)."
+            else:
+                response = "Popular chord progressions include C-Am-F-G, Am-F-C-G, or Em-C-G-D. These work well in most genres."
+        
+        elif 'tempo' in message_lower:
+            current_tempo = f" Your current tempo is {tempo} BPM." if tempo else ""
+            response = f"Tempo suggestions: Ballad (60-80 BPM), Pop (120-140 BPM), Rock (120-160 BPM), Dance (120-130 BPM).{current_tempo}"
+        
+        elif 'structure' in message_lower:
+            response = "Common song structures: Verse-Chorus-Verse-Chorus-Bridge-Chorus, or Intro-Verse-Chorus-Verse-Chorus-Outro."
+        
+        elif 'mix' in message_lower or 'volume' in message_lower:
+            response = "Mixing tips: Start with levels (drums loud, bass clear, vocals prominent), add EQ to separate frequencies, use reverb for space."
+        
+        else:
+            # Generic music help
+            response = f"I can help with your music composition! "
+            if tracks:
+                response += f"Your song currently has {len(tracks)} tracks. "
+            response += "Ask me about chord progressions, song structure, instrument suggestions, or mixing tips."
+        
+        # Add note about limited functionality
+        response += " (Note: AI assistant temporarily unavailable: Agent not available)"
+        
+        return {
+            'content': response,
+            'actions': [],
+            'timestamp': datetime.utcnow().isoformat(),
+            'provider': provider,
+            'model': model,
+            'tools_used': [],
+            'updated_song_structure': None,
+            'success': False  # Indicate this is a fallback response
+        }
+
     def _fallback_response(self, message: str, context: Dict) -> Dict:
         """Fallback response when AI services are unavailable"""
         fallback_responses = [

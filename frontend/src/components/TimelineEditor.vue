@@ -1,7 +1,7 @@
 <template>
   <div class="timeline-editor">
-    <div class="timeline-header">
-      <div class="timeline-ruler">
+    <div class="timeline-header" ref="timelineHeader">
+      <div class="timeline-ruler" @click="seekToPosition">
         <div 
           v-for="beat in timelineBeats" 
           :key="beat"
@@ -11,10 +11,12 @@
         >
           <span v-if="beat % 4 === 0" class="ruler-label">{{ Math.floor(beat / 4) + 1 }}</span>
         </div>
+        <!-- Playhead in ruler -->
+        <div class="ruler-playhead" :style="{ left: `${playheadPosition}px` }"></div>
       </div>
     </div>
     
-    <div class="timeline-content" ref="timelineContent">
+    <div class="timeline-content" ref="timelineContent" @scroll="syncTimelineScroll">
       <div class="timeline-tracks">
         <div 
           v-for="track in audioStore.songStructure.tracks" 
@@ -163,6 +165,11 @@ const isResizing = ref(false)
 const dragStartX = ref(0)
 const dragStartTime = ref(0)
 
+// Auto-scroll state
+const isAutoScrolling = ref(false)
+const lastPlayheadPosition = ref(0)
+const userScrollTimeout = ref<number | null>(null)
+
 // Context menu state
 const contextMenu = ref({
   visible: false,
@@ -171,6 +178,27 @@ const contextMenu = ref({
   clipId: '',
   trackId: ''
 })
+
+// Timeline header ref for syncing scroll
+const timelineHeader = ref<HTMLElement>()
+
+// Sync timeline ruler scroll with content scroll
+const syncTimelineScroll = () => {
+  if (!timelineContent.value || !timelineHeader.value) return
+  
+  // Sync the ruler scroll with content scroll
+  timelineHeader.value.scrollLeft = timelineContent.value.scrollLeft
+  
+  // Temporarily disable auto-scroll when user manually scrolls
+  if (userScrollTimeout.value) {
+    clearTimeout(userScrollTimeout.value)
+  }
+  
+  // Re-enable auto-scroll after user stops scrolling for 2 seconds
+  userScrollTimeout.value = setTimeout(() => {
+    // Auto-scroll is now re-enabled
+  }, 2000) as any
+}
 
 // Store canvas refs for each sample clip
 const clipWaveformCanvases = ref<Record<string, HTMLCanvasElement | null>>({})
@@ -216,6 +244,68 @@ const timelineBeats = computed(() => {
 const playheadPosition = computed(() => {
   return audioStore.currentTime * beatWidth.value * 4 // Convert seconds to pixels
 })
+
+// Auto-scroll functionality
+const autoScrollToPlayhead = () => {
+  if (!timelineContent.value || isDragging.value || isResizing.value) return
+  
+  // Don't auto-scroll if user recently scrolled manually
+  if (userScrollTimeout.value) return
+  
+  const container = timelineContent.value
+  const scrollLeft = container.scrollLeft
+  const containerWidth = container.clientWidth
+  const playheadPos = playheadPosition.value
+  
+  // Define scroll margins (how much space to keep around the playhead)
+  const scrollMargin = containerWidth * 0.1 // 10% of container width
+  const leftBoundary = scrollLeft + scrollMargin
+  const rightBoundary = scrollLeft + containerWidth - scrollMargin
+  
+  // Check if playhead is outside the visible area (with margins)
+  if (playheadPos < leftBoundary || playheadPos > rightBoundary) {
+    // Calculate new scroll position to center the playhead
+    const newScrollLeft = Math.max(0, playheadPos - containerWidth / 2)
+    
+    // Smooth scroll to new position
+    container.scrollTo({
+      left: newScrollLeft,
+      behavior: 'smooth'
+    })
+    
+    isAutoScrolling.value = true
+    // Reset auto-scrolling flag after animation
+    setTimeout(() => {
+      isAutoScrolling.value = false
+    }, 300)
+  }
+}
+
+// Watch for playhead position changes during playback
+watch(
+  () => audioStore.currentTime,
+  (newTime, oldTime) => {
+    // Only auto-scroll if the time is actually progressing (playing)
+    // and the change is significant enough (avoid micro-movements)
+    if (audioStore.isPlaying && newTime > oldTime && Math.abs(newTime - oldTime) > 0.05) {
+      lastPlayheadPosition.value = playheadPosition.value
+      autoScrollToPlayhead()
+    }
+  }
+)
+
+// Also watch for zoom changes to maintain playhead visibility
+watch(
+  () => audioStore.zoom,
+  () => {
+    // Delay to allow for layout recalculation
+    nextTick(() => {
+      if (audioStore.isPlaying) {
+        autoScrollToPlayhead()
+      }
+    })
+  }
+)
 
 const getClipStyle = (clip: AudioClip) => {
   const left = clip.startTime * beatWidth.value * 4 // Convert beats to pixels
@@ -479,6 +569,31 @@ const toggleMetronome = () => {
   audioStore.toggleMetronome()
 }
 
+// Handle clicking on timeline ruler to seek
+const seekToPosition = (event: MouseEvent) => {
+  if (!timelineHeader.value) return
+  
+  const rect = timelineHeader.value.getBoundingClientRect()
+  const clickX = event.clientX - rect.left + timelineHeader.value.scrollLeft
+  const timePosition = clickX / (beatWidth.value * 4) // Convert pixels to seconds
+  
+  // Update the current time directly
+  audioStore.currentTime = Math.max(0, timePosition)
+  
+  // If playing, we might want to restart playback from this position
+  if (audioStore.isPlaying) {
+    audioStore.stop()
+    setTimeout(() => {
+      audioStore.play()
+    }, 100)
+  }
+  
+  // Auto-scroll to the new position if it's outside the visible area
+  setTimeout(() => {
+    autoScrollToPlayhead()
+  }, 50)
+}
+
 // Chord visualization methods
 const isChordSample = (clip: AudioClip): boolean => {
   if (!clip.sampleUrl) return false
@@ -640,6 +755,11 @@ onUnmounted(() => {
   document.removeEventListener('mouseup', stopDragClip)
   document.removeEventListener('mousemove', handleResizeClipEvent)
   document.removeEventListener('mouseup', stopResizeClip)
+  
+  // Clear user scroll timeout
+  if (userScrollTimeout.value) {
+    clearTimeout(userScrollTimeout.value)
+  }
 })
 </script>
 
@@ -656,7 +776,14 @@ onUnmounted(() => {
   border-bottom: 1px solid var(--border);
   height: 40px;
   position: relative;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE and Edge */
+}
+
+.timeline-header::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, Opera */
 }
 
 .timeline-ruler {
@@ -664,6 +791,14 @@ onUnmounted(() => {
   height: 100%;
   background: linear-gradient(to right, var(--border) 1px, transparent 1px);
   background-size: v-bind('beatWidth + "px"') 100%;
+  min-width: v-bind('timelineWidth + "px"');
+  width: v-bind('timelineWidth + "px"');
+  cursor: pointer;
+  user-select: none;
+}
+
+.timeline-ruler:hover {
+  background-color: rgba(158, 127, 255, 0.05);
 }
 
 .ruler-mark {
@@ -693,6 +828,18 @@ onUnmounted(() => {
   padding: 0.125rem 0.25rem;
   border-radius: 3px;
   margin-left: 2px;
+  pointer-events: none;
+}
+
+.ruler-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  z-index: 20;
+  pointer-events: none;
+  box-shadow: 0 0 4px rgba(244, 114, 182, 0.5);
 }
 
 .timeline-content {

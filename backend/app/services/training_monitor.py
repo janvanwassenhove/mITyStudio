@@ -1,6 +1,6 @@
 """
 Voice Training Progress Monitor
-Real-time monitoring of DiffSinger training jobs
+Real-time monitoring of RVC training jobs
 """
 
 import time

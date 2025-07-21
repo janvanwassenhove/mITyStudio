@@ -122,7 +122,7 @@ class MusicCompositionTools:
             return {}
     
     def _load_available_voices(self) -> Dict[str, Dict[str, Any]]:
-        """Load available voices from DiffSinger voice registry"""
+        """Load available voices from RVC voice registry"""
         try:
             if VoiceService is None:
                 _safe_log_error("VoiceService not available")
@@ -902,7 +902,7 @@ EXAMPLE ADVANCED LYRICS CLIP:
 }
 
 LYRICS WORKFLOW:
-1. Use get_available_voices to check available DiffSinger voices before creating lyrics
+1. Use get_available_voices to check available RVC voices before creating lyrics
 2. Use create_track to create a vocal track with instrument="vocals"
 3. For simple lyrics: Use add_lyrics_to_track with simple_mode=True
 4. For complex multi-voice: Use create_multi_voice_lyrics or add_lyrics_to_track with voices parameter
@@ -1563,7 +1563,7 @@ Thought: {{agent_scratchpad}}""".format(
                 else:
                     # Add placeholder lyrics with advanced structure using actual voices
                     song_key = updated_structure.get('key', 'C')
-                    sample_lyrics = "Hello world, this is my song"
+                    sample_lyrics = "mitystudio forever in our hearts"
                     
                     # Get appropriate voice for fallback
                     fallback_voice_id = "default"

@@ -86,7 +86,7 @@
               </div>
             </div>
             
-            <div v-if="selectedTrack === track.id" class="track-controls-section">
+            <div v-if="selectedTrack === track.id" class="track-controls-section" @click.stop>
               <div class="volume-control">
                 <label>Volume</label>
                 <input 
@@ -118,7 +118,7 @@
               </div>
             </div>
             
-            <div v-if="selectedTrack === track.id" :key="`effects-${track.id}`" class="effects-section">
+            <div v-if="selectedTrack === track.id" :key="`effects-${track.id}`" class="effects-section" @click.stop>
               <h4>Effects</h4>
               
               <div class="effect-control">

@@ -65,7 +65,7 @@ class TranscriptionService:
             Dictionary containing transcription and timing information
         """
         if engine == 'auto':
-            engine = self.available_engines[0]
+            engine = self.available_engines[0] if self.available_engines else 'simple'
         
         logger.info(f"Transcribing audio {audio_file} with engine: {engine}")
         
@@ -80,8 +80,34 @@ class TranscriptionService:
                 return self._transcribe_simple(audio_file)
         except Exception as e:
             logger.error(f"Transcription with {engine} failed: {e}")
-            # Fallback to simple transcription
-            return self._transcribe_simple(audio_file)
+            # Try fallback engines before simple transcription
+            if engine != 'simple':
+                logger.info("Trying simple transcription as fallback...")
+                try:
+                    return self._transcribe_simple(audio_file)
+                except Exception as fallback_error:
+                    logger.error(f"Even simple transcription failed: {fallback_error}")
+                    # Return minimal fallback result
+                    return {
+                        'text': '[Audio file for voice training]',
+                        'language': 'en',
+                        'segments': [],
+                        'words': [],
+                        'confidence': 0.0,
+                        'engine': 'fallback',
+                        'error': str(fallback_error)
+                    }
+            else:
+                # If simple transcription failed, return minimal result
+                return {
+                    'text': '[Audio file for voice training]',
+                    'language': 'en', 
+                    'segments': [],
+                    'words': [],
+                    'confidence': 0.0,
+                    'engine': 'minimal',
+                    'error': str(e)
+                }
     
     def _transcribe_with_whisper(self, audio_file: str) -> Dict[str, Any]:
         """Transcribe using OpenAI Whisper"""
@@ -89,38 +115,50 @@ class TranscriptionService:
             import whisper
             
             # Load Whisper model (use base model for balance of speed/accuracy)
+            logger.info("Loading Whisper model...")
             model = whisper.load_model("base")
             
             # Transcribe with word-level timestamps
+            logger.info(f"Starting Whisper transcription for: {audio_file}")
             result = model.transcribe(audio_file, word_timestamps=True)
+            
+            # Check if result is valid
+            if not result or 'text' not in result:
+                logger.error("Whisper returned invalid result")
+                raise ValueError("Whisper transcription returned no valid result")
             
             # Extract text and timing information
             transcription = {
-                'text': result['text'].strip(),
-                'language': result['language'],
+                'text': result.get('text', '').strip(),
+                'language': result.get('language', 'en'),
                 'segments': [],
                 'words': [],
                 'confidence': 0.8,  # Whisper generally has good confidence
                 'engine': 'whisper'
             }
             
-            # Process segments
-            for segment in result['segments']:
-                transcription['segments'].append({
-                    'start': segment['start'],
-                    'end': segment['end'],
-                    'text': segment['text'].strip()
-                })
+            # Process segments safely
+            segments = result.get('segments', [])
+            if segments:
+                for segment in segments:
+                    if segment and isinstance(segment, dict):
+                        transcription['segments'].append({
+                            'start': segment.get('start', 0),
+                            'end': segment.get('end', 0),
+                            'text': segment.get('text', '').strip()
+                        })
             
-            # Process words if available
-            if 'words' in result:
-                for word in result['words']:
-                    transcription['words'].append({
-                        'start': word['start'],
-                        'end': word['end'],
-                        'word': word['word'].strip(),
-                        'confidence': word.get('probability', 0.8)
-                    })
+            # Process words if available (safely)
+            words = result.get('words', [])
+            if words:
+                for word in words:
+                    if word and isinstance(word, dict):
+                        transcription['words'].append({
+                            'start': word.get('start', 0),
+                            'end': word.get('end', 0),
+                            'word': word.get('word', '').strip(),
+                            'confidence': word.get('probability', 0.8)
+                        })
             
             logger.info(f"Whisper transcription complete: {transcription['text'][:100]}...")
             return transcription
@@ -193,8 +231,8 @@ class TranscriptionService:
     def _transcribe_simple(self, audio_file: str) -> Dict[str, Any]:
         """Simple transcription fallback - generates placeholder text"""
         try:
-            # Get audio duration
-            duration = librosa.get_duration(filename=audio_file)
+            # Get audio duration (fix librosa deprecation warning)
+            duration = librosa.get_duration(path=audio_file)
             
             # Generate simple placeholder text based on duration
             words_per_second = 2.5  # Average speaking rate

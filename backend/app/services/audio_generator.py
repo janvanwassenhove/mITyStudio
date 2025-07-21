@@ -360,8 +360,73 @@ finally {{
     
     def _generate_pitch_modulated_audio(self, text: str, voice_id: str, notes: list, 
                                        chord_name: str = None, duration: float = None) -> str:
-        """Generate audio with pitch modulation based on musical notes"""
-        logger.info(f"Generating pitch-modulated audio for '{text}' with {len(notes)} notes")
+        """Generate audio with pitch modulation based on musical notes - use RVC for custom voices"""
+        logger.info(f"Generating singing for '{text}' with voice {voice_id} and {len(notes)} notes")
+        
+        # Check if this is a custom voice with RVC model
+        if self._is_custom_voice_with_rvc(voice_id):
+            logger.info(f"Using RVC service for custom voice {voice_id}")
+            return self._generate_rvc_singing(text, voice_id, notes, chord_name, duration)
+        else:
+            logger.info(f"Using synthetic generation for voice {voice_id}")
+            return self._generate_synthetic_singing(text, voice_id, notes, chord_name, duration)
+    
+    def _is_custom_voice_with_rvc(self, voice_id: str) -> bool:
+        """Check if voice_id corresponds to a custom voice with RVC model"""
+        try:
+            from app.services.rvc_service import RVCService
+            rvc_service = RVCService()
+            
+            # Check if RVC model exists for this voice
+            voices = rvc_service.list_singing_voices()
+            for voice in voices:
+                if voice.get('voice_id') == voice_id or voice.get('name') == voice_id:
+                    return True
+            
+            return False
+        except Exception as e:
+            logger.warning(f"Could not check RVC availability: {e}")
+            return False
+    
+    def _generate_rvc_singing(self, text: str, voice_id: str, notes: list, 
+                             chord_name: str = None, duration: float = None) -> str:
+        """Generate singing using RVC service with actual voice samples"""
+        try:
+            from app.services.rvc_service import RVCService
+            
+            rvc_service = RVCService()
+            
+            # Calculate duration based on natural singing pace
+            if duration is None:
+                syllable_count = len(self._extract_syllables(text))
+                duration = max(3.0, syllable_count * 0.6)
+            
+            logger.info(f"Using RVC service to generate {duration:.1f}s of singing for '{text}'")
+            
+            # Use RVC service to generate singing
+            audio_path = rvc_service.generate_singing_audio(
+                text=text,
+                voice_id=voice_id,
+                notes=notes,
+                duration=duration
+            )
+            
+            if audio_path and Path(audio_path).exists():
+                logger.info(f"✅ RVC singing generated successfully: {audio_path}")
+                return audio_path
+            else:
+                logger.warning("RVC singing generation failed, falling back to synthetic")
+                return self._generate_synthetic_singing(text, voice_id, notes, chord_name, duration)
+                
+        except Exception as e:
+            logger.error(f"RVC singing generation failed: {e}")
+            logger.info("Falling back to synthetic singing generation")
+            return self._generate_synthetic_singing(text, voice_id, notes, chord_name, duration)
+    
+    def _generate_synthetic_singing(self, text: str, voice_id: str, notes: list, 
+                                   chord_name: str = None, duration: float = None) -> str:
+        """Generate synthetic singing audio (original implementation)"""
+        logger.info(f"Generating synthetic singing for '{text}' with {len(notes)} notes")
         
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
         temp_file.close()
@@ -377,77 +442,404 @@ finally {{
             logger.warning("No valid note frequencies found, falling back to regular generation")
             return self.generate_test_audio(text, voice_id)
         
-        # Calculate duration
+        # Calculate duration based on natural singing pace
         if duration is None:
-            duration = max(2.0, len(text) * 0.15)  # Base duration on text length
+            syllable_count = len(self._extract_syllables(text))
+            duration = max(3.0, syllable_count * 0.6)  # More time per syllable for singing
         
         sample_rate = 22050
         t = np.linspace(0, duration, int(sample_rate * duration))
         
-        # Base voice characteristics
+        # Voice characteristics for natural singing
         if 'male' in voice_id.lower():
-            base_formant_shift = 0.8  # Lower formants for male voice
-            voice_vibrato_rate = 4.5
+            base_freq_adjust = 0.85  # Lower range for male singing
+            formant_1_freq = 550   # Male singing formants
+            formant_2_freq = 1000
+            vibrato_rate = 4.2
+            vibrato_depth = 0.018  # Natural vibrato depth
+            voice_brightness = 0.7
         elif 'female' in voice_id.lower():
-            base_formant_shift = 1.2  # Higher formants for female voice
-            voice_vibrato_rate = 5.5
+            base_freq_adjust = 1.15  # Higher range for female singing
+            formant_1_freq = 650   # Female singing formants
+            formant_2_freq = 1200
+            vibrato_rate = 5.8
+            vibrato_depth = 0.025  # Slightly more vibrato
+            voice_brightness = 0.85
         else:
-            base_formant_shift = 1.0  # Neutral voice
-            voice_vibrato_rate = 5.0
+            base_freq_adjust = 1.0  # Neutral voice
+            formant_1_freq = 600   # Neutral singing formants
+            formant_2_freq = 1100
+            vibrato_rate = 5.0
+            vibrato_depth = 0.022
+            voice_brightness = 0.75
         
-        # Split text into syllables and map to notes
-        words = text.split()
-        syllables = []
-        for word in words:
-            # Simple syllable approximation (vowel-based)
-            syllable_count = max(1, len([c for c in word.lower() if c in 'aeiou']))
-            syllables.extend([word] * syllable_count)
-        
-        # Ensure we have enough notes for all syllables
-        while len(note_frequencies) < len(syllables):
-            note_frequencies.extend(note_frequencies)  # Repeat the pattern
-        
+        # Generate basic singing with note frequencies
         audio = np.zeros_like(t)
         
-        # Generate audio for each syllable with corresponding note
-        for i, syllable in enumerate(syllables):
-            if i >= len(note_frequencies):
-                break
+        for i, freq in enumerate(note_frequencies):
+            # Calculate timing for each note
+            note_start = (i / len(note_frequencies)) * duration
+            note_end = ((i + 1) / len(note_frequencies)) * duration
+            note_mask = (t >= note_start) & (t < note_end)
+            
+            if np.any(note_mask):
+                adjusted_freq = freq * base_freq_adjust
                 
-            # Calculate time segment for this syllable
-            start_time = i * duration / len(syllables)
-            end_time = (i + 1) * duration / len(syllables)
-            start_idx = int(start_time * sample_rate)
-            end_idx = int(end_time * sample_rate)
-            
-            if start_idx >= len(t) or end_idx > len(t):
-                continue
+                # Generate harmonic singing voice
+                fundamental = np.sin(2 * np.pi * adjusted_freq * t[note_mask])
+                overtone1 = 0.5 * np.sin(2 * np.pi * adjusted_freq * 2 * t[note_mask])
+                overtone2 = 0.25 * np.sin(2 * np.pi * adjusted_freq * 3 * t[note_mask])
                 
-            syllable_t = t[start_idx:end_idx]
-            note_freq = note_frequencies[i]
-            
-            # Generate pitched vocal sound
-            signal = self._generate_vocal_formants(
-                syllable_t, note_freq, voice_id, base_formant_shift, voice_vibrato_rate
-            )
-            
-            # Apply envelope for natural syllable shape
-            envelope = self._generate_syllable_envelope(len(syllable_t))
-            signal *= envelope
-            
-            # Add to main audio
-            audio[start_idx:end_idx] += signal
+                # Add vibrato
+                vibrato = 1 + vibrato_depth * np.sin(2 * np.pi * vibrato_rate * t[note_mask])
+                note_audio = (fundamental + overtone1 + overtone2) * vibrato
+                
+                # Apply envelope
+                envelope_length = len(note_audio)
+                envelope = np.ones(envelope_length)
+                attack_length = min(envelope_length // 10, envelope_length)
+                if attack_length > 0:
+                    envelope[:attack_length] = np.linspace(0, 1, attack_length)
+                
+                note_audio *= envelope
+                audio[note_mask] += note_audio
         
-        # Normalize and apply final processing
+        # Normalize and save
         if np.max(np.abs(audio)) > 0:
             audio = audio / np.max(np.abs(audio)) * 0.8
         
-        # Add subtle reverb effect
-        audio = self._add_simple_reverb(audio, sample_rate)
-        
         sf.write(temp_file.name, audio, sample_rate)
-        logger.info(f"Pitch-modulated audio generated: {temp_file.name}")
+        logger.info(f"Synthetic singing audio generated: {temp_file.name}")
         return temp_file.name
+    
+    def _create_musical_phrase(self, note_frequencies: list, syllable_count: int) -> list:
+        """Create a musical phrase by extending notes with musical intelligence"""
+        if len(note_frequencies) >= syllable_count:
+            return note_frequencies[:syllable_count]
+        
+        extended_notes = note_frequencies.copy()
+        
+        # Extend with musical patterns
+        while len(extended_notes) < syllable_count:
+            pattern_length = len(note_frequencies)
+            remaining_syllables = syllable_count - len(extended_notes)
+            
+            if remaining_syllables >= pattern_length:
+                # Repeat the entire pattern
+                extended_notes.extend(note_frequencies)
+            else:
+                # Add partial pattern with musical resolution
+                partial_pattern = note_frequencies[:remaining_syllables]
+                # End on a musically satisfying note (try to end on tonic or fifth)
+                if remaining_syllables > 0:
+                    partial_pattern[-1] = note_frequencies[0]  # End on tonic
+                extended_notes.extend(partial_pattern)
+        
+        return extended_notes
+    
+    def _create_singing_pitch_curve(self, t: np.ndarray, target_freq: float, 
+                                   all_notes: list, syllable_index: int, total_syllables: int) -> np.ndarray:
+        """Create smooth pitch transitions for natural singing"""
+        pitch_curve = np.full_like(t, target_freq)
+        
+        # Add portamento (pitch glide) at the beginning if not the first syllable
+        if syllable_index > 0:
+            prev_freq = all_notes[syllable_index - 1]
+            glide_length = min(len(t) // 3, len(t))
+            
+            if glide_length > 0:
+                # Create natural pitch glide
+                glide_t = np.linspace(0, 1, glide_length)
+                # Use S-curve for natural pitch transition
+                s_curve = 3 * glide_t**2 - 2 * glide_t**3
+                pitch_glide = prev_freq + (target_freq - prev_freq) * s_curve
+                pitch_curve[:glide_length] = pitch_glide
+        
+        # Add natural pitch variation within the syllable
+        pitch_variation = 1.0 + 0.01 * np.sin(10 * np.pi * np.linspace(0, 1, len(t)))
+        pitch_curve *= pitch_variation
+        
+        return pitch_curve
+    
+    def _generate_realistic_singing_voice(self, t: np.ndarray, pitch_curve: np.ndarray,
+                                         f1: float, f2: float, vibrato_rate: float, 
+                                         vibrato_depth: float, voice_id: str, brightness: float) -> np.ndarray:
+        """Generate highly realistic singing voice using advanced vocal modeling"""
+        
+        # Apply natural vibrato with random variations
+        vibrato_phase = 2 * np.pi * vibrato_rate * t
+        vibrato_randomness = np.random.normal(1.0, 0.05, len(t))
+        vibrato = 1.0 + vibrato_depth * np.sin(vibrato_phase) * vibrato_randomness
+        
+        final_pitch = pitch_curve * vibrato
+        
+        # Generate vocal source using improved glottal pulse model
+        vocal_source = self._generate_advanced_glottal_source(t, final_pitch, voice_id)
+        
+        # Apply formant filtering with dynamic characteristics
+        voice_signal = self._apply_dynamic_formant_filter(vocal_source, f1, f2, voice_id, brightness)
+        
+        # Add singing-specific vocal textures
+        voice_signal = self._add_singing_vocal_texture(voice_signal, t, voice_id)
+        
+        return voice_signal
+    
+    def _generate_advanced_glottal_source(self, t: np.ndarray, pitch: np.ndarray, voice_id: str) -> np.ndarray:
+        """Generate advanced glottal source with realistic voice characteristics"""
+        
+        # Voice-specific glottal parameters
+        if 'male' in voice_id.lower():
+            pulse_asymmetry = 0.6  # More asymmetric pulses
+            spectral_tilt = -12    # dB per octave
+            jitter = 0.5          # Frequency variation
+        elif 'female' in voice_id.lower():
+            pulse_asymmetry = 0.7  # Slightly less asymmetric
+            spectral_tilt = -10    # Less spectral tilt
+            jitter = 0.3          # Less frequency variation
+        else:
+            pulse_asymmetry = 0.65
+            spectral_tilt = -11
+            jitter = 0.4
+        
+        # Add natural jitter (frequency variation)
+        jitter_variation = 1.0 + (jitter / 100.0) * np.random.normal(0, 1, len(t))
+        pitch_with_jitter = pitch * jitter_variation
+        
+        # Generate asymmetric pulse train
+        voice_signal = np.zeros_like(t)
+        
+        # Use phase accumulation for accurate pitch tracking
+        dt = t[1] - t[0] if len(t) > 1 else 1/22050
+        phase = np.cumsum(pitch_with_jitter * dt) * 2 * np.pi
+        
+        # Generate harmonics with realistic spectral shaping
+        for harmonic in range(1, 20):  # Up to 19th harmonic
+            # Apply spectral tilt
+            amplitude = (1.0 / harmonic) * (10 ** (spectral_tilt * harmonic / 20.0))
+            
+            # Add harmonic distortion for natural voice
+            distortion = 1.0 + 0.1 * np.sin(phase * harmonic * 0.5)
+            
+            # Generate harmonic with asymmetric pulse shaping
+            harmonic_signal = amplitude * np.sin(phase * harmonic) * distortion
+            
+            # Apply pulse asymmetry
+            asymmetry_factor = 1.0 + pulse_asymmetry * np.sin(phase * harmonic)
+            harmonic_signal *= asymmetry_factor
+            
+            voice_signal += harmonic_signal
+        
+        return voice_signal
+    
+    def _apply_dynamic_formant_filter(self, signal: np.ndarray, f1: float, f2: float, 
+                                     voice_id: str, brightness: float) -> np.ndarray:
+        """Apply dynamic formant filtering that changes over time"""
+        
+        # Singing formants (different from speech)
+        if 'male' in voice_id.lower():
+            f3 = 2600  # Third formant for male singing
+            singer_formant = 2800  # Male singer's formant
+        elif 'female' in voice_id.lower():
+            f3 = 3100  # Third formant for female singing
+            singer_formant = 3200  # Female singer's formant
+        else:
+            f3 = 2850
+            singer_formant = 3000
+        
+        # Create time-varying formant responses
+        t_norm = np.linspace(0, 1, len(signal))
+        
+        # Dynamic formant movements for natural singing
+        f1_dynamic = f1 * (1.0 + 0.1 * np.sin(4 * np.pi * t_norm))
+        f2_dynamic = f2 * (1.0 + 0.08 * np.sin(6 * np.pi * t_norm))
+        
+        # Apply formant resonances using a simplified model
+        filtered_signal = signal.copy()
+        
+        # Simple formant emphasis (approximation of vocal tract resonance)
+        formant_weights = np.ones_like(signal)
+        
+        # Emphasize formant regions
+        sample_rate = 22050
+        freqs = np.fft.fftfreq(len(signal), 1/sample_rate)
+        
+        for i, freq in enumerate(freqs[:len(freqs)//2]):
+            # Distance from formants
+            dist_f1 = abs(freq - f1_dynamic[min(i * len(f1_dynamic) // len(freqs), len(f1_dynamic)-1)])
+            dist_f2 = abs(freq - f2_dynamic[min(i * len(f2_dynamic) // len(freqs), len(f2_dynamic)-1)])
+            dist_f3 = abs(freq - f3)
+            dist_singer = abs(freq - singer_formant)
+            
+            # Formant resonance (simplified)
+            formant_gain = (
+                1.0 + 0.5 * np.exp(-(dist_f1/200)**2) +      # F1 resonance
+                0.4 * np.exp(-(dist_f2/300)**2) +            # F2 resonance
+                0.3 * np.exp(-(dist_f3/400)**2) +            # F3 resonance
+                0.4 * brightness * np.exp(-(dist_singer/300)**2)  # Singer's formant
+            )
+            
+            if i < len(formant_weights):
+                formant_weights[i] = formant_gain
+        
+        # Apply simple spectral shaping (approximation)
+        filtered_signal *= np.interp(np.arange(len(signal)), 
+                                   np.linspace(0, len(signal)-1, len(formant_weights)), 
+                                   formant_weights)
+        
+        return filtered_signal
+    
+    def _add_singing_vocal_texture(self, signal: np.ndarray, t: np.ndarray, voice_id: str) -> np.ndarray:
+        """Add singing-specific vocal textures and characteristics"""
+        
+        # Voice-specific singing characteristics
+        if 'male' in voice_id.lower():
+            breathiness = 0.008
+            chest_resonance = 0.12
+            vibrato_intensity = 0.85
+        elif 'female' in voice_id.lower():
+            breathiness = 0.012
+            chest_resonance = 0.08
+            vibrato_intensity = 1.0
+        else:
+            breathiness = 0.01
+            chest_resonance = 0.10
+            vibrato_intensity = 0.92
+        
+        # Add natural breath flow
+        breath_pattern = breathiness * np.random.normal(0, 1, len(signal))
+        breath_filter = 1.0 + 0.3 * np.sin(8 * np.pi * t)  # Breathing rhythm
+        natural_breath = breath_pattern * breath_filter
+        
+        # Add chest resonance for singing
+        chest_freq = 60 + 20 * np.sin(2 * np.pi * 0.5 * t)  # Variable chest resonance
+        chest_signal = chest_resonance * np.sin(2 * np.pi * chest_freq * t)
+        
+        # Add singing vibrato on amplitude
+        amp_vibrato = 1.0 + 0.02 * vibrato_intensity * np.sin(2 * np.pi * 5.5 * t)
+        
+        # Combine all textures
+        textured_signal = (signal + natural_breath + chest_signal) * amp_vibrato
+        
+        return textured_signal
+    
+    def _generate_singing_syllable_envelope(self, length: int, syllable: str, 
+                                          syllable_index: int, total_syllables: int) -> np.ndarray:
+        """Generate envelope specifically for singing with musical phrasing"""
+        t = np.linspace(0, 1, length)
+        
+        # Analyze syllable characteristics for singing
+        vowels = 'aeiou'
+        is_vowel_heavy = sum(1 for c in syllable.lower() if c in vowels) > len(syllable) / 2
+        
+        # Musical phrasing considerations
+        is_phrase_beginning = syllable_index == 0
+        is_phrase_ending = syllable_index == total_syllables - 1
+        is_sustained_note = is_vowel_heavy and len(syllable) > 2
+        
+        # Envelope parameters based on musical context
+        if is_phrase_beginning:
+            attack_time = 0.25  # Slower attack for phrase beginning
+            sustain_level = 0.85
+        elif is_phrase_ending:
+            attack_time = 0.1
+            sustain_level = 0.9
+            release_time = 0.4  # Longer release for phrase ending
+        elif is_sustained_note:
+            attack_time = 0.15
+            sustain_level = 0.95  # Higher sustain for vowels
+            release_time = 0.2
+        else:
+            attack_time = 0.12
+            sustain_level = 0.8
+            release_time = 0.25
+        
+        # Set default release time if not set above
+        if 'release_time' not in locals():
+            release_time = 0.25
+        
+        envelope = np.ones_like(t)
+        
+        # Natural singing attack with breath support
+        attack_mask = t < attack_time
+        if np.any(attack_mask):
+            # Exponential attack with breath onset
+            attack_curve = 1 - np.exp(-4 * t[attack_mask] / attack_time)
+            envelope[attack_mask] = attack_curve
+        
+        # Sustained singing with natural variations
+        sustain_start = attack_time
+        sustain_end = 1.0 - release_time
+        sustain_mask = (t >= sustain_start) & (t < sustain_end)
+        
+        if np.any(sustain_mask):
+            sustain_t = (t[sustain_mask] - sustain_start) / (sustain_end - sustain_start)
+            
+            # Add singing breath support pattern
+            breath_support = 1.0 + 0.03 * np.sin(6 * np.pi * sustain_t)
+            
+            # Add natural singing vibrato on amplitude
+            singing_vibrato = 1.0 + 0.015 * np.sin(12 * np.pi * sustain_t)
+            
+            envelope[sustain_mask] = sustain_level * breath_support * singing_vibrato
+        
+        # Natural singing release
+        release_mask = t >= sustain_end
+        if np.any(release_mask):
+            release_t = (t[release_mask] - sustain_end) / release_time
+            
+            if is_phrase_ending:
+                # Gradual fade for phrase ending
+                release_curve = sustain_level * np.exp(-2 * release_t)
+            else:
+                # Quick release for continuing phrase
+                release_curve = sustain_level * np.exp(-4 * release_t)
+            
+            envelope[release_mask] = release_curve
+        
+        return np.clip(envelope, 0, 1)
+    
+    def _add_singing_ambience(self, audio: np.ndarray, sample_rate: int, voice_id: str) -> np.ndarray:
+        """Add natural singing ambience and room characteristics"""
+        
+        # Add subtle room resonance for singing
+        room_tone = np.random.normal(0, 0.002, len(audio))
+        
+        # Apply singing-appropriate reverb
+        reverb_audio = self._add_singing_reverb(audio, sample_rate)
+        
+        # Add natural vocal tract resonance
+        if 'male' in voice_id.lower():
+            tract_resonance = 0.05 * np.sin(2 * np.pi * 120 * np.arange(len(audio)) / sample_rate)
+        elif 'female' in voice_id.lower():
+            tract_resonance = 0.04 * np.sin(2 * np.pi * 180 * np.arange(len(audio)) / sample_rate)
+        else:
+            tract_resonance = 0.045 * np.sin(2 * np.pi * 150 * np.arange(len(audio)) / sample_rate)
+        
+        # Combine elements
+        natural_audio = reverb_audio + room_tone + tract_resonance
+        
+        # Apply gentle compression for singing (simple limiting)
+        max_amplitude = np.max(np.abs(natural_audio))
+        if max_amplitude > 0.9:
+            compression_ratio = 0.9 / max_amplitude
+            natural_audio *= compression_ratio
+        
+        return natural_audio
+    
+    def _add_singing_reverb(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        """Add reverb appropriate for singing performance"""
+        # Multiple delay lines for richer reverb
+        delays = [0.03, 0.06, 0.09, 0.12]  # Different delay times in seconds
+        gains = [0.25, 0.18, 0.12, 0.08]   # Decreasing gains
+        
+        reverb_audio = audio.copy()
+        
+        for delay_time, gain in zip(delays, gains):
+            delay_samples = int(delay_time * sample_rate)
+            if delay_samples < len(audio):
+                reverb_audio[delay_samples:] += audio[:-delay_samples] * gain
+        
+        return reverb_audio
     
     def _note_to_frequency(self, note: str) -> Optional[float]:
         """Convert musical note to frequency (e.g., 'C4' -> 261.63)"""
@@ -519,6 +911,273 @@ finally {{
         signal += breath_noise
         
         return signal
+    
+    def _extract_syllables(self, text: str) -> list:
+        """Extract syllables from text using simple vowel-based method"""
+        words = text.split()
+        syllables = []
+        
+        for word in words:
+            word_lower = word.lower()
+            vowels = 'aeiou'
+            syllable_positions = []
+            
+            # Find vowel groups
+            in_vowel_group = False
+            for i, char in enumerate(word_lower):
+                if char in vowels:
+                    if not in_vowel_group:
+                        syllable_positions.append(i)
+                        in_vowel_group = True
+                else:
+                    in_vowel_group = False
+            
+            # If no vowels found, treat as single syllable
+            if not syllable_positions:
+                syllables.append(word)
+            else:
+                # Create syllables based on vowel positions
+                prev_pos = 0
+                for i, pos in enumerate(syllable_positions):
+                    if i == len(syllable_positions) - 1:
+                        syllables.append(word[prev_pos:])
+                    else:
+                        next_consonant = pos + 1
+                        while next_consonant < len(word) and word_lower[next_consonant] in vowels:
+                            next_consonant += 1
+                        if next_consonant < len(word):
+                            split_pos = (next_consonant + syllable_positions[i + 1]) // 2
+                        else:
+                            split_pos = len(word)
+                        syllables.append(word[prev_pos:split_pos])
+                        prev_pos = split_pos
+        
+        return syllables if syllables else [text]
+    
+    def _generate_natural_singing_voice(self, t: np.ndarray, base_pitch: np.ndarray, 
+                                       formant1: float, formant2: float, 
+                                       vibrato_rate: float, vibrato_depth: float, voice_id: str) -> np.ndarray:
+        """Generate more natural singing voice using vocal tract modeling"""
+        
+        # Add natural vibrato with some randomness for humanness
+        vibrato_phase = 2 * np.pi * vibrato_rate * t
+        vibrato_variation = np.random.normal(1.0, 0.02, len(t))  # Slight random variation
+        vibrato = 1.0 + vibrato_depth * np.sin(vibrato_phase) * vibrato_variation
+        pitch_with_vibrato = base_pitch * vibrato
+        
+        # Generate a more complex fundamental using pulse train simulation
+        voice_signal = self._generate_vocal_pulse_train(t, pitch_with_vibrato, voice_id)
+        
+        # Apply realistic vocal tract filtering
+        voice_signal = self._apply_vocal_tract_filter(voice_signal, formant1, formant2, voice_id)
+        
+        # Add natural breath and vocal texture
+        voice_signal = self._add_vocal_texture(voice_signal, t, voice_id)
+        
+        return voice_signal
+    
+    def _generate_vocal_pulse_train(self, t: np.ndarray, pitch: np.ndarray, voice_id: str) -> np.ndarray:
+        """Generate a more realistic glottal pulse train for singing"""
+        sample_rate = len(t) / (t[-1] - t[0]) if len(t) > 1 else 22050
+        
+        # Voice-specific pulse characteristics
+        if 'male' in voice_id.lower():
+            pulse_sharpness = 0.3  # Sharper pulses for male voice
+            harmonic_rolloff = 0.8
+        elif 'female' in voice_id.lower():
+            pulse_sharpness = 0.4  # Softer pulses for female voice
+            harmonic_rolloff = 0.85
+        else:
+            pulse_sharpness = 0.35
+            harmonic_rolloff = 0.82
+        
+        # Generate sawtooth-like waveform with natural variations
+        voice_signal = np.zeros_like(t)
+        
+        # Use phase accumulation for smooth frequency changes
+        phase = np.zeros_like(t)
+        for i in range(1, len(t)):
+            dt = t[i] - t[i-1]
+            phase[i] = phase[i-1] + 2 * np.pi * pitch[i] * dt
+        
+        # Generate harmonics with natural decay
+        for harmonic in range(1, 16):  # Up to 15th harmonic
+            harmonic_amplitude = (1.0 / harmonic) * (harmonic_rolloff ** (harmonic - 1))
+            
+            # Add slight random phase for naturalness
+            phase_noise = np.random.normal(0, 0.1, len(t))
+            harmonic_signal = harmonic_amplitude * np.sin(phase * harmonic + phase_noise)
+            
+            # Apply pulse shaping
+            harmonic_signal *= (1.0 - pulse_sharpness * np.abs(np.sin(phase * harmonic)))
+            
+            voice_signal += harmonic_signal
+        
+        return voice_signal
+    
+    def _apply_vocal_tract_filter(self, signal: np.ndarray, f1: float, f2: float, voice_id: str) -> np.ndarray:
+        """Apply simplified vocal tract formant filtering"""
+        # Simulate formant filtering using simple resonant filters
+        
+        # Voice-specific formant adjustments for singing
+        if 'male' in voice_id.lower():
+            f1_singing = f1 * 0.95  # Slightly lower for male singing
+            f2_singing = f2 * 0.92
+            f3_singing = 2800  # Third formant
+        elif 'female' in voice_id.lower():
+            f1_singing = f1 * 1.05  # Slightly higher for female singing
+            f2_singing = f2 * 1.08
+            f3_singing = 3200  # Third formant
+        else:
+            f1_singing = f1
+            f2_singing = f2
+            f3_singing = 3000
+        
+        # Apply simple formant emphasis using frequency modulation
+        dt = 1.0 / 22050  # Assume 22050 Hz sample rate
+        t = np.arange(len(signal)) * dt
+        
+        # Create formant resonances
+        formant_response = (
+            0.6 * np.exp(-((t * 1000 - f1_singing/1000)**2) / (2 * (200/1000)**2)) +  # F1
+            0.4 * np.exp(-((t * 1000 - f2_singing/1000)**2) / (2 * (300/1000)**2)) +  # F2
+            0.2 * np.exp(-((t * 1000 - f3_singing/1000)**2) / (2 * (400/1000)**2))    # F3
+        )
+        
+        # Apply formant coloring more naturally
+        filtered_signal = signal * (0.7 + 0.3 * np.tile(formant_response[:min(len(formant_response), len(signal))], 
+                                                        (len(signal) // len(formant_response) + 1))[:len(signal)])
+        
+        return filtered_signal
+    
+    def _add_vocal_texture(self, signal: np.ndarray, t: np.ndarray, voice_id: str) -> np.ndarray:
+        """Add natural vocal textures like breathiness and throat resonance"""
+        
+        # Voice-specific texture parameters
+        if 'male' in voice_id.lower():
+            breathiness = 0.01
+            throat_resonance = 0.15
+            vocal_fry_intensity = 0.02
+        elif 'female' in voice_id.lower():
+            breathiness = 0.015
+            throat_resonance = 0.12
+            vocal_fry_intensity = 0.01
+        else:
+            breathiness = 0.012
+            throat_resonance = 0.13
+            vocal_fry_intensity = 0.015
+        
+        # Add breath noise (filtered white noise)
+        breath_noise = np.random.normal(0, breathiness, len(signal))
+        
+        # Add throat resonance (low-frequency rumble)
+        throat_freq = 80 + np.random.normal(0, 5, len(t))  # Around 80Hz with variation
+        throat_signal = throat_resonance * np.sin(2 * np.pi * throat_freq * t)
+        
+        # Add occasional vocal fry for naturalness (very low frequency modulation)
+        if np.random.random() > 0.7:  # 30% chance of vocal fry
+            fry_modulation = vocal_fry_intensity * np.sin(2 * np.pi * 50 * t) * np.random.exponential(0.3, len(t))
+            signal += fry_modulation
+        
+        # Combine all elements
+        textured_signal = signal + breath_noise + throat_signal
+        
+        # Apply natural amplitude modulation for singing vibrato on amplitude
+        amp_vibrato = 1.0 + 0.03 * np.sin(2 * np.pi * 4.5 * t)  # Slight amplitude vibrato
+        textured_signal *= amp_vibrato
+        
+        return textured_signal
+    
+    def _generate_natural_syllable_envelope(self, length: int, syllable: str) -> np.ndarray:
+        """Generate natural envelope for syllables in singing with phoneme awareness"""
+        t = np.linspace(0, 1, length)
+        
+        # Analyze syllable for phoneme characteristics
+        vowels = 'aeiou'
+        consonants = 'bcdfghjklmnpqrstvwxyz'
+        
+        vowel_count = sum(1 for c in syllable.lower() if c in vowels)
+        consonant_count = sum(1 for c in syllable.lower() if c in consonants)
+        
+        # Determine envelope shape based on phoneme content
+        if vowel_count > consonant_count:
+            # Vowel-dominated syllable: longer sustain, smoother transitions
+            attack_time = 0.2
+            sustain_level = 0.9
+            release_time = 0.25
+            vibrato_influence = 1.0
+        elif consonant_count > vowel_count:
+            # Consonant-dominated syllable: sharper attack, shorter sustain
+            attack_time = 0.1
+            sustain_level = 0.7
+            release_time = 0.35
+            vibrato_influence = 0.6
+        else:
+            # Balanced syllable
+            attack_time = 0.15
+            sustain_level = 0.8
+            release_time = 0.3
+            vibrato_influence = 0.8
+        
+        envelope = np.ones_like(t)
+        
+        # Natural attack with breath onset
+        attack_mask = t < attack_time
+        if np.any(attack_mask):
+            # Use exponential curve for more natural attack
+            attack_curve = 1 - np.exp(-5 * t[attack_mask] / attack_time)
+            envelope[attack_mask] = attack_curve
+        
+        # Sustain phase with natural breathing variation
+        sustain_start = attack_time
+        sustain_end = 1.0 - release_time
+        sustain_mask = (t >= sustain_start) & (t < sustain_end)
+        
+        if np.any(sustain_mask):
+            sustain_t = t[sustain_mask]
+            # Add natural breathing patterns and micro-vibrato
+            breathing_pattern = 1.0 + 0.02 * np.sin(8 * np.pi * sustain_t) * vibrato_influence
+            micro_vibrato = 1.0 + 0.01 * np.sin(25 * np.pi * sustain_t) * vibrato_influence
+            
+            # Combine natural variations
+            natural_variation = breathing_pattern * micro_vibrato
+            envelope[sustain_mask] = sustain_level * natural_variation
+        
+        # Natural release with breath decay
+        release_mask = t >= sustain_end
+        if np.any(release_mask):
+            release_t = (t[release_mask] - sustain_end) / release_time
+            # Use exponential decay for natural release
+            release_curve = sustain_level * np.exp(-3 * release_t)
+            envelope[release_mask] = release_curve
+        
+        # Add slight random variations for humanness
+        random_variation = 1.0 + np.random.normal(0, 0.02, len(t))
+        envelope *= np.clip(random_variation, 0.8, 1.2)
+        
+        return np.clip(envelope, 0, 1)
+    
+    def _add_natural_ambience(self, audio: np.ndarray, sample_rate: int) -> np.ndarray:
+        """Add natural room tone and breath sounds for singing"""
+        # Add very subtle room tone
+        room_tone = np.random.normal(0, 0.003, len(audio))
+        
+        # Add simple reverb for natural space
+        reverb_audio = self._add_simple_reverb(audio, sample_rate)
+        
+        # Combine with room tone
+        natural_audio = reverb_audio + room_tone
+        
+        # Apply gentle high-frequency roll-off for warmth
+        # Simple high-frequency attenuation
+        if len(natural_audio) > 100:
+            # Apply a simple moving average to soften high frequencies
+            window_size = max(1, sample_rate // 5000)  # Small window for subtle effect
+            if window_size > 1:
+                kernel = np.ones(window_size) / window_size
+                natural_audio = np.convolve(natural_audio, kernel, mode='same')
+        
+        return natural_audio
     
     def _generate_syllable_envelope(self, length: int) -> np.ndarray:
         """Generate an envelope that shapes the syllable for natural speech patterns"""

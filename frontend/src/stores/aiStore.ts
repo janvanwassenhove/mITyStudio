@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import axios from 'axios'
+import { useAudioStore } from './audioStore'
 
 // Configure axios base URL for backend
 const API_BASE_URL = process.env.NODE_ENV === 'development' 
@@ -151,14 +152,24 @@ export const useAIStore = defineStore('ai', () => {
     isGenerating.value = true
     
     try {
-      // Call backend AI API
+      // Get audio store for context
+      const audioStore = useAudioStore()
+      
+      // Call backend AI API with song structure context
       const response = await api.post('/api/ai/chat', {
         message: content,
         provider: selectedProvider.value,
         model: selectedModel.value,
         context: {
-          // Add any relevant context from the current project
-          // This could include current tracks, tempo, key, etc.
+          // Include current song structure for music-aware AI assistance
+          song_structure: audioStore.songStructure,
+          tracks: audioStore.songStructure?.tracks || [],
+          tempo: audioStore.songStructure?.tempo || 120,
+          key: audioStore.songStructure?.key || 'C',
+          timeSignature: audioStore.songStructure?.timeSignature || [4, 4],
+          duration: audioStore.songStructure?.duration || 0,
+          // Add current project state
+          hasActiveProject: audioStore.songStructure?.tracks?.length > 0
         }
       })
 
@@ -175,6 +186,14 @@ export const useAIStore = defineStore('ai', () => {
       }
       
       messages.value.push(message)
+      
+      // Handle updated song structure if provided by LangChain
+      if (response.data.updated_song_structure) {
+        console.log('AI provided updated song structure:', response.data.updated_song_structure)
+        // You could emit an event here to update the song structure
+        // audioStore.updateSongStructure(response.data.updated_song_structure)
+      }
+      
       return aiResponse
       
     } catch (error: any) {
@@ -186,7 +205,8 @@ export const useAIStore = defineStore('ai', () => {
       
       // Show error to user but don't throw to prevent UI breaking
       if (error.response?.status === 503) {
-        addMessage('assistant', 'AI services are temporarily unavailable. Please check your API keys.')
+        const errorMsg = error.response?.data?.fallback_response || 'AI services are temporarily unavailable. Please check your API keys.'
+        addMessage('assistant', errorMsg)
       }
       
       return fallbackResponse

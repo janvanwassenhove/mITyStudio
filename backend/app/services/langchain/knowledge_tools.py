@@ -216,7 +216,7 @@ def explain_json_structure() -> str:
           "voice_id": "soprano01",  // Use: soprano01, alto01, tenor01, bass01
           "lyrics": [               // Array of lyric fragments
             {
-              "text": "Hello world", // Lyric text
+              "text": "mitystudio forever in our hearts", // Lyric text
               "notes": ["C4", "D4"],  // Corresponding notes
               "start": 0.0,           // Start time within clip (seconds)
               "durations": [0.5, 0.5] // Duration per note (for multiple notes)

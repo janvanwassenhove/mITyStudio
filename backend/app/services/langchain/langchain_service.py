@@ -60,23 +60,31 @@ class LangChainService:
     def _initialize_models(self):
         """Initialize LangChain models"""
         try:
-            # OpenAI setup
+            # OpenAI setup with error handling for proxy issues
             openai_api_key = os.getenv('OPENAI_API_KEY')
             if openai_api_key and ChatOpenAI:
-                self.chat_openai = ChatOpenAI(
-                    api_key=openai_api_key,
-                    model="gpt-4",
-                    temperature=0.7
-                )
+                try:
+                    self.chat_openai = ChatOpenAI(
+                        api_key=openai_api_key,
+                        model="gpt-4",
+                        temperature=0.7
+                    )
+                except Exception as e:
+                    safe_log_error(f"ChatOpenAI initialization failed: {e}")
+                    self.chat_openai = None
                 
             # Anthropic setup
             anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
             if anthropic_api_key and ChatAnthropic:
-                self.chat_anthropic = ChatAnthropic(
-                    api_key=anthropic_api_key,
-                    model="claude-3-sonnet-20240229",
-                    temperature=0.7
-                )
+                try:
+                    self.chat_anthropic = ChatAnthropic(
+                        api_key=anthropic_api_key,
+                        model="claude-3-sonnet-20240229",
+                        temperature=0.7
+                    )
+                except Exception as e:
+                    safe_log_error(f"ChatAnthropic initialization failed: {e}")
+                    self.chat_anthropic = None
                 
         except Exception as e:
             safe_log_error(f"Error initializing LangChain models: {e}")

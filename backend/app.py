@@ -37,7 +37,7 @@ def create_app(config_name='development'):
         GOOGLE_API_KEY=os.getenv('GOOGLE_API_KEY'),
         # Audio processing
         UPLOAD_FOLDER=os.getenv('UPLOAD_FOLDER', 'uploads'),
-        MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50MB max file size for voice training
+        MAX_CONTENT_LENGTH=1024 * 1024 * 1024,  # 1GB max file size for unlimited voice training
         # Voice training directories
         VOICES_DIR=os.getenv('VOICES_DIR', 'app/data/voices'),
         TRAINING_DIR=os.getenv('TRAINING_DIR', 'app/data/training'), 

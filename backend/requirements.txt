@@ -17,6 +17,7 @@ anthropic==0.34.2
 pydub==0.25.1
 librosa==0.10.2
 soundfile==0.12.1
+scipy==1.13.1
 numpy>=1.26.0,<2.0.0
 scipy>=1.11.0
 requests==2.32.3
@@ -26,7 +27,7 @@ black==24.8.0
 flake8==7.1.1
 mypy==1.11.2
 
-# PyTorch for DiffSinger voice training and synthesis
+# PyTorch for RVC voice training and synthesis
 torch>=2.0.0
 torchvision>=0.15.0
 torchaudio>=2.0.0

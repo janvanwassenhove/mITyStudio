@@ -22,7 +22,7 @@ ai_bp = Blueprint('ai', __name__)
 @handle_errors
 def chat():
     """
-    Handle AI chat interactions
+    Handle AI chat interactions with enhanced music assistance
     """
     data = request.get_json()
     message = data.get('message', '')
@@ -43,17 +43,32 @@ def chat():
             context=context
         )
         
-        return jsonify({
+        # Build enhanced response with LangChain fields if available
+        result = {
             'response': response['content'],
             'provider': provider,
             'model': model,
             'actions': response.get('actions', []),
-            'timestamp': response.get('timestamp')
-        })
+            'timestamp': response.get('timestamp'),
+            'success': response.get('success', True)
+        }
+        
+        # Include LangChain-specific fields if present
+        if 'updated_song_structure' in response:
+            result['updated_song_structure'] = response['updated_song_structure']
+        
+        if 'tools_used' in response:
+            result['tools_used'] = response['tools_used']
+        
+        return jsonify(result)
         
     except Exception as e:
         current_app.logger.error(f"AI Chat error: {str(e)}")
-        return jsonify({'error': 'AI service temporarily unavailable'}), 503
+        return jsonify({
+            'error': 'AI service temporarily unavailable',
+            'success': False,
+            'fallback_response': 'I apologize, but I\'m having trouble connecting to the AI service right now. Please try again in a moment.'
+        }), 503
 
 
 @ai_bp.route('/generate/chord-progression', methods=['POST'])

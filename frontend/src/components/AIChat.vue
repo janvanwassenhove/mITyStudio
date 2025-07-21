@@ -195,9 +195,10 @@
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
 import { useAIStore } from '../stores/aiStore'
-import { checkApiKeyStatus as apiCheckApiKeyStatus } from '../utils/api'
+import { checkApiKeyStatus as apiCheckApiKeyStatus, getAllSampleInstruments } from '../utils/api'
 import { 
-  Bot, User, Trash2, Send, Paperclip, Mic, Lightbulb, Key
+  Bot, User, Trash2, Send, Paperclip, Mic, Lightbulb, Key,
+  Music, Play, Plus, Download, Upload, Settings, Volume2, Mic2
 } from 'lucide-vue-next'
 
 interface ChatAction {
@@ -496,11 +497,16 @@ const addChordProgressionFromJSON = (encodedJSON: string) => {
     const jsonContent = decodeURIComponent(encodedJSON)
     const chordData = JSON.parse(jsonContent)
     
-    const instrument = chordData.instrument || 'piano'
+    // Use dynamic instrument selection from AI suggestion or fallback to chord-capable instrument
+    const suggestedInstrument = chordData.instrument || 'piano'
+    const instrument = getAvailableInstrument(suggestedInstrument, 'piano')
     const trackName = chordData.name || 'Chord Progression'
     const trackId = audioStore.addTrack(trackName, instrument)
     
     if (trackId) {
+      // Get instrument type for proper clip creation
+      const { type: clipType } = getInstrumentTypeAndCategory(instrument)
+      
       let chords: any[] = chordData.chords || chordData.pattern || []
       
       for (let i = 0; i < chords.length; i++) {
@@ -511,7 +517,7 @@ const addChordProgressionFromJSON = (encodedJSON: string) => {
         audioStore.addClip(trackId, {
           startTime: startTime,
           duration: duration,
-          type: 'synth',
+          type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
           instrument: instrument,
           notes: [chord.chord || chord.name || 'C4'],
           volume: chordData.volume || 0.7,
@@ -519,7 +525,7 @@ const addChordProgressionFromJSON = (encodedJSON: string) => {
         })
       }
       
-      sendMessage(`🎹 Added chord progression with ${chords.length} chords!`)
+      sendMessage(`🎹 Added chord progression with ${chords.length} chords using ${instrument}!`)
     }
   } catch (error) {
     console.error('Error adding chord progression from JSON:', error)
@@ -532,10 +538,15 @@ const addDrumPatternFromJSON = (encodedJSON: string) => {
     const jsonContent = decodeURIComponent(encodedJSON)
     const drumData = JSON.parse(jsonContent)
     
+    // Use dynamic instrument selection for drums
+    const instrument = getAvailableInstrument('drums', 'drums')
     const trackName = drumData.name || 'Drum Pattern'
-    const trackId = audioStore.addTrack(trackName, 'drums')
+    const trackId = audioStore.addTrack(trackName, instrument)
     
     if (trackId) {
+      // Get instrument type for proper clip creation
+      const { type: clipType } = getInstrumentTypeAndCategory(instrument)
+      
       const barsCount = drumData.bars || 4
       const barDuration = drumData.barDuration || 4
       
@@ -543,15 +554,15 @@ const addDrumPatternFromJSON = (encodedJSON: string) => {
         audioStore.addClip(trackId, {
           startTime: bar * barDuration,
           duration: barDuration,
-          type: 'synth',
-          instrument: 'drums',
+          type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
+          instrument: instrument,
           notes: ['C2'],
           volume: drumData.volume || 0.8,
           effects: drumData.effects || { reverb: 0.1, delay: 0, distortion: 0 }
         })
       }
       
-      sendMessage(`🥁 Added drum pattern with ${barsCount} bars!`)
+      sendMessage(`🥁 Added drum pattern with ${barsCount} bars using ${instrument}!`)
     }
   } catch (error) {
     console.error('Error adding drum pattern from JSON:', error)
@@ -564,24 +575,29 @@ const addBassLineFromJSON = (encodedJSON: string) => {
     const jsonContent = decodeURIComponent(encodedJSON)
     const bassData = JSON.parse(jsonContent)
     
+    // Use dynamic instrument selection for bass
+    const instrument = getAvailableInstrument('bass', 'bass')
     const trackName = bassData.name || 'Bass Line'
-    const trackId = audioStore.addTrack(trackName, 'bass')
+    const trackId = audioStore.addTrack(trackName, instrument)
     
     if (trackId) {
+      // Get instrument type for proper clip creation
+      const { type: clipType } = getInstrumentTypeAndCategory(instrument)
+      
       const notes = bassData.notes || bassData.pattern || []
       const duration = bassData.duration || 16
       
       audioStore.addClip(trackId, {
         startTime: 0,
         duration: duration,
-        type: 'synth',
-        instrument: 'bass',
+        type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
+        instrument: instrument,
         notes: notes.length > 0 ? notes : ['C2'],
         volume: bassData.volume || 0.8,
         effects: bassData.effects || { reverb: 0, delay: 0, distortion: 0.1 }
       })
       
-      sendMessage(`🎸 Added bass line!`)
+      sendMessage(`🎸 Added bass line using ${instrument}!`)
     }
   } catch (error) {
     console.error('Error adding bass line from JSON:', error)
@@ -594,18 +610,23 @@ const addMelodyFromJSON = (encodedJSON: string) => {
     const jsonContent = decodeURIComponent(encodedJSON)
     const melodyData = JSON.parse(jsonContent)
     
-    const instrument = melodyData.instrument || 'synth'
+    // Use dynamic instrument selection from AI suggestion or fallback to synth
+    const suggestedInstrument = melodyData.instrument || 'synth'
+    const instrument = getAvailableInstrument(suggestedInstrument, 'synth')
     const trackName = melodyData.name || 'Melody'
     const trackId = audioStore.addTrack(trackName, instrument)
     
     if (trackId) {
+      // Get instrument type for proper clip creation
+      const { type: clipType } = getInstrumentTypeAndCategory(instrument)
+      
       const notes = melodyData.notes || melodyData.pattern || []
       const duration = melodyData.duration || 16
       
       audioStore.addClip(trackId, {
         startTime: 0,
         duration: duration,
-        type: 'synth',
+        type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
         instrument: instrument,
         notes: notes.length > 0 ? notes : ['C4'],
         volume: melodyData.volume || 0.7,
@@ -702,7 +723,466 @@ onMounted(() => {
   ;(window as any).addLyricsFromJSONAction = addLyricsFromJSONAction
   ;(window as any).applyEffectsFromJSON = applyEffectsFromJSON
   ;(window as any).applyMixFromJSON = applyMixFromJSON
+  
+  // Load available instruments on component mount
+  loadAvailableInstruments()
 })
+
+// Available instruments management
+const availableInstruments = ref<any>({
+  categories: {},
+  instrumentMap: new Map<string, string>() // AI name -> actual instrument name
+})
+
+const loadAvailableInstruments = async () => {
+  try {
+    const response = await getAllSampleInstruments()
+    availableInstruments.value = response
+    
+    // Create mapping from AI-suggested names to actual instrument names
+    const instrumentMap = new Map<string, string>()
+    
+    // Add direct mappings for common AI suggestions
+    for (const category in response.categories) {
+      const instruments = response.categories[category]
+      for (const instrument of instruments) {
+        const name = instrument.name || instrument
+        const displayName = instrument.display_name || name
+        
+        // Map common AI suggestions to actual instruments
+        instrumentMap.set(name.toLowerCase(), name)
+        instrumentMap.set(displayName.toLowerCase(), name)
+        
+        // Special mappings for common AI terms
+        if (name.toLowerCase().includes('piano')) {
+          instrumentMap.set('piano', name)
+          instrumentMap.set('acoustic piano', name)
+        }
+        if (name.toLowerCase().includes('electric') && name.toLowerCase().includes('piano')) {
+          instrumentMap.set('electric piano', name)
+          instrumentMap.set('electric-piano', name)
+          instrumentMap.set('e-piano', name)
+        }
+        if (name.toLowerCase().includes('guitar')) {
+          instrumentMap.set('guitar', name)
+          if (name.toLowerCase().includes('acoustic')) {
+            instrumentMap.set('acoustic guitar', name)
+            instrumentMap.set('acoustic-guitar', name)
+          }
+          if (name.toLowerCase().includes('electric')) {
+            instrumentMap.set('electric guitar', name)
+            instrumentMap.set('electric-guitar', name)
+          }
+        }
+        if (name.toLowerCase().includes('bass')) {
+          instrumentMap.set('bass', name)
+          instrumentMap.set('electric bass', name)
+          instrumentMap.set('acoustic bass', name)
+          instrumentMap.set('sub bass', name)
+        }
+        if (name.toLowerCase().includes('drum')) {
+          instrumentMap.set('drums', name)
+          instrumentMap.set('percussion', name)
+        }
+        if (name.toLowerCase().includes('string')) {
+          instrumentMap.set('strings', name)
+          instrumentMap.set('violin', name)
+          instrumentMap.set('orchestra', name)
+        }
+        if (name.toLowerCase().includes('brass')) {
+          instrumentMap.set('brass', name)
+          instrumentMap.set('trumpet', name)
+          instrumentMap.set('horn', name)
+        }
+        if (name.toLowerCase().includes('woodwind') || name.toLowerCase().includes('flute') || name.toLowerCase().includes('sax')) {
+          instrumentMap.set('woodwinds', name)
+          instrumentMap.set('flute', name)
+          instrumentMap.set('saxophone', name)
+          instrumentMap.set('sax', name)
+        }
+        if (name.toLowerCase().includes('vocal')) {
+          instrumentMap.set('vocals', name)
+          instrumentMap.set('voice', name)
+          instrumentMap.set('singing', name)
+        }
+        if (name.toLowerCase().includes('synth')) {
+          instrumentMap.set('synth', name)
+          instrumentMap.set('synthesizer', name)
+          if (name.toLowerCase().includes('lead')) {
+            instrumentMap.set('synth lead', name)
+            instrumentMap.set('synth-lead', name)
+            instrumentMap.set('lead synth', name)
+          }
+          if (name.toLowerCase().includes('pad')) {
+            instrumentMap.set('synth pad', name)
+            instrumentMap.set('synth-pad', name)
+            instrumentMap.set('pad', name)
+          }
+        }
+      }
+    }
+    
+    availableInstruments.value.instrumentMap = instrumentMap
+    console.log('Available instruments loaded:', response)
+    console.log('Instrument mapping created:', instrumentMap)
+  } catch (error) {
+    console.error('Failed to load available instruments:', error)
+    // Use fallback mapping with comprehensive instrument support
+    availableInstruments.value.instrumentMap = new Map([
+      ['piano', 'piano'],
+      ['acoustic piano', 'piano'],
+      ['electric piano', 'electric-piano'],
+      ['electric-piano', 'electric-piano'],
+      ['e-piano', 'electric-piano'],
+      ['guitar', 'guitar'],
+      ['acoustic guitar', 'acoustic-guitar'],
+      ['acoustic-guitar', 'acoustic-guitar'],
+      ['electric guitar', 'electric-guitar'],
+      ['electric-guitar', 'electric-guitar'],
+      ['bass', 'bass'],
+      ['electric bass', 'bass'],
+      ['acoustic bass', 'bass'],
+      ['sub bass', 'bass'],
+      ['drums', 'drums'],
+      ['percussion', 'drums'],
+      ['strings', 'strings'],
+      ['violin', 'strings'],
+      ['orchestra', 'strings'],
+      ['brass', 'brass'],
+      ['trumpet', 'brass'],
+      ['horn', 'brass'],
+      ['woodwinds', 'woodwinds'],
+      ['flute', 'woodwinds'],
+      ['saxophone', 'woodwinds'],
+      ['sax', 'woodwinds'],
+      ['vocals', 'vocals'],
+      ['voice', 'vocals'],
+      ['singing', 'vocals'],
+      ['synth', 'synth'],
+      ['synthesizer', 'synth'],
+      ['synth lead', 'synth-lead'],
+      ['synth-lead', 'synth-lead'],
+      ['lead synth', 'synth-lead'],
+      ['synth pad', 'synth-pad'],
+      ['synth-pad', 'synth-pad'],
+      ['pad', 'synth-pad']
+    ])
+  }
+}
+
+// Helper function to get the best available instrument for AI suggestions
+const getAvailableInstrument = (aiSuggestion: string, fallback: string = 'piano'): string => {
+  if (!aiSuggestion) return fallback
+  
+  const instrumentMap = availableInstruments.value.instrumentMap
+  const suggestion = aiSuggestion.toLowerCase()
+  
+  // Try exact match first
+  if (instrumentMap.has(suggestion)) {
+    return instrumentMap.get(suggestion)!
+  }
+  
+  // Try partial matches
+  for (const [key, value] of instrumentMap.entries()) {
+    if (key.includes(suggestion) || suggestion.includes(key)) {
+      return value
+    }
+  }
+  
+  // Use fallback if no match found
+  console.warn(`No available instrument found for AI suggestion: ${aiSuggestion}, using fallback: ${fallback}`)
+  return fallback
+}
+
+// Helper function to get instrument type and category
+const getInstrumentTypeAndCategory = (instrument: string): { type: string, category?: string } => {
+  // For sample-based instruments, use 'sample' type
+  for (const category in availableInstruments.value.categories) {
+    const instruments = availableInstruments.value.categories[category]
+    const foundInstrument = instruments.find((inst: any) => 
+      (inst.name || inst) === instrument
+    )
+    if (foundInstrument) {
+      return { type: 'sample', category }
+    }
+  }
+  
+  // Fallback to synth for built-in instruments
+  return { type: 'synth' }
+}
+
+/**
+ * Enhanced Action Button Generation for AI Chat
+ * 
+ * This system now analyzes AI responses more intelligently to create contextual action buttons that
+ * reflect the specific suggestions made by the AI assistant. Instead of generic buttons, users now see
+ * buttons like:
+ * 
+ * - "Apply Detailed Drum Pattern" (when AI provides step-by-step instructions)
+ * - "Add Kick + Snare + Hihat Pattern" (when AI mentions specific drum elements)
+ * - "Set Tempo to 120 BPM" (when AI suggests a specific BPM)
+ * - "Add Minor Progression" (when AI suggests minor chords)
+ * - "Apply Reverb + Delay" (when AI mentions specific effects)
+ * 
+ * The system extracts implementation details, musical elements, and specific parameters from the
+ * AI's response text to create more relevant and actionable buttons.
+ */
+
+// Extract implementation steps from AI response for detailed actions
+const extractImplementationSteps = (content: string): string[] => {
+  const steps: string[] = []
+  const lines = content.split('\n')
+  
+  let inImplementationSection = false
+  for (const line of lines) {
+    const trimmedLine = line.trim()
+    
+    // Start capturing when we see implementation suggestions
+    if (trimmedLine.toLowerCase().includes('implementation suggestions:') || 
+        trimmedLine.toLowerCase().includes('start with the kick drum:')) {
+      inImplementationSection = true
+      continue
+    }
+    
+    // Stop capturing when we hit a new section or empty lines
+    if (inImplementationSection && (trimmedLine === '' || trimmedLine.toLowerCase().includes('would you like'))) {
+      break
+    }
+    
+    // Capture numbered steps or bullet points
+    if (inImplementationSection && (trimmedLine.match(/^\d+\./) || trimmedLine.startsWith('-'))) {
+      steps.push(trimmedLine)
+    }
+  }
+  
+  return steps
+}
+
+// Extract musical elements and suggestions from AI response
+const parseMusicalSuggestions = (content: string): any => {
+  const suggestions: any = {
+    drumElements: [],
+    bpm: null,
+    chordType: null,
+    bassType: null,
+    instrument: null,
+    effects: [],
+    sections: [],
+    hasDetailedInstructions: false
+  }
+  
+  const lowerContent = content.toLowerCase()
+  
+  // Detect detailed instructions
+  if (lowerContent.includes('implementation suggestions:') || 
+      lowerContent.includes('start with the kick drum:') ||
+      lowerContent.includes('place kicks at') ||
+      lowerContent.includes('layer the hi-hats:')) {
+    suggestions.hasDetailedInstructions = true
+  }
+  
+  // Extract BPM
+  const bpmMatch = content.match(/(\d+)\s*bpm/i)
+  if (bpmMatch) {
+    suggestions.bpm = parseInt(bpmMatch[1])
+  }
+  
+  // Extract drum elements
+  if (lowerContent.includes('kick')) suggestions.drumElements.push('kick')
+  if (lowerContent.includes('clap') || lowerContent.includes('snare')) suggestions.drumElements.push('snare')
+  if (lowerContent.includes('hi-hat') || lowerContent.includes('hihat')) suggestions.drumElements.push('hihat')
+  
+  // Extract chord types
+  if (lowerContent.includes('minor')) suggestions.chordType = 'minor'
+  else if (lowerContent.includes('major')) suggestions.chordType = 'major'
+  else if (lowerContent.includes('jazz')) suggestions.chordType = 'jazz'
+  else if (lowerContent.includes('blues')) suggestions.chordType = 'blues'
+  else if (lowerContent.includes('chord')) suggestions.chordType = 'pop'
+  
+  // Extract bass types
+  if (lowerContent.includes('electric bass')) suggestions.bassType = 'electric'
+  else if (lowerContent.includes('acoustic bass')) suggestions.bassType = 'acoustic'
+  else if (lowerContent.includes('sub bass')) suggestions.bassType = 'sub'
+  else if (lowerContent.includes('bass')) suggestions.bassType = 'synth'
+  
+  // Extract instruments for melody (enhanced to cover more instrument types)
+  if (lowerContent.includes('piano')) suggestions.instrument = 'piano'
+  else if (lowerContent.includes('electric piano') || lowerContent.includes('e-piano')) suggestions.instrument = 'electric-piano'
+  else if (lowerContent.includes('acoustic guitar') || lowerContent.includes('acoustic-guitar')) suggestions.instrument = 'acoustic-guitar'
+  else if (lowerContent.includes('electric guitar') || lowerContent.includes('electric-guitar')) suggestions.instrument = 'electric-guitar'
+  else if (lowerContent.includes('guitar')) suggestions.instrument = 'guitar'
+  else if (lowerContent.includes('violin') || lowerContent.includes('strings')) suggestions.instrument = 'strings'
+  else if (lowerContent.includes('trumpet') || lowerContent.includes('brass')) suggestions.instrument = 'brass'
+  else if (lowerContent.includes('flute') || lowerContent.includes('woodwind')) suggestions.instrument = 'woodwinds'
+  else if (lowerContent.includes('saxophone') || lowerContent.includes('sax')) suggestions.instrument = 'saxophone'
+  else if (lowerContent.includes('synth pad') || lowerContent.includes('pad')) suggestions.instrument = 'synth-pad'
+  else if (lowerContent.includes('synth lead') || lowerContent.includes('lead synth')) suggestions.instrument = 'synth-lead'
+  else if (lowerContent.includes('synthesizer') || lowerContent.includes('synth')) suggestions.instrument = 'synth'
+  else if (lowerContent.includes('melody') || lowerContent.includes('lead')) suggestions.instrument = 'synth'
+  
+  // Extract effects
+  if (lowerContent.includes('reverb')) suggestions.effects.push('reverb')
+  if (lowerContent.includes('delay')) suggestions.effects.push('delay')
+  if (lowerContent.includes('distortion')) suggestions.effects.push('distortion')
+  if (lowerContent.includes('compression')) suggestions.effects.push('compression')
+  
+  // Extract song sections
+  if (lowerContent.includes('verse')) suggestions.sections.push('verse')
+  if (lowerContent.includes('chorus')) suggestions.sections.push('chorus')
+  if (lowerContent.includes('bridge')) suggestions.sections.push('bridge')
+  if (lowerContent.includes('intro')) suggestions.sections.push('intro')
+  if (lowerContent.includes('outro')) suggestions.sections.push('outro')
+  
+  return suggestions
+}
+
+// Generate contextual action buttons based on AI response content
+const generateContextualActions = (responseContent: string): ChatAction[] => {
+  const actions: ChatAction[] = []
+  const content = responseContent.toLowerCase()
+  const originalContent = responseContent
+  const suggestions = parseMusicalSuggestions(originalContent)
+  
+  // Handle detailed drum pattern suggestions first
+  if (suggestions.hasDetailedInstructions && suggestions.drumElements.length > 0) {
+    actions.push({
+      label: 'Apply Detailed Drum Pattern',
+      icon: Plus,
+      action: 'add_drum_pattern',
+      params: { 
+        detailed: true,
+        pattern: 'backbeat',
+        elements: suggestions.drumElements,
+        implementation: extractImplementationSteps(originalContent)
+      }
+    })
+  }
+  // Regular drum patterns
+  else if (suggestions.drumElements.length > 0) {
+    actions.push({
+      label: `Add ${suggestions.drumElements.map((p: string) => p.charAt(0).toUpperCase() + p.slice(1)).join(' + ')} Pattern`,
+      icon: Plus,
+      action: 'add_drum_pattern',
+      params: { 
+        elements: suggestions.drumElements,
+        pattern: content.includes('backbeat') ? 'backbeat' : 'house'
+      }
+    })
+  }
+  // Generic drum patterns
+  else if (content.includes('drum') || content.includes('beat') || content.includes('rhythm')) {
+    actions.push({
+      label: 'Add Drum Pattern',
+      icon: Plus,
+      action: 'add_drum_pattern',
+      params: { genre: 'house' }
+    })
+  }
+  
+  // Tempo/BPM suggestions
+  if (suggestions.bpm || content.includes('tempo') || content.includes('speed')) {
+    actions.push({
+      label: suggestions.bpm ? `Set Tempo to ${suggestions.bpm} BPM` : 'Adjust Tempo',
+      icon: Settings,
+      action: 'adjust_tempo',
+      params: suggestions.bpm ? { bpm: suggestions.bpm } : {}
+    })
+  }
+  
+  // Chord progression suggestions
+  if (suggestions.chordType) {
+    actions.push({
+      label: `Add ${suggestions.chordType.charAt(0).toUpperCase() + suggestions.chordType.slice(1)} Progression`,
+      icon: Music,
+      action: 'add_chord_progression',
+      params: { 
+        type: suggestions.chordType,
+        instrument: suggestions.instrument || 'piano' // Use AI-suggested instrument or default to piano
+      }
+    })
+  }
+  
+  // Bass suggestions
+  if (suggestions.bassType) {
+    actions.push({
+      label: `Add ${suggestions.bassType.charAt(0).toUpperCase() + suggestions.bassType.slice(1)} Bass`,
+      icon: Plus,
+      action: 'add_bass_track',
+      params: { type: suggestions.bassType }
+    })
+  }
+  
+  // Melody suggestions
+  if (suggestions.instrument) {
+    actions.push({
+      label: `Add ${suggestions.instrument.charAt(0).toUpperCase() + suggestions.instrument.slice(1)} Melody`,
+      icon: Music,
+      action: 'add_melody',
+      params: { instrument: suggestions.instrument }
+    })
+  }
+  
+  // Effects suggestions
+  if (suggestions.effects.length > 0) {
+    actions.push({
+      label: `Apply ${suggestions.effects.join(' + ').charAt(0).toUpperCase() + suggestions.effects.join(' + ').slice(1)}`,
+      icon: Volume2,
+      action: 'apply_effects',
+      params: { effects: suggestions.effects }
+    })
+  } else if (content.includes('effect') || content.includes('mix')) {
+    actions.push({
+      label: 'Apply Effects',
+      icon: Volume2,
+      action: 'apply_effects'
+    })
+  }
+  
+  // Vocal/lyrics suggestions
+  if (content.includes('vocal') || content.includes('lyrics') || content.includes('singing') || content.includes('voice')) {
+    actions.push({
+      label: 'Add Vocal Track',
+      icon: Mic2,
+      action: 'add_vocal_track'
+    })
+  }
+  
+  // Song structure suggestions
+  if (suggestions.sections.length > 0) {
+    actions.push({
+      label: `Add ${suggestions.sections.join(' + ').charAt(0).toUpperCase() + suggestions.sections.join(' + ').slice(1)} Section`,
+      icon: Upload,
+      action: 'apply_song_structure',
+      params: { sections: suggestions.sections }
+    })
+  } else if (content.includes('structure') || content.includes('arrangement')) {
+    actions.push({
+      label: 'Apply Structure',
+      icon: Upload,
+      action: 'apply_song_structure'
+    })
+  }
+  
+  // Export suggestions
+  if (content.includes('export') || content.includes('download') || content.includes('save') || content.includes('render')) {
+    actions.push({
+      label: 'Export Track',
+      icon: Download,
+      action: 'export_track'
+    })
+  }
+  
+  // Playback suggestions
+  if (content.includes('play') || content.includes('listen') || content.includes('preview')) {
+    actions.push({
+      label: 'Play Preview',
+      icon: Play,
+      action: 'play_preview'
+    })
+  }
+  
+  return actions
+}
 
 // Methods
 const sendMessage = async (content: string) => {
@@ -720,6 +1200,18 @@ const sendMessage = async (content: string) => {
     // Use the regular AI chat service that we know works
     const result = await aiStore.sendMessage(content)
     console.log('AI response received:', result)
+    
+    // Generate contextual action buttons based on the AI response
+    if (result && result.content) {
+      const actions = generateContextualActions(result.content)
+      if (actions.length > 0) {
+        // Update the last message with generated actions
+        const lastMessage = aiStore.messages[aiStore.messages.length - 1]
+        if (lastMessage && lastMessage.role === 'assistant') {
+          lastMessage.actions = [...(lastMessage.actions || []), ...actions]
+        }
+      }
+    }
     
   } catch (error) {
     console.error('AI chat error:', error)
@@ -742,19 +1234,40 @@ const executeAction = (action: ChatAction) => {
       applySongStructureChanges(action.params?.songStructure)
       break
     case 'add_chord_progression':
-      addChordProgression(action.params?.type || 'pop')
+      addChordProgression(action.params?.type || 'pop', action.params?.instrument)
       break
     case 'add_drum_pattern':
-      addDrumPattern(action.params?.genre || 'house')
+      addDrumPattern(
+        action.params?.genre || 'house', 
+        action.params?.elements || [], 
+        action.params?.pattern,
+        action.params?.detailed,
+        action.params?.implementation
+      )
       break
     case 'add_bass_track':
-      addBassTrack()
+      addBassTrack(action.params?.type)
       break
     case 'add_vocal_track':
       addVocalTrack()
       break
+    case 'add_melody':
+      addMelodyTrack(action.params?.instrument || 'synth')
+      break
     case 'add_lyrics_json':
       addLyricsFromJSON(action.data)
+      break
+    case 'adjust_tempo':
+      adjustTempo(action.params?.bpm)
+      break
+    case 'apply_effects':
+      applyEffects(action.params?.effects)
+      break
+    case 'export_track':
+      exportTrack()
+      break
+    case 'play_preview':
+      playPreview()
       break
     case 'new_project':
       createNewProject()
@@ -816,6 +1329,37 @@ const applySongStructureChanges = async (songStructure: any) => {
         let currentLineIndex = 0
         
         const updatedTracks = structure.tracks.map((track: any) => {
+          // Handle voice tracks (new structure)
+          if (track.instrument === 'vocals' && track.voiceId && track.clips) {
+            const updatedClips = track.clips.map((clip: any) => {
+              if (clip.type === 'lyrics' && clip.lyrics) {
+                const updatedLyrics = clip.lyrics.map((lyric: any) => {
+                  if (currentLineIndex < lyricsLines.length) {
+                    const result = {
+                      ...lyric,
+                      text: lyricsLines[currentLineIndex]
+                    }
+                    currentLineIndex++
+                    return result
+                  }
+                  return lyric
+                })
+                
+                return {
+                  ...clip,
+                  lyrics: updatedLyrics
+                }
+              }
+              return clip
+            })
+            
+            return {
+              ...track,
+              clips: updatedClips
+            }
+          }
+          
+          // Handle legacy multi-voice structure for backward compatibility
           if (track.instrument === 'vocals' && track.clips) {
             const updatedClips = track.clips.map((clip: any) => {
               if (clip.voices) {
@@ -924,72 +1468,249 @@ Error: ${error instanceof Error ? error.message : 'Unknown error'}`
   }
 }
 
-const addChordProgression = (type: string) => {
-  const trackId = audioStore.addTrack(`${type.charAt(0).toUpperCase() + type.slice(1)} Chords`, 'piano')
+const addChordProgression = (type: string, suggestedInstrument?: string) => {
+  // Get the best available instrument from AI suggestion or use a chord-capable fallback
+  const instrument = suggestedInstrument ? 
+    getAvailableInstrument(suggestedInstrument, 'piano') : 
+    getAvailableInstrument('piano', 'piano')
+  
+  const trackId = audioStore.addTrack(`${type.charAt(0).toUpperCase() + type.slice(1)} Chords`, instrument)
   if (trackId) {
+    // Get instrument type for proper clip creation
+    const { type: clipType } = getInstrumentTypeAndCategory(instrument)
+    
     // Add chord clips based on type
     const chordDuration = 4
     for (let i = 0; i < 4; i++) {
       audioStore.addClip(trackId, {
         startTime: i * chordDuration,
         duration: chordDuration,
-        type: 'synth',
-        instrument: 'piano',
+        type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
+        instrument: instrument,
         volume: 0.7,
         effects: { reverb: 0.2, delay: 0, distortion: 0 }
       })
     }
     
-    sendMessage(`✅ Added ${type} chord progression track! The chords are now in your timeline.`)
+    sendMessage(`✅ Added ${type} chord progression track with ${instrument}! The chords are now in your timeline.`)
   }
 }
 
-const addDrumPattern = (genre: string) => {
-  const trackId = audioStore.addTrack(`${genre.charAt(0).toUpperCase() + genre.slice(1)} Drums`, 'drums')
+const addDrumPattern = (genre: string = 'house', elements: string[] = [], pattern?: string, detailed?: boolean, implementation?: string[]) => {
+  // Get the best available drum instrument
+  const instrument = getAvailableInstrument('drums', 'drums')
+  
+  const patternName = pattern === 'backbeat' ? 'Backbeat' : genre.charAt(0).toUpperCase() + genre.slice(1)
+  const elementsText = elements.length > 0 ? ` (${elements.join(', ')})` : ''
+  const trackName = detailed ? 'AI-Suggested Drum Pattern' : `${patternName} Drums${elementsText}`
+  const trackId = audioStore.addTrack(trackName, instrument)
+  
   if (trackId) {
-    // Add drum pattern clips
-    for (let i = 0; i < 8; i++) {
+    // Get instrument type for proper clip creation
+    const { type: clipType } = getInstrumentTypeAndCategory(instrument)
+    
+    // Add drum pattern clips with different settings based on elements
+    const clipCount = pattern === 'backbeat' || detailed ? 4 : 8
+    const clipDuration = pattern === 'backbeat' || detailed ? 4 : 2
+    
+    for (let i = 0; i < clipCount; i++) {
       audioStore.addClip(trackId, {
-        startTime: i * 2,
-        duration: 2,
-        type: 'synth',
-        instrument: 'drums',
+        startTime: i * clipDuration,
+        duration: clipDuration,
+        type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
+        instrument: instrument,
         volume: 0.8,
         effects: { reverb: 0.1, delay: 0, distortion: 0 }
       })
     }
     
-    sendMessage(`🥁 Added ${genre} drum pattern! Your beat is ready to groove.`)
+    let message = ''
+    if (detailed && implementation && implementation.length > 0) {
+      message = `🥁 Added detailed drum pattern with ${instrument} following AI suggestions!\n\nImplemented elements:\n${implementation.slice(0, 3).map(step => `• ${step.replace(/^\d+\.\s*/, '').replace(/^-\s*/, '')}`).join('\n')}\n\nYour backbeat foundation is ready!`
+    } else if (elements.length > 0) {
+      message = `🥁 Added ${patternName.toLowerCase()} drum pattern with ${instrument} featuring ${elements.join(', ')}! Your beat is ready to groove.`
+    } else {
+      message = `🥁 Added ${patternName.toLowerCase()} drum pattern with ${instrument}! Your beat is ready to groove.`
+    }
+    
+    sendMessage(message)
   }
 }
 
-const addBassTrack = () => {
-  const trackId = audioStore.addTrack('Bass', 'bass')
+const addBassTrack = (type?: string) => {
+  const bassType = type || 'synth'
+  
+  // Get the best available bass instrument
+  const instrument = getAvailableInstrument('bass', 'bass')
+  
+  const trackName = `${bassType.charAt(0).toUpperCase() + bassType.slice(1)} Bass`
+  const trackId = audioStore.addTrack(trackName, instrument)
+  
   if (trackId) {
-    // Add bass clips
+    // Get instrument type for proper clip creation
+    const { type: clipType } = getInstrumentTypeAndCategory(instrument)
+    
+    // Add bass clips with different settings based on type
+    const effects = bassType === 'sub' 
+      ? { reverb: 0, delay: 0, distortion: 0 }
+      : bassType === 'electric'
+        ? { reverb: 0.1, delay: 0, distortion: 0.2 }
+        : { reverb: 0, delay: 0, distortion: 0.1 }
+    
     for (let i = 0; i < 4; i++) {
       audioStore.addClip(trackId, {
         startTime: i * 4,
         duration: 4,
-        type: 'synth',
-        instrument: 'bass',
-        volume: 0.8,
-        effects: { reverb: 0, delay: 0, distortion: 0.1 }
+        type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
+        instrument: instrument,
+        volume: bassType === 'sub' ? 0.9 : 0.8,
+        effects
       })
     }
     
-    sendMessage(`🎸 Added bass track with fuller sound settings! Check out that low-end presence.`)
+    sendMessage(`🎸 Added ${bassType} bass track with ${instrument} and fuller sound settings! Check out that low-end presence.`)
   }
 }
 
 const addVocalTrack = () => {
-  const trackId = audioStore.addTrack('Vocals', 'vocals')
+  // Get the best available vocal instrument, fallback to vocals
+  const instrument = getAvailableInstrument('vocals', 'vocals')
+  
+  const trackId = audioStore.addTrack('Vocals', instrument)
   if (trackId) {
     audioStore.updateTrack(trackId, {
       effects: { reverb: 0.3, delay: 0.2, distortion: 0 }
     })
     
-    sendMessage(`🎤 Added vocal track with professional effects chain! Ready for recording.`)
+    sendMessage(`🎤 Added vocal track with ${instrument} and professional effects chain! Ready for recording.`)
+  }
+}
+
+const addMelodyTrack = (suggestedInstrument: string = 'synth') => {
+  try {
+    // Get the best available instrument from AI suggestion
+    const instrument = getAvailableInstrument(suggestedInstrument, 'synth')
+    
+    const trackId = audioStore.addTrack('Melody', instrument)
+    if (trackId) {
+      // Get instrument type for proper clip creation
+      const { type: clipType } = getInstrumentTypeAndCategory(instrument)
+      
+      // Add a basic melody clip
+      audioStore.addClip(trackId, {
+        startTime: 0,
+        duration: 16,
+        type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
+        instrument: instrument,
+        notes: ['C4', 'E4', 'G4', 'C5'],
+        volume: 0.7,
+        effects: { reverb: 0.2, delay: 0, distortion: 0 }
+      })
+      sendMessage(`🎵 ${instrument} melody track added with a basic pattern!`)
+    }
+  } catch (error) {
+    console.error('Error adding melody track:', error)
+    sendMessage('❌ Error adding melody track.')
+  }
+}
+
+const adjustTempo = (targetBpm?: number) => {
+  try {
+    const currentTempo = audioStore.songStructure.tempo || 120
+    const newTempo = targetBpm || (currentTempo + 10) // Use target BPM or increase by 10
+    audioStore.songStructure.tempo = newTempo
+    
+    const message = targetBpm 
+      ? `🥁 Tempo set to ${newTempo} BPM as suggested!`
+      : `🥁 Tempo adjusted to ${newTempo} BPM!`
+    
+    sendMessage(message)
+  } catch (error) {
+    console.error('Error adjusting tempo:', error)
+    sendMessage('❌ Error adjusting tempo.')
+  }
+}
+
+const applyEffects = (specificEffects?: string[]) => {
+  try {
+    const tracks = audioStore.songStructure.tracks
+    if (tracks.length > 0) {
+      tracks.forEach(track => {
+        if (specificEffects && specificEffects.length > 0) {
+          // Apply specific effects mentioned by AI
+          const effects: any = { reverb: 0, delay: 0, distortion: 0, compression: 0 }
+          
+          specificEffects.forEach(effect => {
+            switch (effect) {
+              case 'reverb':
+                effects.reverb = track.instrument === 'vocals' ? 0.3 : 0.2
+                break
+              case 'delay':
+                effects.delay = track.instrument === 'vocals' ? 0.2 : 0.1
+                break
+              case 'distortion':
+                effects.distortion = track.instrument === 'drums' ? 0.1 : 0.05
+                break
+              case 'compression':
+                effects.compression = 0.3
+                break
+            }
+          })
+          
+          track.effects = effects
+        } else {
+          // Apply default effects
+          if (track.instrument === 'vocals') {
+            track.effects = { reverb: 0.3, delay: 0.2, distortion: 0 }
+          } else if (track.instrument === 'drums') {
+            track.effects = { reverb: 0.1, delay: 0, distortion: 0.1 }
+          } else {
+            track.effects = { reverb: 0.2, delay: 0.1, distortion: 0 }
+          }
+        }
+      })
+      
+      const message = specificEffects && specificEffects.length > 0
+        ? `✨ Applied ${specificEffects.join(', ')} effects to your tracks as suggested! Your mix sounds more polished now.`
+        : '✨ Effects applied to your tracks! Your mix sounds more polished now.'
+      
+      sendMessage(message)
+    } else {
+      sendMessage('ℹ️ No tracks to apply effects to. Add some tracks first!')
+    }
+  } catch (error) {
+    console.error('Error applying effects:', error)
+    sendMessage('❌ Error applying effects.')
+  }
+}
+
+const exportTrack = () => {
+  try {
+    // For now, just show a message - you can implement actual export later
+    sendMessage('📁 Export feature coming soon! Your track structure is ready for rendering.')
+  } catch (error) {
+    console.error('Error exporting track:', error)
+    sendMessage('❌ Error exporting track.')
+  }
+}
+
+const playPreview = () => {
+  try {
+    if (audioStore.songStructure.tracks.length > 0) {
+      // Toggle playback
+      if (audioStore.isPlaying) {
+        audioStore.stop()
+        sendMessage('⏹️ Playback stopped.')
+      } else {
+        audioStore.play()
+        sendMessage('▶️ Playing your track! Listen to your creation.')
+      }
+    } else {
+      sendMessage('ℹ️ No tracks to play. Add some music first!')
+    }
+  } catch (error) {
+    console.error('Error playing preview:', error)
+    sendMessage('❌ Error playing preview.')
   }
 }
 
@@ -1392,8 +2113,9 @@ const toggleVoiceInput = () => {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
   width: 100%;
+  min-width: 0; /* Allow flex items to shrink */
 }
 
 .model-select {
@@ -1403,6 +2125,9 @@ const toggleVoiceInput = () => {
   background: var(--background);
   color: var(--text);
   font-size: 0.95rem;
+  flex: 1;
+  min-width: 0; /* Allow select to shrink */
+  max-width: 150px; /* Prevent selects from being too wide */
 }
 
 .api-key-status {
@@ -1868,14 +2593,19 @@ const toggleVoiceInput = () => {
   color: var(--primary);
   cursor: pointer;
   font-size: 1.1rem;
-  padding: 0.2rem 0.5rem;
+  padding: 0.4rem 0.5rem;
   display: flex;
   align-items: center;
+  justify-content: center;
   transition: color 0.2s;
+  flex-shrink: 0; /* Prevent button from shrinking */
+  min-width: 40px; /* Ensure minimum visible width */
+  border-radius: 6px; /* Add some visual consistency */
 }
 
 .get-api-key-btn:hover {
   color: var(--primary-dark, #6c63ff);
+  background: rgba(108, 99, 255, 0.1); /* Add subtle hover background */
 }
 
 .get-api-key-btn .icon {
@@ -2143,6 +2873,35 @@ const toggleVoiceInput = () => {
   
   .input-actions {
     justify-content: flex-start;
+  }
+  
+  /* Model selection responsive adjustments */
+  .model-selection-bar {
+    padding: 0.5rem 0.75rem;
+  }
+  
+  .model-select-row {
+    gap: 0.5rem;
+  }
+  
+  .model-select {
+    font-size: 0.875rem;
+    padding: 0.35rem 1rem 0.35rem 0.6rem;
+    max-width: 120px; /* Smaller max-width on mobile */
+  }
+  
+  .get-api-key-btn {
+    padding: 0.35rem 0.4rem;
+    min-width: 36px;
+  }
+  
+  .get-api-key-btn .icon {
+    width: 18px;
+    height: 18px;
+  }
+  
+  .api-key-status {
+    font-size: 0.85rem;
   }
   
   .json-content {

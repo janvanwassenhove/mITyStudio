@@ -1,6 +1,6 @@
 """
 Voice Training and Synthesis API Routes
-Handles DiffSinger voice training, synthesis, and management
+Handles RVC voice training, synthesis, and management
 """
 
 from flask import Blueprint, request, jsonify, current_app, send_file
@@ -11,6 +11,8 @@ from app.utils.decorators import handle_errors
 import os
 import tempfile
 import uuid
+import shutil
+from pathlib import Path
 
 voice_bp = Blueprint('voice', __name__)
 
@@ -63,7 +65,7 @@ def test_voice(voice_id):
     """
     try:
         data = request.get_json() or {}
-        test_text = data.get('text', 'mitystudio forever')
+        test_text = data.get('text', 'MityStudio forever in our hearts')
         
         voice_service = VoiceService()
         audio_file = None
@@ -72,23 +74,25 @@ def test_voice(voice_id):
         force_spoken = data.get('spoken', False)
         
         if not force_spoken:
-            # Default to singing with a nice melody and chord progression
+            # Default to singing with a natural melody and chord progression
             try:
                 # Define a pleasant melody for the test phrase
-                # "mi-ty-stu-di-o for-e-ver" (8 syllables)
-                # Using a simple chord progression: C - Am - F - G
-                test_notes = data.get('notes', ['C4', 'E4', 'G4', 'A4', 'F4', 'G4', 'E4', 'C4'])
+                # "Hel-lo beau-ti-ful world" (6 syllables)
+                # Using a simple but musical ascending pattern
+                test_notes = data.get('notes', ['C4', 'D4', 'E4', 'F4', 'G4', 'F4'])
                 
-                # Define chord progression that complements the melody
-                chord_progression = data.get('chordName', 'C')  # Start with C major
+                # Define chord that complements the melody
+                chord_progression = data.get('chordName', 'C')  # C major for warmth
                 
-                current_app.logger.info(f"Generating singing voice test for {voice_id} with chord: {chord_progression}")
+                current_app.logger.info(f"Generating natural singing voice test for {voice_id}")
+                current_app.logger.info(f"Notes: {test_notes}, Chord: {chord_progression}")
+                
                 audio_file = voice_service.synthesize_speech(
                     text=test_text,
                     voice_id=voice_id,
                     notes=test_notes,
                     chord_name=chord_progression,
-                    duration=4.0  # Give enough time for the melody and chords
+                    duration=4.0  # Natural duration for singing
                 )
             except Exception as e:
                 current_app.logger.warning(f"Singing synthesis failed for voice {voice_id}: {str(e)}")
@@ -122,25 +126,44 @@ def test_voice_singing(voice_id):
     """
     try:
         data = request.get_json() or {}
-        test_text = data.get('text', 'mitystudio forever')
+        test_text = data.get('text', 'MityStudio forever in our hearts')
         
-        # Define a more elaborate melody for the test phrase
-        # "mi-ty-stu-di-o for-e-ver" (8 syllables)
-        # Using a more complex melody with harmony
-        test_notes = data.get('notes', ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'G4', 'C5'])
-        
-        # Define a nice chord progression: C - Am - F - G (I - vi - IV - V)
-        chord_name = data.get('chordName', 'C')
-        
+        # Don't use provided notes - generate them based on text syllables
         voice_service = VoiceService()
         
-        current_app.logger.info(f"Generating advanced singing voice test for {voice_id} with chord: {chord_name}")
+        # Extract syllables from the text to determine note count
+        from app.services.audio_generator import AudioGenerator
+        audio_gen = AudioGenerator()
+        syllables = audio_gen._extract_syllables(test_text)
+        syllable_count = len(syllables)
+        
+        current_app.logger.info(f"🎵 Text: '{test_text}' has {syllable_count} syllables: {syllables}")
+        
+        # Generate appropriate musical notes for the syllables
+        # Use a pleasant melody pattern that fits the syllable count
+        base_notes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'F4', 'E4', 'D4', 'C4']  # More melodic pattern
+        
+        # Create notes that match syllable count
+        if syllable_count <= len(base_notes):
+            test_notes = base_notes[:syllable_count]
+        else:
+            # Repeat pattern if we need more notes
+            test_notes = []
+            for i in range(syllable_count):
+                test_notes.append(base_notes[i % len(base_notes)])
+        
+        # Use a simple but pleasant chord progression
+        chord_name = data.get('chord', 'C')  # C major for warmth
+        
+        current_app.logger.info(f"Generating singing voice test for {voice_id}")
+        current_app.logger.info(f"Text: '{test_text}', Syllables: {syllables}, Notes: {test_notes}, Chord: {chord_name}")
+        
         audio_file = voice_service.synthesize_speech(
             text=test_text,
             voice_id=voice_id,
             notes=test_notes,
             chord_name=chord_name,
-            duration=5.0  # Longer duration for more elaborate performance
+            duration=max(3.0, syllable_count * 0.6)  # Dynamic duration based on syllable count
         )
         
         if audio_file:
@@ -479,7 +502,7 @@ def test_voice_with_chords(voice_id):
     """
     try:
         data = request.get_json() or {}
-        test_text = data.get('text', 'mitystudio forever')
+        test_text = data.get('text', 'MityStudio forever in our hearts')
         
         # Define chord progressions to choose from
         chord_progressions = {
@@ -529,3 +552,185 @@ def test_voice_with_chords(voice_id):
     except Exception as e:
         current_app.logger.error(f"Error testing voice with chords {voice_id}: {str(e)}")
         return jsonify({'error': 'Failed to test voice with chords'}), 500
+
+
+# RVC-based Voice Cloning Endpoints
+
+@voice_bp.route('/rvc/upload', methods=['POST'])
+@handle_errors
+def upload_for_rvc_training():
+    """
+    Upload audio files for RVC voice cloning training
+    """
+    if 'files' not in request.files:
+        return jsonify({'error': 'No files provided'}), 400
+    
+    files = request.files.getlist('files')
+    voice_name = request.form.get('voiceName')
+    
+    if not voice_name:
+        return jsonify({'error': 'Voice name is required'}), 400
+    
+    if not files:
+        return jsonify({'error': 'No files uploaded'}), 400
+    
+    try:
+        from app.services.rvc_service import RVCService
+        
+        rvc_service = RVCService()
+        
+        # Create temporary folder for uploaded files
+        temp_folder = tempfile.mkdtemp(prefix=f'rvc_upload_{voice_name}_')
+        temp_folder_path = Path(temp_folder)
+        
+        # Convert uploaded files to WAV
+        wav_files = rvc_service.convert_audio_files_to_wav(files, temp_folder_path)
+        
+        if not wav_files:
+            return jsonify({'error': 'No valid audio files could be processed'}), 400
+        
+        return jsonify({
+            'message': f'Uploaded {len(wav_files)} files for training',
+            'voiceName': voice_name,
+            'fileCount': len(wav_files),
+            'tempFolder': str(temp_folder_path),
+            'status': 'uploaded'
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error uploading files for RVC training: {str(e)}")
+        return jsonify({'error': 'Failed to upload files'}), 500
+
+
+@voice_bp.route('/rvc/record', methods=['POST'])
+@handle_errors
+def record_for_rvc_training():
+    """
+    Accept in-browser mic recording for RVC training
+    """
+    if 'audio' not in request.files:
+        return jsonify({'error': 'No audio recording provided'}), 400
+    
+    audio_file = request.files['audio']
+    voice_name = request.form.get('voiceName')
+    
+    if not voice_name:
+        return jsonify({'error': 'Voice name is required'}), 400
+    
+    try:
+        from app.services.rvc_service import RVCService
+        
+        rvc_service = RVCService()
+        
+        # Create temporary folder for the recording
+        temp_folder = tempfile.mkdtemp(prefix=f'rvc_record_{voice_name}_')
+        temp_folder_path = Path(temp_folder)
+        
+        # Convert recording to WAV
+        wav_files = rvc_service.convert_audio_files_to_wav([audio_file], temp_folder_path)
+        
+        if not wav_files:
+            return jsonify({'error': 'Could not process recording'}), 400
+        
+        return jsonify({
+            'message': 'Recording uploaded successfully',
+            'voiceName': voice_name,
+            'tempFolder': str(temp_folder_path),
+            'status': 'recorded'
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error processing recording for RVC training: {str(e)}")
+        return jsonify({'error': 'Failed to process recording'}), 500
+
+
+@voice_bp.route('/rvc/<voice_id>/train', methods=['POST'])
+@handle_errors
+def train_rvc_voice(voice_id):
+    """
+    Trigger RVC model training for a voice
+    """
+    try:
+        data = request.get_json() or {}
+        temp_folder = data.get('tempFolder')
+        
+        if not temp_folder:
+            return jsonify({'error': 'Temporary folder path is required'}), 400
+        
+        temp_folder_path = Path(temp_folder)
+        if not temp_folder_path.exists():
+            return jsonify({'error': 'Training files not found'}), 404
+        
+        from app.services.rvc_service import RVCService
+        
+        rvc_service = RVCService()
+        
+        # Start RVC training
+        result = rvc_service.clone_singing_voice(voice_id, str(temp_folder_path))
+        
+        # Clean up temporary folder
+        try:
+            shutil.rmtree(temp_folder_path)
+        except Exception as e:
+            current_app.logger.warning(f"Could not clean up temp folder: {e}")
+        
+        return jsonify(result)
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 400
+    except Exception as e:
+        current_app.logger.error(f"Error training RVC voice {voice_id}: {str(e)}")
+        return jsonify({'error': 'Failed to train voice'}), 500
+
+
+@voice_bp.route('/rvc/voices', methods=['GET'])
+@handle_errors
+def get_rvc_voices():
+    """
+    Get list of all available RVC voices
+    """
+    try:
+        from app.services.rvc_service import RVCService
+        
+        rvc_service = RVCService()
+        voices = rvc_service.list_singing_voices()
+        
+        return jsonify({
+            'voices': voices,
+            'total': len(voices)
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Error fetching RVC voices: {str(e)}")
+        return jsonify({'error': 'Failed to fetch voices'}), 500
+
+
+@voice_bp.route('/rvc/<voice_id>/sing', methods=['GET'])
+@handle_errors
+def get_rvc_singing_test(voice_id):
+    """
+    Generate and return singing test audio for an RVC voice
+    """
+    try:
+        from app.services.rvc_service import RVCService
+        
+        rvc_service = RVCService()
+        
+        # Generate test singing
+        audio_path = rvc_service.synthesize_test_singing(voice_id)
+        
+        if not audio_path or not Path(audio_path).exists():
+            return jsonify({'error': 'Failed to generate singing test'}), 500
+        
+        return send_file(
+            audio_path,
+            mimetype='audio/wav',
+            as_attachment=True,
+            download_name=f'{voice_id}_sing_test.wav'
+        )
+        
+    except ValueError as e:
+        return jsonify({'error': str(e)}), 404
+    except Exception as e:
+        current_app.logger.error(f"Error generating RVC singing test for {voice_id}: {str(e)}")
+        return jsonify({'error': 'Failed to generate singing test'}), 500

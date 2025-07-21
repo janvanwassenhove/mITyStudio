@@ -5,6 +5,7 @@ Utility decorators for the backend API
 import functools
 import traceback
 from flask import jsonify, current_app
+from werkzeug.exceptions import RequestEntityTooLarge
 from typing import Callable
 
 
@@ -25,6 +26,9 @@ def handle_errors(f: Callable) -> Callable:
         except PermissionError as e:
             current_app.logger.warning(f"Permission error in {f.__name__}: {str(e)}")
             return jsonify({'error': 'Access denied'}), 403
+        except RequestEntityTooLarge as e:
+            current_app.logger.warning(f"File too large in {f.__name__}: {str(e)}")
+            return jsonify({'error': 'File(s) too large. Please reduce file size or split into smaller uploads.'}), 413
         except Exception as e:
             current_app.logger.error(f"Unexpected error in {f.__name__}: {str(e)}")
             current_app.logger.error(traceback.format_exc())

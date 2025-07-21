@@ -47,15 +47,6 @@
         </div>
       </button>
 
-      <button 
-        class="btn btn-accent transport-btn"
-        @click="generateSong"
-        :disabled="!audioStore.isInitialized || audioStore.totalTracks === 0"
-      >
-        <Music class="icon" />
-        Generate Song
-      </button>
-
       <!-- Manual Initialize Button -->
       <button 
         v-if="!audioStore.isInitialized && !audioStore.initializationError"
@@ -420,10 +411,6 @@ const togglePlayback = async () => {
   } else {
     await audioStore.play()
   }
-}
-
-const generateSong = () => {
-  audioStore.play()
 }
 
 const updateTempo = () => {

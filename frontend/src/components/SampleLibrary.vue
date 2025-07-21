@@ -451,10 +451,31 @@ const togglePlaySample = async (sample: LocalSample) => {
 }
 
 const showSampleMenu = (sample: LocalSample, event: MouseEvent) => {
+  // Calculate optimal position to keep menu within viewport
+  const menuWidth = 160 // min-width from CSS
+  const menuHeight = 140 // approximate height based on menu items
+  
+  let x = event.clientX
+  let y = event.clientY
+  
+  // Adjust horizontal position if menu would overflow
+  if (x + menuWidth > window.innerWidth) {
+    x = window.innerWidth - menuWidth - 10 // 10px padding from edge
+  }
+  
+  // Adjust vertical position if menu would overflow
+  if (y + menuHeight > window.innerHeight) {
+    y = window.innerHeight - menuHeight - 10 // 10px padding from edge
+  }
+  
+  // Ensure minimum distance from edges
+  x = Math.max(10, x)
+  y = Math.max(10, y)
+  
   contextMenu.value = {
     show: true,
-    x: event.clientX,
-    y: event.clientY,
+    x,
+    y,
     sample
   }
   

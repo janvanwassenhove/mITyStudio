@@ -6,6 +6,12 @@ import {
   type ChordProgressionType, 
   type SampleInstrument 
 } from '../services/chordService'
+import { 
+  createTrackEffectsBus,
+  createClipEffectsChain,
+  type AudioEffectsChain,
+  type EffectSettings
+} from '../services/audioEffects'
 
 export interface LyricFragment {
   text: string
@@ -38,11 +44,12 @@ export interface AudioClip {
   }
   // Add waveform for sample clips
   waveform?: number[]
-  // Lyrics-specific properties (for simple arrangements)
-  text?: string // For lyrics clips
-  chordName?: string // For lyrics clips
-  voiceId?: string // For lyrics clips - which voice to use for singing
-  // Advanced multi-voice structure (do not use simple fields when using this)
+  // Lyrics-specific properties
+  text?: string // For simple lyrics clips (legacy)
+  chordName?: string // For lyrics clips (legacy)
+  voiceId?: string // Voice identifier for this clip
+  lyrics?: LyricFragment[] // Direct lyrics array for voice-specific clips
+  // Legacy multi-voice structure (deprecated in favor of separate voice tracks)
   voices?: Voice[]
 }
 
@@ -51,6 +58,7 @@ export interface Track {
   name: string
   instrument: string
   category?: string // Add category field for sample-based instruments
+  voiceId?: string // Voice identifier for vocal tracks
   volume: number
   pan: number
   muted: boolean
@@ -106,6 +114,7 @@ export const useAudioStore = defineStore('audio', () => {
 
   // Audio context and instruments
   const instruments = ref<Map<string, any>>(new Map())
+  const trackEffectsBuses = ref<Map<string, AudioEffectsChain>>(new Map()) // Track-level effects buses
   const scheduledEvents = ref<any[]>([]) // Can be timeout IDs or Transport event IDs
   let transport: typeof Tone.Transport
   let metronome: Tone.Synth | null = null
@@ -223,23 +232,24 @@ export const useAudioStore = defineStore('audio', () => {
       transport.bpm.value = songStructure.value.tempo
       console.log('✅ Transport initialized')
       
-      // Create instruments with error handling
+      // Create instruments with effects chains
       console.log('Creating instruments...')
       
+      // Create instruments without connecting to destination initially
       const synth = new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: 'triangle' },
         envelope: { attack: 0.1, decay: 0.3, sustain: 0.3, release: 0.8 }
-      }).toDestination()
+      })
       
       const piano = new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: 'sine' },
         envelope: { attack: 0.02, decay: 0.3, sustain: 0.3, release: 1.2 }
-      }).toDestination()
+      })
       
       const electricPiano = new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: 'square' },
         envelope: { attack: 0.05, decay: 0.2, sustain: 0.4, release: 0.8 }
-      }).toDestination()
+      })
       
       const synthLead = new Tone.MonoSynth({
         oscillator: { type: "sawtooth" },
@@ -252,14 +262,14 @@ export const useAudioStore = defineStore('audio', () => {
           baseFrequency: 300, 
           octaves: 4 
         }
-      }).toDestination()
+      })
       
       const synthPad = new Tone.PolySynth(Tone.Synth, {
         oscillator: { type: "sine" },
         envelope: { attack: 0.8, decay: 0.5, sustain: 0.8, release: 2 }
-      }).toDestination()
+      })
 
-      // Initialize metronome
+      // Initialize metronome (no effects needed)
       metronome = new Tone.Synth({
         oscillator: { type: 'square' },
         envelope: { attack: 0.001, decay: 0.1, sustain: 0, release: 0.1 }
@@ -267,7 +277,7 @@ export const useAudioStore = defineStore('audio', () => {
       
       console.log('✅ Instruments created')
       
-      // Store instruments
+      // Store instruments (they will get effects when used in tracks)
       instruments.value.clear()
       instruments.value.set('synth', synth)
       instruments.value.set('piano', piano)
@@ -319,6 +329,84 @@ export const useAudioStore = defineStore('audio', () => {
       currentTime.value = transport.seconds
     }, "16n")
     console.log('✅ Position tracking established')
+  }
+
+  // Get or create effects bus for a track
+  const getTrackEffectsBus = (trackId: string): AudioEffectsChain => {
+    let effectsBus = trackEffectsBuses.value.get(trackId)
+    
+    // Find the track to get its current effect settings
+    const track = songStructure.value.tracks.find(t => t.id === trackId)
+    const currentEffects = track?.effects || { reverb: 0, delay: 0, distortion: 0 }
+    
+    console.log(`🎚️ getTrackEffectsBus for track ${trackId}:`, currentEffects)
+    
+    // Check if existing effects bus is still valid (not disposed AND same context)
+    const isEffectsBusValid = effectsBus && 
+      effectsBus.distortion && !effectsBus.distortion.disposed && effectsBus.distortion.context === Tone.context &&
+      effectsBus.delay && !effectsBus.delay.disposed && effectsBus.delay.context === Tone.context &&
+      effectsBus.reverb && !effectsBus.reverb.disposed && effectsBus.reverb.context === Tone.context &&
+      effectsBus.output && !effectsBus.output.disposed && effectsBus.output.context === Tone.context
+    
+    if (!effectsBus || !isEffectsBusValid) {
+      if (effectsBus && !isEffectsBusValid) {
+        console.log(`🔄 Recreating effects bus - existing one was disposed or invalid`)
+        console.log(`   Validation details:`, {
+          distortionDisposed: effectsBus.distortion?.disposed,
+          distortionContext: effectsBus.distortion?.context === Tone.context,
+          delayDisposed: effectsBus.delay?.disposed,
+          delayContext: effectsBus.delay?.context === Tone.context,
+          reverbDisposed: effectsBus.reverb?.disposed,
+          reverbContext: effectsBus.reverb?.context === Tone.context,
+          outputDisposed: effectsBus.output?.disposed,
+          outputContext: effectsBus.output?.context === Tone.context
+        })
+        // Clean up the old one
+        try {
+          effectsBus.dispose()
+        } catch (error) {
+          console.warn(`Warning disposing old effects bus:`, error)
+        }
+      }
+      
+      // Create new effects bus
+      effectsBus = createTrackEffectsBus(trackId, currentEffects)
+      trackEffectsBuses.value.set(trackId, effectsBus)
+      
+      console.log(`🎚️ Created effects bus for track ${trackId}:`, currentEffects)
+      console.log(`   Effects bus nodes:`, { 
+        distortion: !!effectsBus.distortion, 
+        delay: !!effectsBus.delay, 
+        reverb: !!effectsBus.reverb, 
+        output: !!effectsBus.output 
+      })
+    } else {
+      // Update existing effects bus with current track settings
+      effectsBus.updateSettings(currentEffects)
+      console.log(`🎚️ Updated effects bus for track ${trackId}:`, currentEffects)
+      console.log(`   Current wet values:`, {
+        distortion: effectsBus.distortion.wet.value,
+        delay: effectsBus.delay.wet.value,
+        reverb: effectsBus.reverb.wet.value
+      })
+    }
+    
+    return effectsBus as AudioEffectsChain
+  }
+
+  // Update track effects in real-time
+  const updateTrackEffects = (trackId: string, effects: EffectSettings) => {
+    const effectsBus = trackEffectsBuses.value.get(trackId)
+    if (effectsBus) {
+      effectsBus.updateSettings(effects)
+    }
+    
+    // Update the track's effects in the store
+    const track = songStructure.value.tracks.find(t => t.id === trackId)
+    if (track) {
+      track.effects = { ...effects }
+      updateSongStructure()
+    }
   }
 
   // Fallback sample finder - tries to find alternative samples if primary fails
@@ -446,9 +534,11 @@ Check your web server configuration to ensure it can serve audio files from: ${s
   // Preload samples for an instrument - supports both simplified and duration-based structures
   const preloadSamplesForInstrument = async (category: string, instrument: string, sampleDuration: number = 1, useSimplifiedStructure: boolean = true) => {
     const structureType = useSimplifiedStructure ? 'simplified' : 'duration-based'
+    // Normalize instrument name for key generation (but keep original for file paths)
+    const normalizedInstrument = instrument.toLowerCase()
     const instrumentKey = useSimplifiedStructure ? 
-      `${category}_${instrument}_simplified` : 
-      `${category}_${instrument}_${sampleDuration}s`
+      `${category}_${normalizedInstrument}_simplified` : 
+      `${category}_${normalizedInstrument}_${sampleDuration}s`
       
     if (preloadedSamples.value.has(instrumentKey)) {
       return preloadedSamples.value.get(instrumentKey)!
@@ -465,6 +555,8 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     ]
 
     console.log(`Preloading chord samples for ${category}/${instrument} (${structureType} structure)...`)
+    console.log(`Instrument key: ${instrumentKey}`)
+    console.log(`Chords to preload: ${chordsToPreload.join(', ')}`)
     
     // Format duration properly for duration-based structure
     const durationStr = sampleDuration === Math.floor(sampleDuration) ? 
@@ -480,15 +572,19 @@ Check your web server configuration to ensure it can serve audio files from: ${s
         // Try to load the chord sample in order of preference (MP3 first, then WAV)
         for (const format of formats) {
           // Choose path structure based on simplified vs duration-based
+          // Use original instrument name for file path construction to match actual file system
           const samplePath = useSimplifiedStructure ?
             `instruments/${category}/${instrument}/${format.folder}/${chord}.${format.ext}` :
             `instruments/${category}/${instrument}/${durationStr}/${format.folder}/${chord}.${format.ext}`
           const urlSafePath = samplePath.split('/').map(part => encodeURIComponent(part)).join('/')
           
+          console.log(`🔍 Trying to load: ${samplePath}`)
+          
           try {
             // Validate audio file before loading
             const validation = await validateAudioFile(urlSafePath, samplePath)
             if (!validation.valid) {
+              console.warn(`⚠️ Validation failed for ${samplePath}: ${validation.error}`)
               continue // Try next format
             }
             
@@ -504,8 +600,10 @@ Check your web server configuration to ensure it can serve audio files from: ${s
             await player.load(urlSafePath)
             if (player.loaded) {
               sampleMap.set(chord, player)
-              console.log(`✅ Loaded chord sample (${structureType}): ${samplePath}`)
+              console.log(`✅ Loaded chord sample (${structureType}): ${chord} -> ${samplePath}`)
               break // Successfully loaded, don't try other formats
+            } else {
+              console.warn(`⚠️ Player created but not loaded for: ${samplePath}`)
             }
           } catch (error) {
             console.warn(`Failed to load chord sample: ${samplePath}`, error)
@@ -520,6 +618,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     await Promise.all(loadPromises)
     preloadedSamples.value.set(instrumentKey, sampleMap)
     console.log(`🎵 Preloaded ${sampleMap.size} chord samples for ${category}/${instrument} (${structureType})`)
+    console.log(`🔑 Loaded keys: ${Array.from(sampleMap.keys()).join(', ')}`)
     
     return sampleMap
   }
@@ -529,20 +628,64 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     // Try simplified structure first (no duration folders), then fall back to duration-based structure
     const defaultDuration = 1.0
     
-    const instrumentKey = `${category}_${instrument}_simplified`
+    // Normalize instrument name for key generation (but keep original for file paths)
+    const normalizedInstrument = instrument.toLowerCase()
+    const instrumentKey = `${category}_${normalizedInstrument}_simplified`
     let instrumentSamples = preloadedSamples.value.get(instrumentKey)
     
+    console.log(`🔍 getSamplePlayer: Looking for ${note} in ${instrumentKey} (original instrument: ${instrument})`)
+    
     if (!instrumentSamples) {
-      // Try to preload from simplified structure first
-      instrumentSamples = await preloadSamplesForInstrument(category, instrument, defaultDuration, true)
-      if (!instrumentSamples || instrumentSamples.size === 0) {
-        // Fall back to duration-based structure
-        instrumentSamples = await preloadSamplesForInstrument(category, instrument, defaultDuration, false)
+      console.log(`⚠️ No preloaded samples found for ${instrumentKey}, attempting to preload...`)
+      
+      // Try multiple variations of the instrument name to handle case mismatches
+      const instrumentVariations = [
+        instrument, // Original case (e.g., "Flute")
+        instrument.toLowerCase(), // Lowercase (e.g., "flute") 
+        instrument.charAt(0).toUpperCase() + instrument.slice(1).toLowerCase() // Title case (e.g., "Flute")
+      ]
+      
+      for (const instrumentVariation of instrumentVariations) {
+        console.log(`🔍 Trying to preload with instrument variation: "${instrumentVariation}"`)
+        
+        // Try to preload from simplified structure first
+        instrumentSamples = await preloadSamplesForInstrument(category, instrumentVariation, defaultDuration, true)
+        if (instrumentSamples && instrumentSamples.size > 0) {
+          console.log(`✅ Successfully preloaded samples with variation: "${instrumentVariation}"`)
+          // Store this for future use with the normalized key
+          preloadedSamples.value.set(instrumentKey, instrumentSamples)
+          break
+        }
+        
+        // If simplified structure failed, try duration-based structure
+        instrumentSamples = await preloadSamplesForInstrument(category, instrumentVariation, defaultDuration, false)
+        if (instrumentSamples && instrumentSamples.size > 0) {
+          console.log(`✅ Successfully preloaded samples with variation (duration-based): "${instrumentVariation}"`)
+          // Store this for future use with the normalized key
+          preloadedSamples.value.set(instrumentKey, instrumentSamples)
+          break
+        }
       }
     }
     
+    if (!instrumentSamples) {
+      console.error(`❌ Failed to get instrumentSamples map for ${instrumentKey}`)
+      return null
+    }
+    
+    console.log(`📋 Available sample keys in ${instrumentKey}:`, Array.from(instrumentSamples.keys()))
+    
     const player = instrumentSamples.get(note)
-    if (player && player.loaded) {
+    
+    if (!player) {
+      console.warn(`⚠️ No preloaded player found for note '${note}' in ${instrumentKey}.`)
+      console.warn(`   Available keys: [${Array.from(instrumentSamples.keys()).join(', ')}]`)
+      console.warn(`   Looking for: '${note}'`)
+      console.warn(`   instrumentSamples size: ${instrumentSamples.size}`)
+      // Continue with fallback loading logic below
+    } else if (player && player.loaded) {
+      console.log(`✅ Found preloaded player for ${note}, creating new instance for parallel playback...`)
+      
       // Try to create a new player instance for parallel playback using the default duration
       const formats = [
         { ext: 'mp3', folder: 'mp3' },
@@ -556,29 +699,48 @@ Check your web server configuration to ensure it can serve audio files from: ${s
         try {
           const validation = await validateAudioFile(urlSafePath, samplePath)
           if (validation.valid) {
+            console.log(`✅ Creating new player instance for: ${samplePath}`)
             const newPlayer = new Tone.Player({
               url: urlSafePath,
               autostart: false,
               volume: 0,
               fadeIn: 0.01,
               fadeOut: 0.01
-            }).toDestination()
+            }) // Note: NOT calling .toDestination() here since we'll connect it manually
             
             // Wait for the new player to load
             await Tone.loaded()
-            return newPlayer.loaded ? newPlayer : null
+            if (newPlayer.loaded) {
+              console.log(`✅ New player instance created and loaded successfully`)
+              return newPlayer
+            } else {
+              console.warn(`⚠️ New player instance created but not loaded`)
+            }
           }
         } catch (error) {
+          console.warn(`⚠️ Failed to create new player instance: ${error}`)
           continue // Try next format
         }
       }
+      
+      // If creating a new instance failed, use the original preloaded player
+      console.log(`⚠️ Failed to create new player instance, using original preloaded player`)
+      return player as Tone.Player
     }
     
     // Fallback: create individual player using flexible structure
     const pathVariants = [
-      `instruments/${category}/${instrument}/mp3/${note}.mp3`, // Simplified MP3
-      `instruments/${category}/${instrument}/wav/${note}.wav`, // Simplified WAV
+      `instruments/${category}/${instrument}/mp3/${note}.mp3`, // Simplified MP3 with original case
+      `instruments/${category}/${instrument}/wav/${note}.wav`, // Simplified WAV with original case
     ]
+    
+    // If the original instrument name didn't work and it's a known case issue, try alternatives
+    if (category === 'woodwinds' && instrument.toLowerCase() === 'flute') {
+      pathVariants.push(
+        `instruments/${category}/Flute/mp3/${note}.mp3`, // Try capital F
+        `instruments/${category}/Flute/wav/${note}.wav`  // Try capital F
+      )
+    }
     
     // Try path variants (simplified first, then duration-based)
     for (const samplePath of pathVariants) {
@@ -615,7 +777,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
           volume: 0,
           fadeIn: 0.01,
           fadeOut: 0.01
-        }).toDestination()
+        }) // Note: NOT calling .toDestination() here since we'll connect it manually
         
         // Wait for the player to load completely with better error handling
         return new Promise((resolve) => {
@@ -688,7 +850,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
           volume: 0,
           fadeIn: 0.01,
           fadeOut: 0.01
-        }).toDestination()
+        }) // Note: NOT calling .toDestination() here since we'll connect it manually
         
         return new Promise((resolve) => {
           alternativePlayer.load(alternativeUrl).then(() => {
@@ -804,39 +966,242 @@ Check your web server configuration to ensure it can serve audio files from: ${s
       const noteIndex = chordIndex % notes.length
       const currentNote = notes[noteIndex]
       
-      // Schedule this chord/note using setTimeout instead of Transport
-      const timeoutId = setTimeout(async () => {
-        try {
-          // For chord samples (like piano chords), use the chord name directly
-          if (currentNote.includes('_')) {
-            // This is a chord name like "C_major"
-            const category = getTrackCategory(track)
-            const player = await getSamplePlayer(category, track.instrument, currentNote, sampleDuration)
-            if (player && player.loaded) {
-              player.volume.value = Tone.gainToDb(Math.max(0.01, volume))
-              player.start(0, 0, sampleDuration)
-              console.log(`🎹 Playing chord ${currentNote} (position ${chordIndex + 1}/${totalChords})`)
+        // Schedule this chord/note using setTimeout instead of Transport
+        const timeoutId = setTimeout(async () => {
+          try {
+            // For chord samples (like piano chords), use the chord name directly
+            if (currentNote.includes('_')) {
+              // This is a chord name like "C_major"
+              const category = getTrackCategory(track)
+              console.log(`🎹 Attempting to get sample player for: ${category}/${track.instrument}/${currentNote}`)
+              
+              const player = await getSamplePlayer(category, track.instrument, currentNote, sampleDuration)
+              console.log(`🎹 getSamplePlayer returned:`, { player: !!player, loaded: player?.loaded, constructor: player?.constructor?.name })
+              
+              if (player && player.loaded) {
+                // Apply combined track and clip effects for chord samples
+                const trackEffects = track.effects || { reverb: 0, delay: 0, distortion: 0 }
+                const clipEffects = clip.effects || { reverb: 0, delay: 0, distortion: 0 }
+                
+                // Check if clip has additional effects beyond track effects
+                const hasClipEffects = clipEffects.reverb > 0 || clipEffects.delay > 0 || clipEffects.distortion > 0
+                
+                try {
+                  if (hasClipEffects) {
+                    // Create combined effects chain for this specific clip
+                    const combinedEffectsChain = createClipEffectsChain(trackEffects, clipEffects)
+                    
+                    // Safely connect player to combined effects chain
+                    console.log(`🎹 Connecting player to combined effects chain...`)
+                    try {
+                      player.disconnect()
+                      console.log(`✅ Player disconnected successfully`)
+                    } catch (disconnectError) {
+                      console.log(`ℹ️ Player was not connected, proceeding to connect to effects:`, disconnectError)
+                    }
+                    
+                    // Verify effects chain is valid before connecting
+                    if (combinedEffectsChain && combinedEffectsChain.distortion && combinedEffectsChain.output) {
+                      console.log(`🔍 Combined effects chain validation:`, {
+                        chain: !!combinedEffectsChain,
+                        distortion: !!combinedEffectsChain.distortion,
+                        distortionDisposed: combinedEffectsChain.distortion.disposed,
+                        distortionContext: combinedEffectsChain.distortion.context === Tone.context,
+                        output: !!combinedEffectsChain.output,
+                        outputDisposed: combinedEffectsChain.output.disposed,
+                        outputContext: combinedEffectsChain.output.context === Tone.context
+                      })
+                      
+                      try {
+                        player.connect(combinedEffectsChain.distortion)
+                        combinedEffectsChain.output.toDestination()
+                        console.log(`✅ Successfully connected to combined effects chain`)
+                      } catch (connectError) {
+                        console.error(`❌ Failed to connect to combined effects chain:`, connectError)
+                        console.error(`   Player state:`, { disposed: player.disposed, context: player.context === Tone.context })
+                        console.error(`   Falling back to direct connection`)
+                        try {
+                          player.toDestination()
+                        } catch (fallbackError) {
+                          console.error(`❌ Even fallback connection failed:`, fallbackError)
+                        }
+                      }
+                    } else {
+                      console.error(`❌ Invalid combined effects chain, falling back to direct connection`)
+                      console.error(`   Validation details:`, {
+                        chain: !!combinedEffectsChain,
+                        distortion: !!combinedEffectsChain?.distortion,
+                        output: !!combinedEffectsChain?.output
+                      })
+                      player.toDestination()
+                    }
+                    
+                    // Cleanup the combined effects chain after playback
+                    setTimeout(() => {
+                      combinedEffectsChain.dispose()
+                    }, sampleDuration * 1000 + 1000)
+                    
+                    console.log(`🎹 Playing chord ${currentNote} with COMBINED effects (position ${chordIndex + 1}/${totalChords})`)
+                  } else {
+                    // Just use track effects bus
+                    let effectsBus = getTrackEffectsBus(track.id)
+                    
+                    // Safely connect player to track effects bus
+                    console.log(`🎹 Connecting player to track effects bus...`)
+                    try {
+                      player.disconnect()
+                      console.log(`✅ Player disconnected successfully`)
+                    } catch (disconnectError) {
+                      console.log(`ℹ️ Player was not connected, proceeding to connect to effects:`, disconnectError)
+                    }
+                    
+                    // Verify effects bus is valid before connecting
+                    if (effectsBus && effectsBus.distortion && effectsBus.output) {
+                      console.log(`🔍 Effects bus validation:`, {
+                        effectsBus: !!effectsBus,
+                        distortion: !!effectsBus.distortion,
+                        distortionDisposed: effectsBus.distortion.disposed,
+                        distortionContext: effectsBus.distortion.context === Tone.context,
+                        output: !!effectsBus.output,
+                        outputDisposed: effectsBus.output.disposed,
+                        outputContext: effectsBus.output.context === Tone.context
+                      })
+                      
+                      // Additional check: if context mismatch, recreate effects bus
+                      if (effectsBus.distortion.context !== Tone.context || 
+                          effectsBus.output.context !== Tone.context) {
+                        console.log(`🔄 Context mismatch detected, recreating effects bus for immediate use`)
+                        try {
+                          effectsBus.dispose()
+                        } catch (error) {
+                          console.warn(`Warning disposing old effects bus:`, error)
+                        }
+                        
+                        // Get a fresh effects bus with current context
+                        effectsBus = getTrackEffectsBus(track.id)
+                      }
+                      
+                      try {
+                        player.connect(effectsBus.distortion)
+                        effectsBus.output.toDestination()
+                        console.log(`✅ Successfully connected to track effects bus`)
+                      } catch (connectError) {
+                        console.error(`❌ Failed to connect to effects bus:`, connectError)
+                        console.error(`   Player state:`, { disposed: player.disposed, context: player.context === Tone.context })
+                        console.error(`   Falling back to direct connection`)
+                        try {
+                          player.toDestination()
+                        } catch (fallbackError) {
+                          console.error(`❌ Even fallback connection failed:`, fallbackError)
+                        }
+                      }
+                    } else {
+                      console.error(`❌ Invalid track effects bus, falling back to direct connection`)
+                      console.error(`   Validation details:`, {
+                        effectsBus: !!effectsBus,
+                        distortion: !!effectsBus?.distortion,
+                        output: !!effectsBus?.output
+                      })
+                      player.toDestination()
+                    }
+                    
+                    console.log(`🎹 Playing chord ${currentNote} with track effects (position ${chordIndex + 1}/${totalChords})`)
+                  }
+                  
+                  player.volume.value = Tone.gainToDb(Math.max(0.01, volume))
+                  player.start(0, 0, sampleDuration)
+                } catch (effectsError) {
+                  console.error(`❌ Error setting up effects for player:`, effectsError)
+                  // Fallback: just play the sample without effects
+                  try {
+                    player.toDestination()
+                    player.volume.value = Tone.gainToDb(Math.max(0.01, volume))
+                    player.start(0, 0, sampleDuration)
+                    console.log(`🎹 Playing chord ${currentNote} with fallback (no effects) (position ${chordIndex + 1}/${totalChords})`)
+                  } catch (fallbackError) {
+                    console.error(`❌ Even fallback playback failed:`, fallbackError)
+                  }
+                }
+              } else {
+                console.warn(`❌ Failed to get chord player for ${track.instrument} ${currentNote} or player not loaded`)
+              }
             } else {
-              console.warn(`Failed to get chord player for ${track.instrument} ${currentNote} or player not loaded`)
+              // This is a single note like "C4"
+              const category = getTrackCategory(track)
+              const player = await getSamplePlayer(category, track.instrument, currentNote, sampleDuration)
+              if (player && player.loaded) {
+                // Apply combined track and clip effects for note samples
+                const trackEffects = track.effects || { reverb: 0, delay: 0, distortion: 0 }
+                const clipEffects = clip.effects || { reverb: 0, delay: 0, distortion: 0 }
+                
+                // Check if clip has additional effects beyond track effects
+                const hasClipEffects = clipEffects.reverb > 0 || clipEffects.delay > 0 || clipEffects.distortion > 0
+                
+                if (hasClipEffects) {
+                  // Create combined effects chain for this specific clip
+                  const combinedEffectsChain = createClipEffectsChain(trackEffects, clipEffects)
+                  
+                  // Safely connect player to combined effects chain
+                  try {
+                    player.disconnect()
+                    console.log(`✅ Player disconnected successfully`)
+                  } catch (disconnectError) {
+                    console.log(`ℹ️ Player was not connected, proceeding to connect to effects:`, disconnectError)
+                  }
+                  
+                  // Verify effects chain is valid before connecting
+                  if (combinedEffectsChain && combinedEffectsChain.distortion && combinedEffectsChain.output) {
+                    player.connect(combinedEffectsChain.distortion)
+                    combinedEffectsChain.output.toDestination()
+                    console.log(`✅ Successfully connected to combined effects chain`)
+                  } else {
+                    console.error(`❌ Invalid combined effects chain, falling back to direct connection`)
+                    player.toDestination()
+                  }
+                  
+                  // Cleanup the combined effects chain after playback
+                  setTimeout(() => {
+                    combinedEffectsChain.dispose()
+                  }, sampleDuration * 1000 + 1000)
+                  
+                  console.log(`🎵 Playing note ${currentNote} with COMBINED effects (position ${chordIndex + 1}/${totalChords})`)
+                } else {
+                  // Just use track effects bus
+                  const effectsBus = getTrackEffectsBus(track.id)
+                  
+                  // Safely connect player to track effects bus
+                  try {
+                    player.disconnect()
+                    console.log(`✅ Player disconnected successfully`)
+                  } catch (disconnectError) {
+                    console.log(`ℹ️ Player was not connected, proceeding to connect to effects:`, disconnectError)
+                  }
+                  
+                  // Verify effects bus is valid before connecting
+                  if (effectsBus && effectsBus.distortion && effectsBus.output) {
+                    player.connect(effectsBus.distortion)
+                    effectsBus.output.toDestination()
+                    console.log(`✅ Successfully connected to track effects bus`)
+                  } else {
+                    console.error(`❌ Invalid track effects bus, falling back to direct connection`)
+                    player.toDestination()
+                  }
+                  
+                  console.log(`🎵 Playing note ${currentNote} with track effects (position ${chordIndex + 1}/${totalChords})`)
+                }
+                
+                player.volume.value = Tone.gainToDb(Math.max(0.01, volume))
+                player.start(0, 0, sampleDuration)
+              } else {
+                console.warn(`Failed to get note player for ${track.instrument} ${currentNote} or player not loaded`)
+              }
             }
-          } else {
-            // This is a single note like "C4"
-            const category = getTrackCategory(track)
-            const player = await getSamplePlayer(category, track.instrument, currentNote, sampleDuration)
-            if (player && player.loaded) {
-              player.volume.value = Tone.gainToDb(Math.max(0.01, volume))
-              player.start(0, 0, sampleDuration)
-              console.log(`🎵 Playing note ${currentNote} (position ${chordIndex + 1}/${totalChords})`)
-            } else {
-              console.warn(`Failed to get note player for ${track.instrument} ${currentNote} or player not loaded`)
-            }
+          } catch (error) {
+            console.error(`Error playing sample:`, error)
           }
-        } catch (error) {
-          console.error(`Error playing sample:`, error)
-        }
-      }, Math.max(0, (chordStartTime - fromPosition) * 1000)) // Adjust delay based on current position
-      
-      scheduledEvents.value.push(timeoutId as any)
+        }, Math.max(0, (chordStartTime - fromPosition) * 1000)) // Adjust delay based on current position
+        
+        scheduledEvents.value.push(timeoutId as any)
     }
   }
 
@@ -855,11 +1220,18 @@ Check your web server configuration to ensure it can serve audio files from: ${s
         instrument = new Tone.PolySynth(Tone.Synth, {
           oscillator: { type: "sine" },
           envelope: { attack: 0.8, decay: 0.5, sustain: 0.8, release: 2 }
-        }).toDestination()
+        })
+        
+        // Get or create effects bus for this track
+        const effectsBus = getTrackEffectsBus(track.id)
+        
+        // Connect instrument through effects chain instead of directly to destination
+        instrument.connect(effectsBus.distortion)
+        effectsBus.output.toDestination()
         
         // Store it for future use
         instruments.value.set(track.instrument, instrument)
-        console.log(`✅ Created fresh ${track.instrument} instrument`)
+        console.log(`✅ Created fresh ${track.instrument} instrument with effects chain`)
       } catch (createError) {
         console.error(`❌ Failed to create fresh instrument:`, createError)
         return
@@ -908,10 +1280,37 @@ Check your web server configuration to ensure it can serve audio files from: ${s
           const freshInstrument = new Tone.PolySynth(Tone.Synth, {
             oscillator: { type: "sine" },
             envelope: { attack: 0.1, decay: 0.3, sustain: 0.6, release: 1 }
-          }).toDestination()
+          })
           
+          // Calculate note duration first
           const noteDuration = sampleDuration * 0.9
           const noteToPlay = Array.isArray(currentNote) ? currentNote[0] : currentNote
+          
+          // Apply combined track and clip effects
+          const trackEffects = track.effects || { reverb: 0, delay: 0, distortion: 0 }
+          const clipEffects = clip.effects || { reverb: 0, delay: 0, distortion: 0 }
+          
+          // Check if clip has additional effects beyond track effects
+          const hasClipEffects = clipEffects.reverb > 0 || clipEffects.delay > 0 || clipEffects.distortion > 0
+          
+          if (hasClipEffects) {
+            // Create combined effects chain for this specific clip
+            const combinedEffectsChain = createClipEffectsChain(trackEffects, clipEffects)
+            freshInstrument.connect(combinedEffectsChain.distortion)
+            combinedEffectsChain.output.toDestination()
+            
+            // Store effects chain for cleanup
+            setTimeout(() => {
+              combinedEffectsChain.dispose()
+            }, noteDuration * 1000 + 1000) // Cleanup after note ends
+            
+            console.log(`🎛️ Applied combined effects for clip:`, { track: trackEffects, clip: clipEffects })
+          } else {
+            // Just use track effects bus
+            const effectsBus = getTrackEffectsBus(track.id)
+            freshInstrument.connect(effectsBus.distortion)
+            effectsBus.output.toDestination()
+          }
           
           console.log(`🎵 SIMPLIFIED: About to play note ${noteToPlay} with FRESH instrument (position ${positionIndex + 1}/${totalPositions})`)
           
@@ -1269,7 +1668,12 @@ Check your web server configuration to ensure it can serve audio files from: ${s
         url: clip.sampleUrl,
         autostart: false,
         volume: Tone.gainToDb(Math.max(0.01, volume)),
-      }).toDestination()
+      })
+      
+      // Get or create effects bus for this track and connect sample player
+      const effectsBus = getTrackEffectsBus(track.id)
+      player.connect(effectsBus.distortion)
+      effectsBus.output.toDestination()
       
       samplePlayers.push(player)
       
@@ -1482,6 +1886,12 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     const track = songStructure.value.tracks.find(t => t.id === trackId)
     if (track) {
       Object.assign(track, updates)
+      
+      // If effects are being updated, update the effects bus too
+      if (updates.effects) {
+        updateTrackEffects(trackId, updates.effects)
+      }
+      
       updateSongStructure()
     }
   }
@@ -1599,37 +2009,61 @@ Check your web server configuration to ensure it can serve audio files from: ${s
   }
 
   const addLyricsSegment = (segment: { startTime: number, endTime: number, text: string, notes?: string[], chordName?: string, voiceId?: string }) => {
-    const lyricsTrack = ensureLyricsTrack()
+    const voiceId = segment.voiceId || 'default'
     
-    // Create new clip with advanced multi-voice structure
+    // Find or create a track for this specific voice
+    let voiceTrack = songStructure.value.tracks.find(track => 
+      track.instrument === 'vocals' && track.voiceId === voiceId
+    )
+    
+    if (!voiceTrack) {
+      // Create a new track for this voice
+      voiceTrack = {
+        id: `track-voice-${voiceId}-${Date.now()}`,
+        name: `Voice: ${voiceId}`,
+        instrument: 'vocals',
+        category: 'vocals',
+        voiceId: voiceId,
+        volume: 0.8,
+        pan: 0,
+        muted: false,
+        solo: false,
+        clips: [],
+        effects: {
+          reverb: 0,
+          delay: 0,
+          distortion: 0
+        }
+      }
+      songStructure.value.tracks.push(voiceTrack)
+      updateSongStructure()
+    }
+    
+    // Create new clip for this voice track
     const newClip: Omit<AudioClip, 'id' | 'trackId'> = {
       startTime: segment.startTime,
       duration: segment.endTime - segment.startTime,
       type: 'lyrics',
       instrument: 'vocals',
+      voiceId: voiceId,
       volume: 0.8,
       effects: {
         reverb: 0,
         delay: 0,
         distortion: 0
       },
-      // Use new multi-voice structure instead of simple fields
-      voices: [
+      // Use direct lyrics array for this voice
+      lyrics: [
         {
-          voice_id: segment.voiceId || 'default',
-          lyrics: [
-            {
-              text: segment.text,
-              notes: segment.notes || [],
-              start: 0.0, // Start at beginning of clip
-              duration: segment.endTime - segment.startTime
-            }
-          ]
+          text: segment.text,
+          notes: segment.notes || [],
+          start: 0.0, // Start at beginning of clip
+          duration: segment.endTime - segment.startTime
         }
       ]
     }
     
-    return addClip(lyricsTrack.id, newClip)
+    return addClip(voiceTrack.id, newClip)
   }
 
   const updateLyricsSegment = (clipId: string, segment: { startTime: number, endTime: number, text: string, notes?: string[], chordName?: string, voiceId?: string }) => {

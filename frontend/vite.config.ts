@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     proxy: {
       '/api/ai': 'http://localhost:5000',
+      '/api/voice': 'http://localhost:5000',
     },
   },
 })

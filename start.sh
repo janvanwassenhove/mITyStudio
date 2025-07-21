@@ -47,10 +47,32 @@ if [ ! -d "backend/venv" ]; then
     cd backend
     $PYTHON_CMD -m venv venv
     source venv/bin/activate
+    echo "📦 Installing full dependencies (including PyTorch for RVC)..."
     pip install -r requirements.txt
+    if [ $? -ne 0 ]; then
+        echo "❌ Failed to install dependencies"
+        echo "This includes PyTorch which is required for RVC voice cloning"
+        cd ..
+        exit 1
+    fi
     cd ..
 else
     echo "✅ Python virtual environment exists"
+    echo "🔍 Verifying PyTorch installation..."
+    cd backend
+    source venv/bin/activate
+    python -c "import torch; print('PyTorch version:', torch.__version__)" 2>/dev/null
+    if [ $? -ne 0 ]; then
+        echo "⚠️  PyTorch not found in virtual environment"
+        echo "📦 Installing full dependencies..."
+        pip install -r requirements.txt
+        if [ $? -ne 0 ]; then
+            echo "❌ Failed to install PyTorch dependencies"
+            cd ..
+            exit 1
+        fi
+    fi
+    cd ..
 fi
 
 # Check if .env file exists
@@ -77,11 +99,13 @@ echo ""
 echo "Frontend will be available at: http://localhost:5173"
 echo "Backend will be available at: http://localhost:5000"
 echo ""
+echo "🎤 RVC Voice Cloning: PyTorch-powered neural networks ready!"
+echo ""
 echo "Press Ctrl+C to stop both services"
 echo ""
 
 # Start both frontend and backend concurrently
-echo "🎵 Starting backend..."
+echo "🎵 Starting backend with PyTorch support..."
 cd backend
 source venv/bin/activate
 $PYTHON_CMD run.py &

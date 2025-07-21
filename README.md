@@ -4,10 +4,6 @@ A complete monorepo structure for an AI-powered music composition and production
 
 ## Features
 
-- Vue 3 with Composition API and `<script setup>`
-- TypeScript for type safety
-- Vite for lightning-fast development and builds
-- Modular and scalable project structure
 - **Voice Training with WAV Format**: Automatic conversion to WAV format for optimal voice training quality
 - Advanced AI-powered music composition and voice synthesis
 - Real-time audio processing and effects
@@ -60,80 +56,101 @@ The song structure is represented as a JSON object with the following schema:
       "isSample": false          // (Optional) Is this a sample track
     },
     {
-      "id": "track-lyrics",
-      "name": "Lyrics & Vocals",
+      "id": "track-soprano",
+      "name": "Soprano Voice",
       "instrument": "vocals",
       "category": "vocals",
+      "voiceId": "soprano01",    // Voice identifier for this track
       "volume": 0.8,
-      "pan": 0,
+      "pan": -0.2,               // Slight left pan for separation
       "muted": false,
       "solo": false,
-      "clips": [                 // Lyrics clips
+      "clips": [                 // Voice clips for this specific voice
         {
-          "id": "clip-lyrics-1",
-          "trackId": "track-lyrics",
+          "id": "clip-soprano-1",
+          "trackId": "track-soprano",
           "startTime": 4,        // Start time in seconds
           "duration": 2,         // Duration in seconds
           "type": "lyrics",      // Clip type
           "instrument": "vocals",
+          "voiceId": "soprano01", // Voice for this clip (matches track voiceId)
           "volume": 0.8,
           "effects": { "reverb": 0, "delay": 0, "distortion": 0 },
-          "voices": [            // (Optional) Advanced multi-voice structure
+          "lyrics": [            // Lyrics for this voice only
             {
-              "voice_id": "soprano01",     // Voice identifier
-              "lyrics": [
-                {
-                  "text": "Shine",         // Lyric text fragment
-                  "notes": ["E4", "F4"],   // Notes for this fragment
-                  "start": 0.0,            // Start time relative to clip (seconds)
-                  "durations": [0.4, 0.4]  // Duration for each note (seconds)
-                },
-                {
-                  "text": "on",
-                  "notes": ["G4"],
-                  "start": 1.0,
-                  "duration": 0.6          // Single duration for single note
-                }
-              ]
+              "text": "Shine bright like a diamond",   // Lyric text fragment
+              "notes": ["E4", "F4", "G4", "A4", "B4"], // Notes for this fragment
+              "start": 0.0,      // Start time relative to clip (seconds)
+              "durations": [0.3, 0.3, 0.4, 0.5, 0.5] // Duration for each note (seconds)
             },
             {
-              "voice_id": "bass01",
-              "lyrics": [
-                {
-                  "text": "You",
-                  "notes": ["C3"],
-                  "start": 0.5,
-                  "duration": 0.6
-                },
-                {
-                  "text": "and",
-                  "notes": ["D3", "E3"],
-                  "start": 1.3,
-                  "durations": [0.4, 0.5]
-                }
-              ]
+              "text": "tonight",
+              "notes": ["C5", "B4"],
+              "start": 1.0,
+              "durations": [0.6, 0.4] // Multiple durations for multiple notes
             }
           ]
         }
       ],
-      "effects": { "reverb": 0, "delay": 0, "distortion": 0 }
+      "effects": { "reverb": 0.2, "delay": 0, "distortion": 0 }
+    },
+    {
+      "id": "track-bass",
+      "name": "Bass Voice", 
+      "instrument": "vocals",
+      "category": "vocals",
+      "voiceId": "bass01",       // Voice identifier for this track
+      "volume": 0.7,
+      "pan": 0.2,                // Slight right pan for separation
+      "muted": false,
+      "solo": false,
+      "clips": [                 // Voice clips for this specific voice
+        {
+          "id": "clip-bass-1",
+          "trackId": "track-bass",
+          "startTime": 4.5,      // Slightly offset start for harmony
+          "duration": 2,         // Duration in seconds
+          "type": "lyrics",      // Clip type
+          "instrument": "vocals",
+          "voiceId": "bass01",   // Voice for this clip (matches track voiceId)
+          "volume": 0.7,
+          "effects": { "reverb": 0, "delay": 0, "distortion": 0 },
+          "lyrics": [            // Lyrics for this voice only
+            {
+              "text": "Strong foundation below",
+              "notes": ["C3", "D3", "E3", "F3"],
+              "start": 0.0,      // Start time relative to clip
+              "durations": [0.4, 0.4, 0.6, 0.6]
+            },
+            {
+              "text": "tonight",
+              "notes": ["G3"],
+              "start": 1.0,
+              "duration": 1.0    // Single duration for single note
+            }
+          ]
+        }
+      ],
+      "effects": { "reverb": 0.1, "delay": 0, "distortion": 0 }
     }
   ],
   "duration": 32,                // Song duration in seconds
   "createdAt": "ISO string",     // Creation timestamp
-  "updatedAt": "ISO string"      // Last update timestamp
+  "updatedAt": "ISO string",      // Last update timestamp
+  "lyrics": "test lyrics"
 }
 ```
 
 - All fields are required unless marked as (Optional).
 - The `tracks` array contains all tracks in the song, each with its own clips and settings.
 - The `clips` array within each track contains audio, MIDI, or lyrics clips, with timing and instrument/sample info.
-- Lyrics are stored as clips within a dedicated "Lyrics & Vocals" track with `type: "lyrics"`.
-- For simple vocal arrangements, use the basic `text`, `notes`, and `chordName` fields within the clip.
-- For advanced vocal arrangements, use the `voices` array within lyrics clips to define multiple voice parts with precise timing, pitch, and text mapping (do not use the basic fields when using `voices`).
-- Each voice in the `voices` array can have multiple lyric fragments with individual note sequences and timing.
+- Each voice has its own dedicated track with `instrument: "vocals"` and a `voiceId` field to identify the specific voice.
+- Vocal tracks contain clips with `type: "lyrics"` that hold the lyrics and musical information for that specific voice.
+- Each lyrics clip contains a `lyrics` array with text fragments, notes, and timing information for that voice only.
 - Use `duration` for single notes or `durations` array for multiple notes in a lyric fragment.
-- Effects are represented as numeric values (typically 0–1).
+- Multiple voice tracks can be synchronized by adjusting their `startTime` and using appropriate `pan` values for stereo separation.
+- The `voiceId` field on both tracks and clips ensures consistency and allows for voice-specific processing.
+- Effects are represented as numeric values (typically 0–1) and can be applied per track or per clip.
 
 This contract is used for project import/export and for direct editing in the Song Structure panel.
 

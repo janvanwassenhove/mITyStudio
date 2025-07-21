@@ -190,6 +190,7 @@
               </div>
             </div>
           </div>
+
         </div>
       </div>
       
@@ -198,13 +199,39 @@
         <h5>Training Progress</h5>
         <div v-for="voice in trainingVoices" :key="voice.id" class="training-item">
           <div class="training-info">
-            <span class="training-name">{{ voice.name }}</span>
-            <span class="training-status" :class="{ 'status-error': voice.status === 'error' }">{{ voice.status }}</span>
+            <span class="training-name">
+              <i class="fas fa-microphone-alt" v-if="voice.status === 'training'"></i>
+              <i class="fas fa-cog fa-spin" v-else-if="voice.status === 'preparing'"></i>
+              <i class="fas fa-check-circle" v-else-if="voice.status === 'ready'"></i>
+              <i class="fas fa-exclamation-triangle" v-else-if="voice.status === 'error'"></i>
+              {{ voice.name }}
+            </span>
+            <span class="training-status" :class="`status-${voice.status}`">
+              {{ voice.status.charAt(0).toUpperCase() + voice.status.slice(1) }}
+            </span>
           </div>
-          <div class="progress-bar">
-            <div class="progress-fill" :style="{ width: voice.progress + '%' }"></div>
+          <div class="progress-container">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: voice.progress + '%' }">
+                <div class="progress-shine"></div>
+              </div>
+            </div>
+            <span class="progress-text">{{ voice.progress }}%</span>
           </div>
-          <span class="progress-text">{{ voice.progress }}%</span>
+          
+          <!-- Training Stage Indicator -->
+          <div v-if="voice.status === 'training' || voice.status === 'preparing'" class="training-stage">
+            <div class="stage-indicator">
+              <span class="stage-label">{{ getTrainingStageLabel(voice.status, voice.progress) }}</span>
+              <div class="stage-dots">
+                <span class="stage-dot" :class="{ active: voice.progress >= 0 }"></span>
+                <span class="stage-dot" :class="{ active: voice.progress >= 25 }"></span>
+                <span class="stage-dot" :class="{ active: voice.progress >= 50 }"></span>
+                <span class="stage-dot" :class="{ active: voice.progress >= 75 }"></span>
+                <span class="stage-dot" :class="{ active: voice.progress >= 100 }"></span>
+              </div>
+            </div>
+          </div>
           
           <!-- Training Time Information -->
           <div v-if="voice.status === 'training'" class="training-info-text">
@@ -667,7 +694,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
-import { DiffSingerService } from '../services/diffSingerService'
+import { VoiceService } from '../services/voiceService'
 import { useMultiVoiceVisualization } from '../composables/useMultiVoiceVisualization'
 import { useVoiceManagement } from '../composables/useVoiceManagement'
 import { 
@@ -741,24 +768,19 @@ const availableVoices = ref<Array<{
   trained: boolean
 }>>([])
 
+// Training voices state
 const trainingVoices = ref<Array<{
   id: string
   name: string
-  status: 'preparing' | 'uploading' | 'training' | 'ready' | 'error'
+  status: 'preparing' | 'training' | 'ready' | 'error'
   progress: number
-  audioFiles: string[]
-  error?: string
+  stage?: string
   estimated_time_remaining?: string
   elapsed_time?: string
-  transcriptions?: Array<{
-    audio_file: string
-    text: string
-    confidence: number
-    engine: string
-    transcription_file?: string
-    error?: string
-  }>
+  transcriptions?: string[]
+  error?: string
 }>>([])
+const trainingIntervals = ref<Map<string, number>>(new Map())
 
 // Recording constraints
 const recordingConstraints = {
@@ -1031,7 +1053,7 @@ const closeVoicePanel = () => {
 const testVoiceSpoken = async (voiceId: string) => {
   try {
     console.log('Testing spoken voice:', voiceId)
-    const audioBlob = await DiffSingerService.testVoiceSpoken(voiceId)
+    const audioBlob = await VoiceService.testVoiceSpoken(voiceId)
     
     // Create audio URL and play
     const audioUrl = URL.createObjectURL(audioBlob)
@@ -1049,7 +1071,13 @@ const testVoiceSpoken = async (voiceId: string) => {
 const testVoiceSinging = async (voiceId: string) => {
   try {
     console.log('Testing singing voice:', voiceId)
-    const audioBlob = await DiffSingerService.testVoiceSinging(voiceId)
+    
+    // Use the actual test text - backend will generate appropriate notes
+    const testText = "mitystudio forever in our hearts"
+    const testNotes = null  // Let backend generate notes based on syllables
+    const chordName = 'C'  // C major chord for harmony
+    
+    const audioBlob = await VoiceService.testVoiceSinging(voiceId, testText, testNotes, chordName)
     
     // Create audio URL and play
     const audioUrl = URL.createObjectURL(audioBlob)
@@ -1067,7 +1095,7 @@ const testVoiceSinging = async (voiceId: string) => {
 const deleteVoice = async (voiceId: string) => {
   if (confirm('Delete this voice? This action cannot be undone.')) {
     try {
-      await DiffSingerService.deleteVoice(voiceId)
+      await VoiceService.deleteVoice(voiceId)
       
       // Reload available voices from backend
       await loadAvailableVoices()
@@ -1172,7 +1200,7 @@ const handleFileUpload = (event: Event) => {
     const validFiles: File[] = []
     
     files.forEach(file => {
-      const validation = DiffSingerService.validateAudioFile(file)
+      const validation = VoiceService.validateAudioFile(file)
       if (validation.valid) {
         validFiles.push(file)
       } else {
@@ -1191,7 +1219,7 @@ const handleFileDrop = (event: DragEvent) => {
     const validFiles: File[] = []
     
     files.forEach(file => {
-      const validation = DiffSingerService.validateAudioFile(file)
+      const validation = VoiceService.validateAudioFile(file)
       if (validation.valid) {
         validFiles.push(file)
       } else {
@@ -1215,6 +1243,20 @@ const formatFileSize = (bytes: number) => {
   if (bytes === 0) return '0 Bytes'
   const i = Math.floor(Math.log(bytes) / Math.log(1024))
   return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i]
+}
+
+// Training stage label function
+const getTrainingStageLabel = (status: string, progress: number) => {
+  if (status === 'preparing') return 'Preparing files...'
+  if (status === 'uploading') return 'Uploading files...'
+  if (status === 'training') {
+    if (progress < 25) return 'Initializing training...'
+    if (progress < 50) return 'Processing audio data...'
+    if (progress < 75) return 'Training neural network...'
+    if (progress < 100) return 'Finalizing model...'
+    return 'Training complete!'
+  }
+  return 'In progress...'
 }
 
 // Audio format conversion utilities
@@ -1306,7 +1348,7 @@ const trainVoice = async () => {
   if (!newVoiceName.value.trim()) return
   
   // Validate recording duration
-  const validation = DiffSingerService.validateRecording(recordingTime.value)
+  const validation = VoiceService.validateRecording(recordingTime.value)
   if (!validation.valid) {
     alert(validation.error)
     return
@@ -1320,8 +1362,7 @@ const trainVoice = async () => {
     id: voiceId,
     name: newVoiceName.value,
     status: 'preparing',
-    progress: 0,
-    audioFiles: []
+    progress: 0
   })
   
   try {
@@ -1339,7 +1380,7 @@ const trainVoice = async () => {
       trainingVoices.value[trainIndex].status = 'training'
     }
     
-    const jobId = await DiffSingerService.trainVoiceFromRecording(
+    const jobId = await VoiceService.trainVoiceFromRecording(
       newVoiceName.value,
       wavBlob, // Use WAV blob instead of original
       {
@@ -1391,8 +1432,7 @@ const trainVoiceFromFiles = async () => {
     id: voiceId,
     name: newVoiceName.value,
     status: 'preparing',
-    progress: 0,
-    audioFiles: uploadedFiles.value.map(f => f.name)
+    progress: 0
   })
   
   try {
@@ -1406,10 +1446,12 @@ const trainVoiceFromFiles = async () => {
       const file = uploadedFiles.value[i]
       console.log(`🔄 Processing file ${i + 1}/${totalFiles}: ${file.name} (${formatFileSize(file.size)})`)
       
-      // Update progress
+      // Update progress with smoother animation
       const trainIndex = trainingVoices.value.findIndex(v => v.id === voiceId)
       if (trainIndex !== -1) {
         trainingVoices.value[trainIndex].progress = Math.round((i / totalFiles) * 50) // 50% for file processing
+        // Small delay to make progress visible
+        await new Promise(resolve => setTimeout(resolve, 100))
       }
       
       if (file.name.toLowerCase().endsWith('.wav')) {
@@ -1435,20 +1477,15 @@ const trainVoiceFromFiles = async () => {
     // Update status to uploading
     const trainIndex = trainingVoices.value.findIndex(v => v.id === voiceId)
     if (trainIndex !== -1) {
-      trainingVoices.value[trainIndex].status = 'uploading'
+      trainingVoices.value[trainIndex].status = 'preparing'
       trainingVoices.value[trainIndex].progress = 50
     }
     
     console.log(`📤 Uploading ${processedFiles.length} processed files for training...`)
     
-    const jobId = await DiffSingerService.trainVoiceFromFiles(
+    const jobId = await VoiceService.trainVoiceFromFiles(
       newVoiceName.value,
-      processedFiles,
-      {
-        language: 'en',
-        epochs: 100,
-        speakerEmbedding: true
-      }
+      processedFiles
     )
     
     // Update status to training
@@ -1516,31 +1553,58 @@ const monitorTrainingProgress = async (jobId: string, voiceId: string) => {
       }
       
       try {
-        const status = await DiffSingerService.getTrainingStatus(jobId)
+        const status = await VoiceService.getTrainingStatus(jobId)
+        
+        if (!status) {
+          console.warn(`Training status is null for job ${jobId}`)
+          setTimeout(checkProgress, 2000)
+          return
+        }
         
         // Map service status to UI status
-        const statusMap: Record<string, 'uploading' | 'training' | 'ready' | 'error'> = {
+        const statusMap: Record<string, 'preparing' | 'training' | 'ready' | 'error'> = {
           'pending': 'training',
           'processing': 'training',
+          'running': 'training',
           'completed': 'ready',
           'failed': 'error'
         }
         
         trainingVoice.status = statusMap[status.status] || 'training'
-        trainingVoice.progress = status.progress
         
-        // Update timing information if available
-        if (status.estimated_time_remaining) {
-          trainingVoice.estimated_time_remaining = status.estimated_time_remaining
-        }
-        if (status.elapsed_time) {
-          trainingVoice.elapsed_time = status.elapsed_time
+        // Update progress with stage-specific messages
+        const progress = status.progress || 0
+        trainingVoice.progress = progress
+        
+        // Provide detailed progress messages based on progress percentage
+        if (progress >= 0 && progress < 10) {
+          trainingVoice.stage = 'Initializing training...'
+        } else if (progress >= 10 && progress < 30) {
+          trainingVoice.stage = 'Processing audio files...'
+        } else if (progress >= 30 && progress < 50) {
+          trainingVoice.stage = 'Extracting voice features...'
+        } else if (progress >= 50 && progress < 60) {
+          trainingVoice.stage = 'Building neural network...'
+        } else if (progress >= 60 && progress < 70) {
+          trainingVoice.stage = 'Starting RVC training...'
+        } else if (progress >= 70 && progress < 80) {
+          trainingVoice.stage = 'Preprocessing training data...'
+        } else if (progress >= 80 && progress < 95) {
+          trainingVoice.stage = 'Training voice synthesis model...'
+        } else if (progress >= 95 && progress < 100) {
+          trainingVoice.stage = 'Finalizing model...'
+        } else if (progress >= 100) {
+          trainingVoice.stage = 'Training completed!'
+        } else {
+          trainingVoice.stage = 'Training in progress...'
         }
         
         // Update transcriptions if available
         if (status.transcriptions) {
           trainingVoice.transcriptions = status.transcriptions
         }
+        
+        console.log(`📈 Training progress for ${voiceId}: ${progress}% - ${trainingVoice.stage}`)
         
         if (status.status === 'completed') {
           isMonitoring = false
@@ -1589,7 +1653,7 @@ const monitorTrainingProgress = async (jobId: string, voiceId: string) => {
 const loadAvailableVoices = async () => {
   isLoadingVoices.value = true
   try {
-    const voices = await DiffSingerService.getAvailableVoices()
+    const voices = await VoiceService.getAvailableVoices()
     
     // Ensure we have an array
     if (!Array.isArray(voices)) {
@@ -1629,6 +1693,258 @@ const getVoiceName = (voiceId: string) => {
 }
 
 // Generate singing voice for a lyrics segment
+
+// RVC File Upload Functions
+const triggerRVCFileUpload = () => {
+  rvcFileInput.value?.click()
+}
+
+const handleRVCFileUpload = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  if (input.files) {
+    const files = Array.from(input.files)
+    handleRVCFilesAdded(files)
+  }
+}
+
+const handleRVCFileDrop = (event: DragEvent) => {
+  event.preventDefault()
+  if (event.dataTransfer?.files) {
+    const files = Array.from(event.dataTransfer.files)
+    handleRVCFilesAdded(files)
+  }
+}
+
+const handleRVCFilesAdded = (files: File[]) => {
+  const validation = VoiceService.validateUploadedFiles(files)
+  if (!validation.valid) {
+    alert(validation.error)
+    return
+  }
+  
+  // Check file sizes and provide recommendations
+  const sizeCheck = VoiceService.checkUploadSize(files)
+  if (sizeCheck.shouldWarn) {
+    const message = `${sizeCheck.recommendation}\n\nTotal size: ${sizeCheck.totalSizeMB}MB\n\nContinue with upload?`
+    if (!confirm(message)) {
+      return
+    }
+  }
+  
+  rvcUploadedFiles.value = [...rvcUploadedFiles.value, ...files]
+  console.log(`Added ${files.length} files for RVC training (${sizeCheck.totalSizeMB}MB total)`)
+}
+
+const removeRVCFile = (file: File) => {
+  const index = rvcUploadedFiles.value.findIndex(f => f.name === file.name && f.size === file.size)
+  if (index !== -1) {
+    rvcUploadedFiles.value.splice(index, 1)
+  }
+}
+
+const formatTotalFileSize = (files: File[]): string => {
+  const totalBytes = files.reduce((sum, file) => sum + file.size, 0)
+  return VoiceService.formatFileSize(totalBytes)
+}
+
+// RVC Recording Functions
+const toggleRVCRecording = async () => {
+  if (isRVCRecording.value) {
+    stopRVCRecording()
+  } else {
+    await startRVCRecording()
+  }
+}
+
+const startRVCRecording = async () => {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia(recordingConstraints)
+    
+    // Determine best available recording format
+    let mimeType = 'audio/webm;codecs=opus'
+    if (!MediaRecorder.isTypeSupported(mimeType)) {
+      mimeType = 'audio/webm'
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        mimeType = 'audio/mp4'
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+          mimeType = ''
+        }
+      }
+    }
+    
+    const options = mimeType ? { 
+      mimeType,
+      audioBitsPerSecond: 128000 
+    } : { audioBitsPerSecond: 128000 }
+    
+    const recorder = new MediaRecorder(stream, options)
+    rvcRecordedChunks.value = []
+    
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        rvcRecordedChunks.value.push(event.data)
+      }
+    }
+    
+    recorder.onstop = () => {
+      stream.getTracks().forEach(track => track.stop())
+      
+      // Create audio URL for playback
+      const blob = new Blob(rvcRecordedChunks.value, { type: mimeType || 'audio/webm' })
+      rvcRecordedAudioUrl.value = URL.createObjectURL(blob)
+    }
+    
+    recorder.start()
+    isRVCRecording.value = true
+    rvcRecordingTime.value = 0
+    
+    // Update recording time
+    const timer = setInterval(() => {
+      if (!isRVCRecording.value) {
+        clearInterval(timer)
+        return
+      }
+      rvcRecordingTime.value++
+    }, 1000)
+    
+    console.log('Started RVC recording')
+  } catch (error) {
+    console.error('Error starting RVC recording:', error)
+    alert('Could not access microphone. Please check permissions.')
+  }
+}
+
+const stopRVCRecording = () => {
+  isRVCRecording.value = false
+  console.log('Stopped RVC recording')
+}
+
+const clearRVCRecording = () => {
+  rvcRecordedChunks.value = []
+  rvcRecordingTime.value = 0
+  if (rvcRecordedAudioUrl.value) {
+    URL.revokeObjectURL(rvcRecordedAudioUrl.value)
+    rvcRecordedAudioUrl.value = null
+  }
+}
+
+// RVC Training Functions
+const trainRVCVoiceFromFiles = async () => {
+  if (!rvcVoiceName.value.trim()) {
+    alert('Please enter a voice name')
+    return
+  }
+  
+  if (rvcUploadedFiles.value.length === 0) {
+    alert('Please upload audio files first')
+    return
+  }
+  
+  const validation = VoiceService.validateUploadedFiles(rvcUploadedFiles.value)
+  if (!validation.valid) {
+    alert(validation.error)
+    return
+  }
+  
+  isRVCTraining.value = true
+  
+  try {
+    console.log(`Starting RVC training for voice: ${rvcVoiceName.value}`)
+    
+    // Start training with uploaded files
+    const jobId = await VoiceService.trainVoiceFromFiles(
+      rvcVoiceName.value,
+      rvcUploadedFiles.value
+    )
+    
+    console.log('Training started with job ID:', jobId)
+    
+    // Clear form
+    newVoiceName.value = ''
+    uploadedFiles.value = []
+    
+    // Refresh voices list
+    await loadAvailableVoices()
+    
+    alert('RVC voice training started successfully!')
+    
+  } catch (error) {
+    console.error('Error training RVC voice from files:', error)
+    alert(`Error training voice: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  } finally {
+    isRVCTraining.value = false
+  }
+}
+
+const trainRVCVoiceFromRecording = async () => {
+  if (!rvcVoiceName.value.trim()) {
+    alert('Please enter a voice name')
+    return
+  }
+  
+  if (rvcRecordedChunks.value.length === 0) {
+    alert('Please record audio first')
+    return
+  }
+  
+  const validation = VoiceService.validateRecordingDuration(rvcRecordingTime.value)
+  if (!validation.valid) {
+    alert(validation.error)
+    return
+  }
+  
+  isRVCTraining.value = true
+  
+  try {
+    console.log(`Starting RVC training from recording: ${rvcVoiceName.value}`)
+    
+    // Create audio blob from recorded chunks
+    const audioBlob = new Blob(rvcRecordedChunks.value, { type: 'audio/webm' })
+    
+    // Start training with recorded audio
+    const jobId = await VoiceService.trainVoiceFromRecording(
+      rvcVoiceName.value,
+      audioBlob,
+      rvcRecordingTime.value,
+      44100
+    )
+    
+    console.log('Training started with job ID:', jobId)
+    
+    // Clear form
+    newVoiceName.value = ''
+    clearRecording()
+    
+    // Refresh voices list
+    await loadAvailableVoices()
+    
+    alert('RVC voice training started successfully!')
+    
+  } catch (error) {
+    console.error('Error training RVC voice from recording:', error)
+    alert(`Error training voice: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  } finally {
+    isRVCTraining.value = false
+  }
+}
+
+// Test RVC Singing
+const testRVCSinging = async (voiceId: string) => {
+  try {
+    console.log(`Testing RVC singing voice: ${voiceId}`)
+    await VoiceService.testVoiceSinging(voiceId, 'Test', 'C4', 'C')
+  } catch (error) {
+    console.error('Error testing RVC singing:', error)
+    alert(`Error testing voice: ${error instanceof Error ? error.message : 'Unknown error'}`)
+  }
+}
+
+// Format duration for display
+const formatDuration = (seconds: number): string => {
+  return VoiceService.formatDuration(seconds)
+}
+
+// Generate singing voice for a lyrics segment
 const generateVoiceForSegment = async (clip: any) => {
   const text = getClipText(clip)
   const notes = getClipNotes(clip)
@@ -1655,10 +1971,12 @@ const generateVoiceForSegment = async (clip: any) => {
     }
     
     // Call the backend synthesis API with note-aware parameters
-    const audioBlob = await DiffSingerService.synthesizeVoice(
-      text,
+    const audioBlob = await VoiceService.synthesizeVoice(
       voiceId,
-      synthesisOptions
+      text,
+      synthesisOptions.notes || [],
+      120, // Default tempo
+      synthesisOptions.chordName || 'C' // Use chord as key
     )
     
     // Play the generated audio
@@ -1712,7 +2030,11 @@ const getConfidenceClass = (confidence: number): string => {
 
 // Helper functions to work with both old and new clip formats
 const getClipText = (clip: any): string => {
-  // For new multi-voice format
+  // For new voice-specific tracks with direct lyrics array
+  if (clip.lyrics && clip.lyrics.length > 0) {
+    return clip.lyrics[0].text || ''
+  }
+  // For legacy multi-voice format
   if (clip.voices && clip.voices.length > 0) {
     return clip.voices[0].lyrics?.[0]?.text || ''
   }
@@ -1721,7 +2043,11 @@ const getClipText = (clip: any): string => {
 }
 
 const getClipNotes = (clip: any): string[] => {
-  // For new multi-voice format
+  // For new voice-specific tracks with direct lyrics array
+  if (clip.lyrics && clip.lyrics.length > 0) {
+    return clip.lyrics[0].notes || []
+  }
+  // For legacy multi-voice format
   if (clip.voices && clip.voices.length > 0) {
     return clip.voices[0].lyrics?.[0]?.notes || []
   }
@@ -1730,7 +2056,11 @@ const getClipNotes = (clip: any): string[] => {
 }
 
 const getClipVoiceId = (clip: any): string => {
-  // For new multi-voice format
+  // For new voice-specific tracks
+  if (clip.voiceId) {
+    return clip.voiceId
+  }
+  // For legacy multi-voice format
   if (clip.voices && clip.voices.length > 0) {
     return clip.voices[0].voice_id || 'default'
   }
@@ -2783,11 +3113,63 @@ const generateWaveformPath = (waveformData: number[]): string => {
   font-size: 0.875rem;
   color: var(--text-secondary);
   text-transform: capitalize;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+  font-weight: 500;
+  font-size: 0.75rem;
+}
+
+.training-status.status-preparing {
+  background: rgba(255, 193, 7, 0.2);
+  color: #ff8f00;
+  border: 1px solid rgba(255, 193, 7, 0.3);
+}
+
+.training-status.status-uploading {
+  background: rgba(33, 150, 243, 0.2);
+  color: #1976d2;
+  border: 1px solid rgba(33, 150, 243, 0.3);
+}
+
+.training-status.status-training {
+  background: rgba(76, 175, 80, 0.2);
+  color: #388e3c;
+  border: 1px solid rgba(76, 175, 80, 0.3);
+  animation: statusPulse 2s ease-in-out infinite;
+}
+
+.training-status.status-ready {
+  background: rgba(76, 175, 80, 0.2);
+  color: #2e7d32;
+  border: 1px solid rgba(76, 175, 80, 0.3);
 }
 
 .training-status.status-error {
-  color: var(--error);
+  background: rgba(244, 67, 54, 0.2);
+  color: #d32f2f;
+  border: 1px solid rgba(244, 67, 54, 0.3);
+  font-weight: 600;
+}
+
+@keyframes statusPulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.training-name {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   font-weight: 500;
+}
+
+.training-name i {
+  font-size: 0.875rem;
+  color: var(--primary);
 }
 
 .training-error {
@@ -2840,23 +3222,126 @@ const generateWaveformPath = (waveformData: number[]): string => {
   font-weight: 500;
 }
 
+.progress-container {
+  margin-bottom: 0.5rem;
+}
+
 .progress-bar {
-  height: 8px;
-  background: var(--border);
-  border-radius: 4px;
+  height: 12px;
+  background: linear-gradient(to right, var(--border), #f0f0f0);
+  border-radius: 6px;
   overflow: hidden;
   margin-bottom: 0.25rem;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  position: relative;
 }
 
 .progress-fill {
   height: 100%;
-  background: var(--primary);
-  transition: width 0.3s ease;
+  background: linear-gradient(45deg, 
+    var(--primary) 0%, 
+    #4fc3f7 25%, 
+    var(--primary) 50%, 
+    #4fc3f7 75%, 
+    var(--primary) 100%);
+  background-size: 40px 40px;
+  border-radius: 6px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  animation: progressPulse 2s ease-in-out infinite;
+}
+
+.progress-shine {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.4),
+    transparent
+  );
+  animation: progressShine 2s ease-in-out infinite;
+}
+
+@keyframes progressPulse {
+  0%, 100% {
+    box-shadow: 0 0 5px rgba(79, 195, 247, 0.3);
+  }
+  50% {
+    box-shadow: 0 0 15px rgba(79, 195, 247, 0.6);
+  }
+}
+
+@keyframes progressShine {
+  0% {
+    left: -100%;
+  }
+  100% {
+    left: 100%;
+  }
 }
 
 .progress-text {
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   color: var(--text-secondary);
+  font-weight: 600;
+  text-align: right;
+  display: block;
+}
+
+/* Training Stage Indicator */
+.training-stage {
+  margin-top: 0.5rem;
+}
+
+.stage-indicator {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: rgba(var(--primary-rgb), 0.05);
+  border-radius: 6px;
+  border: 1px solid rgba(var(--primary-rgb), 0.1);
+}
+
+.stage-label {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.stage-dots {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.stage-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border);
+  transition: all 0.3s ease;
+}
+
+.stage-dot.active {
+  background: var(--primary);
+  box-shadow: 0 0 8px rgba(var(--primary-rgb), 0.4);
+  animation: dotPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes dotPulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.2);
+  }
 }
 
 /* Transcription Status */

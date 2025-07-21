@@ -14,7 +14,6 @@ from werkzeug.datastructures import FileStorage
 import librosa
 import soundfile as sf
 
-from .diffsinger_engine import DiffSingerEngine, DiffSingerConfig
 from .training_monitor import training_monitor
 from .voice_registry import VoiceRegistry
 from .voice_analyzer import VoiceAnalyzer
@@ -31,12 +30,6 @@ class TrainingManager:
         self.models_dir = models_dir
         self.voices_dir = voices_dir
         self.voice_registry = voice_registry
-        
-        # Initialize DiffSinger engine
-        self.diffsinger = DiffSingerEngine(
-            models_dir=str(self.models_dir),
-            data_dir=str(self.training_dir)
-        )
         
         # Initialize voice analyzer
         self.voice_analyzer = VoiceAnalyzer()
@@ -55,19 +48,54 @@ class TrainingManager:
         """Load training jobs from file"""
         try:
             if self.jobs_file.exists():
-                with open(self.jobs_file, 'r') as f:
-                    return json.load(f)
+                with open(self.jobs_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if not content:
+                        logger.warning("Training jobs file is empty, starting fresh")
+                        return {}
+                    return json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.error(f"Corrupted training jobs file, backing up and starting fresh: {e}")
+            # Backup corrupted file
+            backup_file = self.jobs_file.with_suffix('.json.corrupted')
+            try:
+                import shutil
+                shutil.copy2(self.jobs_file, backup_file)
+                logger.info(f"Corrupted file backed up to: {backup_file}")
+            except Exception as backup_error:
+                logger.warning(f"Failed to backup corrupted file: {backup_error}")
+            return {}
         except Exception as e:
             logger.warning(f"Failed to load training jobs: {e}")
         return {}
     
     def _save_jobs(self):
-        """Save training jobs to file"""
+        """Save training jobs to file with atomic write"""
         try:
-            with open(self.jobs_file, 'w') as f:
-                json.dump(self.training_jobs, f, indent=2)
+            # Create parent directory if it doesn't exist
+            self.jobs_file.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Use atomic write (write to temp file then rename)
+            temp_file = self.jobs_file.with_suffix('.tmp')
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(self.training_jobs, f, indent=2, ensure_ascii=False)
+                f.flush()  # Ensure data is written to disk
+                import os
+                os.fsync(f.fileno())  # Force write to disk
+            
+            # Atomic rename
+            import shutil
+            shutil.move(str(temp_file), str(self.jobs_file))
+            
         except Exception as e:
             logger.error(f"Failed to save training jobs: {e}")
+            # Clean up temp file if it exists
+            temp_file = self.jobs_file.with_suffix('.tmp')
+            if temp_file.exists():
+                try:
+                    temp_file.unlink()
+                except:
+                    pass
     
     def train_voice_from_recording(self, voice_name: str, audio_file: FileStorage, 
                                  duration: float, sample_rate: int, language: str = 'en') -> str:
@@ -248,7 +276,7 @@ class TrainingManager:
             raise
 
     def _run_training(self, job_id: str):
-        """Run the actual training process using DiffSinger"""
+        """Run the actual training process using RVC"""
         job = self.training_jobs.get(job_id)
         if not job:
             return
@@ -259,14 +287,6 @@ class TrainingManager:
             job_dir = self.training_dir / job_id
             voice_id = job['voiceId']
             voice_name = job['voiceName']
-            
-            # Prepare training configuration
-            training_config = DiffSingerConfig.create_training_config(
-                voice_name=voice_name,
-                language=job.get('language', 'en'),
-                epochs=job.get('epochs', 100),
-                speaker_embedding=job.get('speakerEmbedding', True)
-            )
             
             # Get audio files for training
             audio_files = []
@@ -284,36 +304,6 @@ class TrainingManager:
             job['voice_characteristics'] = voice_characteristics
             self._save_jobs()  # Save characteristics
             
-            # Generate transcriptions for DiffSinger training
-            logger.info("Generating transcriptions for audio files...")
-            transcriptions = []
-            for i, audio_file in enumerate(audio_files):
-                try:
-                    logger.info(f"Transcribing audio file {i+1}/{len(audio_files)}: {audio_file}")
-                    transcription = self.transcription_service.transcribe_audio(audio_file)
-                    
-                    # Create DiffSinger-compatible transcription file
-                    transcription_file = self.transcription_service.create_diffsinger_transcription(
-                        audio_file, transcription
-                    )
-                    
-                    transcription['transcription_file'] = transcription_file
-                    transcription['audio_file'] = audio_file
-                    transcriptions.append(transcription)
-                    
-                    logger.info(f"Transcription complete: {transcription['text'][:50]}...")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to transcribe {audio_file}: {e}")
-                    transcriptions.append({
-                        'audio_file': audio_file,
-                        'text': f"[Transcription failed: {str(e)}]",
-                        'error': str(e)
-                    })
-            
-            job['transcriptions'] = transcriptions
-            self._save_jobs()  # Save transcriptions
-            
             # Start training with cancellation-aware progress callback
             training_start_time = time.time()
             
@@ -327,29 +317,102 @@ class TrainingManager:
                     estimated_total_time = elapsed_time * 100 / progress
                     estimated_remaining = estimated_total_time - elapsed_time
                     
-                    # Format time remaining
-                    if estimated_remaining > 3600:  # More than 1 hour
-                        time_remaining = f"{estimated_remaining / 3600:.1f} hours"
-                    elif estimated_remaining > 60:  # More than 1 minute
-                        time_remaining = f"{estimated_remaining / 60:.1f} minutes"
-                    else:
-                        time_remaining = f"{estimated_remaining:.0f} seconds"
-                    
-                    job['estimated_time_remaining'] = time_remaining
-                    job['elapsed_time'] = f"{elapsed_time / 60:.1f} minutes"
+                    job['estimated_time_remaining'] = f"{int(estimated_remaining // 60)}m {int(estimated_remaining % 60)}s"
+                else:
+                    job['estimated_time_remaining'] = "Calculating..."
                 
+                job['elapsed_time'] = f"{int(elapsed_time // 60)}m {int(elapsed_time % 60)}s"
                 job['progress'] = progress
-                job['last_updated'] = time.time()
-                self._save_jobs()  # Persist progress update
+                self._save_jobs()  # Persist progress updates
+                
+                logger.info(f"Training progress for {job_id}: {progress}% (elapsed: {job['elapsed_time']}, remaining: {job['estimated_time_remaining']})")
             
-            # Run DiffSinger training with real neural training
-            logger.info(f"Starting real neural training for voice: {voice_name}")
-            training_results = self.diffsinger.train_voice(
-                voice_name=voice_name,
-                audio_files=audio_files,
-                config=training_config,
-                progress_callback=cancellation_aware_progress_callback
-            )
+            # Generate transcriptions for voice metadata
+            logger.info("Generating transcriptions for audio files...")
+            transcriptions = []
+            
+            # Update progress for transcription phase
+            cancellation_aware_progress_callback(30)  # Starting transcriptions
+            
+            for i, audio_file in enumerate(audio_files):
+                try:
+                    logger.info(f"Transcribing audio file {i+1}/{len(audio_files)}: {audio_file}")
+                    
+                    # Update progress during transcription
+                    transcription_progress = 30 + (i / len(audio_files)) * 20  # 30-50% for transcription
+                    cancellation_aware_progress_callback(int(transcription_progress))
+                    
+                    transcription = self.transcription_service.transcribe_audio(audio_file)
+                    
+                    transcription['audio_file'] = audio_file
+                    transcriptions.append(transcription)
+                    
+                    logger.info(f"Transcription complete: {transcription['text'][:50]}...")
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to transcribe {audio_file}: {e}")
+                    # Don't fail the entire training for transcription errors
+                    transcriptions.append({
+                        'audio_file': audio_file,
+                        'text': f"[Audio file for voice training - transcription unavailable]",
+                        'error': str(e),
+                        'engine': 'fallback'
+                    })
+                    # Continue with training even if transcription fails
+            
+            job['transcriptions'] = transcriptions
+            self._save_jobs()  # Save transcriptions
+            
+            # Train RVC model for voice synthesis
+            logger.info(f"Training RVC model for voice synthesis: {voice_name}")
+            
+            # Update progress for training start
+            cancellation_aware_progress_callback(60)  # Training started
+            
+            try:
+                from app.services.rvc_service import RVCService
+                rvc_service = RVCService()
+                
+                # Convert audio file paths to Path objects
+                wav_file_paths = [Path(audio_file) for audio_file in audio_files]
+                
+                # Train RVC model with the same audio files
+                # Note: clone_singing_voice expects a folder path, so we need to create a temporary folder
+                wav_folder = job_dir / "training_audio"
+                wav_folder.mkdir(exist_ok=True)
+                
+                # Update progress for preprocessing
+                cancellation_aware_progress_callback(70)  # Preprocessing files
+                
+                # Copy files to training folder if they're not already there
+                for wav_file in wav_file_paths:
+                    if wav_file.parent != wav_folder:
+                        import shutil
+                        shutil.copy2(wav_file, wav_folder / wav_file.name)
+                
+                # Update progress for training phase
+                cancellation_aware_progress_callback(80)  # Starting RVC training
+                
+                rvc_result = rvc_service.clone_singing_voice(voice_name, str(wav_folder))
+                logger.info(f"RVC model trained successfully: {rvc_result.get('status', 'unknown')}")
+                
+                # Update progress for completion
+                cancellation_aware_progress_callback(95)  # Training completed, finalizing
+                
+                # Update job with RVC info
+                job['rvc_model_trained'] = True
+                job['rvc_model_path'] = rvc_result.get('model_path', '')
+                self._save_jobs()
+                
+                # Use RVC result as training results
+                training_results = rvc_result
+                
+            except Exception as rvc_error:
+                logger.warning(f"RVC training failed for {voice_name}: {rvc_error}")
+                job['rvc_model_trained'] = False
+                job['rvc_error'] = str(rvc_error)
+                self._save_jobs()
+                raise rvc_error
             
             # Create voice model directory in voices folder
             voice_dir = self.voices_dir / voice_id
@@ -375,7 +438,6 @@ class TrainingManager:
                 'model_path': str(voice_dir / 'model.ckpt'),
                 'config_path': str(voice_dir / 'config.yaml'),
                 'voice_characteristics': job.get('voice_characteristics', {}),
-                'training_config': training_config,
                 'training_results': training_results,
                 'created_at': time.time()
             }
