@@ -72,6 +72,16 @@
                   </div>
                 </div>
                 
+                <!-- Lyrics Clips -->
+                <div v-else-if="clip.type === 'lyrics' && clip.voices && clip.voices.length" class="lyrics-clip">
+                  <span class="clip-name">{{ clip.instrument }} - {{ clip.voiceId }}</span>
+                  <div class="clip-lyrics">
+                    <span v-for="(voice, idx) in clip.voices.slice(0, 1)" :key="idx" class="lyrics-text">
+                      {{ voice.lyrics && voice.lyrics[0] ? voice.lyrics[0].text.substring(0, 50) + (voice.lyrics[0].text.length > 50 ? '...' : '') : 'Lyrics' }}
+                    </span>
+                  </div>
+                </div>
+                
                 <!-- Fallback Generic Clip -->
                 <div v-else class="generic-clip">
                   <span class="clip-name">{{ clip.instrument }}</span>
@@ -1034,6 +1044,31 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
+}
+
+.lyrics-clip {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  background: linear-gradient(135deg, #7c3aed, #a855f7);
+}
+
+.clip-lyrics {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  padding: 0.25rem;
+  overflow: hidden;
+}
+
+.lyrics-text {
+  font-size: 0.75rem;
+  color: white;
+  opacity: 0.9;
+  line-height: 1.2;
+  word-break: break-word;
+  hyphens: auto;
 }
 
 .note-overflow {

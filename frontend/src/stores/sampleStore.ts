@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch } from 'vue'
 import { sampleIndexedDB } from '../services/sampleIndexedDB'
+import { storeSampleMetadata, storeBulkSampleMetadata } from '../utils/api'
 
 export interface LocalSample {
   id: string
@@ -374,10 +375,55 @@ export const useSampleStore = defineStore('samples', () => {
     // Add to store
     localSamples.value.push(...newSamples)
     
+    // Sync metadata with backend for AI agents
+    try {
+      await syncSampleMetadataToBackend(newSamples)
+    } catch (error) {
+      console.warn('Failed to sync sample metadata to backend:', error)
+    }
+    
     isLoading.value = false
     loadingProgress.value = 0
 
     return newSamples
+  }
+
+  // Sync sample metadata to backend for AI agent awareness
+  const syncSampleMetadataToBackend = async (samples: LocalSample[]) => {
+    try {
+      const metadataToSync = samples.map(sample => ({
+        id: sample.id,
+        name: sample.name,
+        duration: sample.duration,
+        category: sample.category,
+        tags: sample.tags,
+        bpm: sample.bpm,
+        key: sample.key,
+        waveform: sample.waveform,
+        createdAt: sample.createdAt,
+        updatedAt: new Date().toISOString()
+      }))
+
+      if (metadataToSync.length === 1) {
+        await storeSampleMetadata(metadataToSync[0])
+      } else if (metadataToSync.length > 1) {
+        await storeBulkSampleMetadata(metadataToSync)
+      }
+
+      console.log(`Synced ${metadataToSync.length} sample(s) metadata to backend`)
+    } catch (error) {
+      console.error('Error syncing sample metadata to backend:', error)
+      throw error
+    }
+  }
+
+  // Sync all existing samples to backend
+  const syncAllSamplesToBackend = async () => {
+    try {
+      await syncSampleMetadataToBackend(localSamples.value)
+    } catch (error) {
+      console.warn('Failed to sync all samples to backend:', error)
+    }
   }
 
   // Remove sample
@@ -625,6 +671,8 @@ export const useSampleStore = defineStore('samples', () => {
     formatFileSize,
     formatDuration,
     getStorageInfo,
-    restoreSampleFile
+    restoreSampleFile,
+    syncSampleMetadataToBackend,
+    syncAllSamplesToBackend
   }
 })

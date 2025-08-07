@@ -1,0 +1,53 @@
+{
+  "voice_id": "new_test",
+  "model_type": "rvc",
+  "training_method": "pytorch_neural_net",
+  "training_files": [
+    "backend\\app\\data\\voices\\new_test\\voice_sample_000.wav",
+    "backend\\app\\data\\voices\\new_test\\voice_sample_001.wav",
+    "backend\\app\\data\\voices\\new_test\\voice_sample_002.wav"
+  ],
+  "sample_rate": 40000,
+  "voice_characteristics": {
+    "fundamental_freq": 284.4430236816406,
+    "pitch_range": [
+      146.4844512939453,
+      3993.774169921875
+    ],
+    "spectral_centroid": 1512.8724999432695,
+    "spectral_rolloff": 2884.390215600161,
+    "zero_crossing_rate": 0.040939474183344024,
+    "total_duration": 1716.651875,
+    "file_count": 1
+  },
+  "validation_metrics": {
+    "reconstruction_accuracy": 0.0,
+    "voice_consistency": 0.0,
+    "embedding_quality": 1.0,
+    "overall_score": 0.2
+  },
+  "model_architecture": {
+    "type": "VoiceEmbeddingNet",
+    "input_dim": 153,
+    "embedding_dim": 256,
+    "layers": [
+      "encoder",
+      "voice_predictor",
+      "decoder"
+    ]
+  },
+  "training_config": {
+    "epochs": 50,
+    "learning_rate": 0.001,
+    "optimizer": "Adam",
+    "loss_functions": [
+      "MSE_reconstruction",
+      "MSE_voice_features"
+    ]
+  },
+  "created_at": "C:\\Development\\Workspaces\\mITyStudio",
+  "pytorch_version": "2.7.1+cpu",
+  "files_preserved": 3,
+  "demo_mode": true,
+  "note": "Demo voice files created for testing. Replace with actual voice recordings for real voice cloning."
+}

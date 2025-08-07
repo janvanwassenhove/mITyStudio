@@ -62,13 +62,14 @@ def create_app(config_name='development'):
     ])
     
     # Register blueprints
-    from app.api import ai_bp, audio_bp, project_bp, auth_bp, voice_bp
+    from app.api import ai_bp, audio_bp, project_bp, auth_bp, voice_bp, sample_bp
     
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
     app.register_blueprint(audio_bp, url_prefix='/api/audio')
     app.register_blueprint(project_bp, url_prefix='/api/projects')
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(voice_bp, url_prefix='/api/voice')
+    app.register_blueprint(sample_bp, url_prefix='/api/samples')
     
     # Health check endpoint
     @app.route('/health')

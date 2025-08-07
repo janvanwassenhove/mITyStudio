@@ -174,3 +174,79 @@ export const getAllSampleInstruments = async () => {
   }
   return response.json()
 }
+
+/**
+ * Send user sample metadata to backend for AI agent awareness
+ */
+export const storeSampleMetadata = async (sampleMetadata: any) => {
+  const response = await fetch(`${API_BASE_URL}/samples/metadata`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(sampleMetadata)
+  })
+  
+  if (!response.ok) {
+    throw new Error(`Failed to store sample metadata: ${response.statusText}`)
+  }
+  
+  return response.json()
+}
+
+/**
+ * Send multiple user sample metadata to backend at once
+ */
+export const storeBulkSampleMetadata = async (samples: any[]) => {
+  const response = await fetch(`${API_BASE_URL}/samples/metadata/bulk`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({ samples })
+  })
+  
+  if (!response.ok) {
+    throw new Error(`Failed to store bulk sample metadata: ${response.statusText}`)
+  }
+  
+  return response.json()
+}
+
+/**
+ * Get all user sample metadata from backend
+ */
+export const getAllSampleMetadata = async () => {
+  const response = await fetch(`${API_BASE_URL}/samples/metadata`)
+  
+  if (!response.ok) {
+    throw new Error(`Failed to get sample metadata: ${response.statusText}`)
+  }
+  
+  return response.json()
+}
+
+/**
+ * Search user samples by metadata criteria
+ */
+export const searchSamples = async (searchCriteria: {
+  category?: string
+  tags?: string[]
+  bpm_range?: [number, number]
+  key?: string
+  duration_range?: [number, number]
+}) => {
+  const response = await fetch(`${API_BASE_URL}/samples/search`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify(searchCriteria)
+  })
+  
+  if (!response.ok) {
+    throw new Error(`Failed to search samples: ${response.statusText}`)
+  }
+  
+  return response.json()
+}

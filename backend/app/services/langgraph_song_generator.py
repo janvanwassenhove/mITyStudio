@@ -15,8 +15,19 @@ AGENT WORKFLOW:
 5. InstrumentAgent - Selects instruments/samples and creates melodic/harmonic/percussive content
 6. EffectsAgent - Adds reverb, delay, distortion effects per track/clip
 7. ReviewAgent - Evaluates for schema completeness, musical coherence, resource validity
-8. DesignAgent - Creates album cover concept
+8. DesignAgent - Creates album cover concept and generates image using DALL-E-3
 9. QAAgent - Final validation, fixes missing fields, validates against schema
+
+INSTRUMENT & SAMPLE AWARENESS SYSTEM:
+- All agents are aware of available_instruments, available_samples, and available_voices
+- ArrangementAgent: Plans tracks using ONLY available instruments from the categorized lists
+- InstrumentAgent: Creates clips using ONLY available instruments and samples
+- VocalAgent: Assigns ONLY available voices to vocal tracks
+- System validates instrument/sample selections and provides fallbacks if invalid
+- JSON structure varies by instrument type:
+  * Melodic instruments: type="audio", notes array, musical_content
+  * Percussion/drums: type="sample", sampleUrl, pattern info
+  * Vocals: type="lyrics", voices array with lyrics and notes
 
 The system respects the existing mITyStudio JSON schema and integrates with
 available voices, instruments, and samples.
@@ -755,10 +766,20 @@ class LangGraphSongGenerator:
         # Define the workflow edges
         workflow.set_entry_point("composer")
         
-        # Linear progression with conditional review feedback
+        # Linear progression with conditional vocal path
         workflow.add_edge("composer", "arrangement")
         workflow.add_edge("arrangement", "lyrics")
-        workflow.add_edge("lyrics", "vocal")
+        
+        # Conditional edge: Skip vocal agent for instrumental tracks
+        workflow.add_conditional_edges(
+            "lyrics",
+            self._vocal_decision,
+            {
+                "skip_vocal": "instrument",  # Skip vocal agent for instrumental tracks
+                "include_vocal": "vocal"     # Include vocal agent for non-instrumental tracks
+            }
+        )
+        
         workflow.add_edge("vocal", "instrument")
         workflow.add_edge("instrument", "effects")
         workflow.add_edge("effects", "review")
@@ -779,6 +800,18 @@ class LangGraphSongGenerator:
         # Compile the graph
         self.graph = workflow.compile()
     
+    def _vocal_decision(self, state: SongState) -> str:
+        """
+        Decision function to determine whether to include vocal processing
+        Returns 'skip_vocal' for instrumental tracks, 'include_vocal' for vocal tracks
+        """
+        if state.request.is_instrumental:
+            logger.info("🎵 Workflow: Skipping vocal agent - instrumental track selected")
+            return "skip_vocal"
+        else:
+            logger.info("🎤 Workflow: Including vocal agent - vocal track selected")
+            return "include_vocal"
+    
     async def generate_song(self, request: SongGenerationRequest, progress_callback=None) -> Dict[str, Any]:
         """Generate a complete song structure using the multi-agent system"""
         if not self.graph:
@@ -790,7 +823,12 @@ class LangGraphSongGenerator:
         # Add progress tracking
         await self._safe_progress_callback("Initializing song generation...", 0)
         
-        # Initialize state
+        # Initialize state with available resources
+        # IMPORTANT: All agents must ONLY use instruments/samples from these available resources
+        # - available_instruments: Dict[category, List[instrument_names]] - instruments by category
+        # - available_samples: Dict[category, Dict[group, List[sample_names]]] - samples by category/group  
+        # - available_voices: Dict[voice_id, voice_info] - voice data with ranges
+        # Agents should validate all instrument/sample selections against these lists
         initial_state = SongState(
             request=request,
             available_instruments=self.music_tools.available_instruments,
@@ -1062,15 +1100,14 @@ Available Instruments by Category:
 Available Voices: {list(state.available_voices.keys())}
 
 Design a complete song arrangement. Respond ONLY with a JSON object:
+
+EXAMPLE FOR VOCAL TRACK:
 {{
     "structure": {{
         "intro": {{"start_time": 0, "duration": 8, "bars": 4, "description": "Gentle piano introduction"}},
         "verse1": {{"start_time": 8, "duration": 16, "bars": 8, "description": "First verse with vocals and light accompaniment"}},
         "chorus1": {{"start_time": 24, "duration": 16, "bars": 8, "description": "Full arrangement chorus with all instruments"}},
-        "verse2": {{"start_time": 40, "duration": 16, "bars": 8, "description": "Second verse with additional elements"}},
-        "chorus2": {{"start_time": 56, "duration": 16, "bars": 8, "description": "Second chorus with harmonies"}},
         "bridge": {{"start_time": 72, "duration": 12, "bars": 6, "description": "Bridge section with key/mood change"}},
-        "final_chorus": {{"start_time": 84, "duration": 20, "bars": 10, "description": "Extended final chorus"}},
         "outro": {{"start_time": 104, "duration": 12, "bars": 6, "description": "Fade out with main melody"}}
     }},
     "tracks_needed": [
@@ -1081,7 +1118,7 @@ Design a complete song arrangement. Respond ONLY with a JSON object:
             "role": "melodic",
             "voice_id": "soprano01",
             "priority": "high",
-            "sections": ["verse1", "chorus1", "verse2", "chorus2", "bridge", "final_chorus"],
+            "sections": ["verse1", "chorus1", "bridge"],
             "pan": 0.0,
             "volume": 0.8
         }},
@@ -1091,8 +1128,42 @@ Design a complete song arrangement. Respond ONLY with a JSON object:
             "category": "keyboards",
             "role": "harmonic",
             "priority": "high",
-            "sections": ["intro", "verse1", "chorus1", "verse2", "chorus2", "bridge", "final_chorus", "outro"],
+            "sections": ["intro", "verse1", "chorus1", "bridge", "outro"],
             "pan": 0.0,
+            "volume": 0.7
+        }}
+    ]
+}}
+
+EXAMPLE FOR INSTRUMENTAL TRACK:
+{{
+    "structure": {{
+        "intro": {{"start_time": 0, "duration": 8, "bars": 4, "description": "Piano and strings introduction"}},
+        "theme_a": {{"start_time": 8, "duration": 24, "bars": 12, "description": "Main melodic theme with full arrangement"}},
+        "theme_b": {{"start_time": 32, "duration": 24, "bars": 12, "description": "Secondary theme with different instrumentation"}},
+        "development": {{"start_time": 56, "duration": 32, "bars": 16, "description": "Development section with layered instruments"}},
+        "recapitulation": {{"start_time": 88, "duration": 24, "bars": 12, "description": "Return to main theme with full orchestra"}},
+        "outro": {{"start_time": 112, "duration": 16, "bars": 8, "description": "Fade out with main melody"}}
+    }},
+    "tracks_needed": [
+        {{
+            "name": "Lead Piano",
+            "instrument": "piano", 
+            "category": "keyboards",
+            "role": "melodic",
+            "priority": "high",
+            "sections": ["intro", "theme_a", "theme_b", "development", "recapitulation", "outro"],
+            "pan": 0.0,
+            "volume": 0.8
+        }},
+        {{
+            "name": "Strings",
+            "instrument": "violin",
+            "category": "strings",
+            "role": "harmonic",
+            "priority": "high",
+            "sections": ["theme_a", "theme_b", "development", "recapitulation"],
+            "pan": -0.3,
             "volume": 0.7
         }},
         {{
@@ -1101,38 +1172,36 @@ Design a complete song arrangement. Respond ONLY with a JSON object:
             "category": "strings", 
             "role": "rhythmic",
             "priority": "medium",
-            "sections": ["verse1", "chorus1", "verse2", "chorus2", "bridge", "final_chorus"],
+            "sections": ["theme_a", "theme_b", "development", "recapitulation"],
             "pan": 0.0,
             "volume": 0.8
-        }},
-        {{
-            "name": "Drums",
-            "instrument": "drums",
-            "category": "percussion",
-            "role": "rhythmic", 
-            "priority": "medium",
-            "sections": ["chorus1", "verse2", "chorus2", "bridge", "final_chorus"],
-            "pan": 0.0,
-            "volume": 0.6
         }}
     ],
-    "arrangement_philosophy": "Explanation of arrangement choices and how they serve the song",
-    "total_tracks": 4,
+    "arrangement_philosophy": "Instrumental focus with melodic interplay between piano, strings, and bass",
+    "total_tracks": 3,
     "complexity_level": "medium"
 }}
 
 Guidelines:
 - Create a logical song structure that builds energy and maintains interest
 - Plan 3-8 tracks typically, depending on style complexity  
-- Include appropriate tracks for the style (rock: drums+bass+guitar+vocals, jazz: piano+bass+drums+vocals, etc.)
-- For vocals: specify voice_id from available voices (soprano01, alto01, tenor01, bass01)
+- CRITICAL: Use ONLY instruments from the available_instruments list above - NO other instruments
+- CRITICAL FOR INSTRUMENTAL TRACKS: DO NOT include any vocal tracks or voice_id assignments
+- Include appropriate tracks for the style (rock: drums+bass+guitar, jazz: piano+bass+drums, orchestral: strings+brass+woodwinds, etc.)
+- For instrumental tracks: Focus on melodic instruments that can carry the main themes
 - Each track should have a clear role: melodic (lead lines), harmonic (chords), rhythmic (beat/groove), textural (atmosphere)
-- Consider arrangement dynamics (intro lighter, chorus fuller, bridge different)
+- Consider arrangement dynamics (intro lighter, main sections fuller, bridge different)
 - Plan which sections each track will play in (not all tracks play throughout)
 - Use appropriate pan positions for stereo field
-- Match instruments to style requirements
-- If instrumental, focus on interesting melodic interplay between instruments
+- Match instruments to style requirements from available options only
+- Instrument Selection Rules:
+  * For keyboards role: choose from available keyboards instruments
+  * For strings role: choose from available strings instruments  
+  * For percussion role: choose from available percussion instruments
+  * For vocal role: ONLY if NOT instrumental - use "vocals" with voice_id from available voices
+- If instrumental, focus on interesting melodic interplay between available instruments
 - Ensure total duration matches the target ({duration_seconds} seconds)
+- Verify each planned instrument exists in the available_instruments before including it
 """
         
         try:
@@ -1143,7 +1212,7 @@ Guidelines:
             # Create fallback data in case of JSON parsing failure
             fallback_data = {
                 "structure": self._create_default_structure(duration_seconds, state.request.style_tags),
-                "tracks_needed": self._create_default_tracks(state.request.is_instrumental, state.request.style_tags),
+                "tracks_needed": self._create_default_tracks(state.request.is_instrumental, state.request.style_tags, state.available_instruments),
                 "arrangement_philosophy": "Using intelligent default arrangement due to parsing error",
                 "total_tracks": 4,
                 "complexity_level": "medium"
@@ -1153,6 +1222,37 @@ Guidelines:
             
             structure = result.get("structure", {})
             planned_tracks = result.get("tracks_needed", [])
+            
+            # Validate that planned instruments are available and appropriate
+            all_available_instruments = set()
+            for category, instruments in state.available_instruments.items():
+                all_available_instruments.update(instruments)
+            all_available_instruments.add("vocals")  # Vocals are always available
+            
+            validated_tracks = []
+            for track in planned_tracks:
+                instrument = track.get('instrument')
+                
+                # Skip vocal tracks for instrumental songs
+                if state.request.is_instrumental and (instrument == "vocals" or track.get('category') == 'vocal'):
+                    logger.info(f"🎹 ArrangementAgent: Skipping vocal track '{track.get('name')}' - instrumental song")
+                    continue
+                
+                if instrument in all_available_instruments:
+                    validated_tracks.append(track)
+                else:
+                    logger.warning(f"🎹 ArrangementAgent: Skipping unavailable instrument: {instrument}")
+                    # Try to find a suitable replacement from the same category
+                    category = track.get('category', '')
+                    available_in_category = state.available_instruments.get(category, [])
+                    if available_in_category:
+                        replacement = available_in_category[0]
+                        track['instrument'] = replacement
+                        track['name'] = track['name'].replace(instrument, replacement.title())
+                        validated_tracks.append(track)
+                        logger.info(f"🎹 ArrangementAgent: Replaced {instrument} with {replacement}")
+            
+            planned_tracks = validated_tracks
             
             # Validate and adjust structure timing to fit target duration
             total_structure_time = 0
@@ -1184,7 +1284,7 @@ Guidelines:
             
             # Create intelligent default arrangement based on style and requirements
             default_structure = self._create_default_structure(duration_seconds, state.request.style_tags)
-            default_tracks = self._create_default_tracks(state.request.is_instrumental, state.request.style_tags)
+            default_tracks = self._create_default_tracks(state.request.is_instrumental, state.request.style_tags, state.available_instruments)
             
             state.arrangement = {
                 "structure": default_structure,
@@ -1218,21 +1318,33 @@ Guidelines:
                 "outro": {"start_time": 152, "duration": 16, "bars": 8}
             }
     
-    def _create_default_tracks(self, is_instrumental: bool, style_tags: List[str]) -> List[Dict[str, Any]]:
+    def _create_default_tracks(self, is_instrumental: bool, style_tags: List[str], available_instruments: Dict[str, List[str]] = None) -> List[Dict[str, Any]]:
         """Create default track layout based on whether instrumental and style."""
         tracks = []
         
-        # Always include piano as foundation
-        tracks.append({
-            "name": "Piano",
-            "instrument": "piano",
-            "category": "keyboards",
-            "role": "harmonic",
-            "priority": "high",
-            "sections": ["intro", "verse1", "chorus1", "verse2", "chorus2", "bridge", "final_chorus", "outro"],
-            "pan": 0.0,
-            "volume": 0.7
-        })
+        # Use available instruments if provided, otherwise use fallback
+        if not available_instruments:
+            available_instruments = {
+                "keyboards": ["piano", "organ", "electric_piano", "synthesizer"],
+                "strings": ["guitar", "bass", "violin", "cello"],
+                "percussion": ["drums", "tambourine", "shaker", "bells"],
+                "vocal": ["vocals"]
+            }
+        
+        # Always include a keyboard instrument as foundation if available
+        keyboard_instruments = available_instruments.get('keyboards', [])
+        if keyboard_instruments:
+            keyboard_choice = "piano" if "piano" in keyboard_instruments else keyboard_instruments[0]
+            tracks.append({
+                "name": keyboard_choice.title(),
+                "instrument": keyboard_choice,
+                "category": "keyboards",
+                "role": "harmonic",
+                "priority": "high",
+                "sections": ["intro", "verse1", "chorus1", "verse2", "chorus2", "bridge", "final_chorus", "outro"],
+                "pan": 0.0,
+                "volume": 0.7
+            })
         
         # Add vocals if not instrumental
         if not is_instrumental:
@@ -1248,30 +1360,37 @@ Guidelines:
                 "volume": 0.8
             })
         
-        # Add style-appropriate instruments
+        # Add style-appropriate instruments from available options
         if any(style in ['rock', 'pop', 'alternative'] for style in style_tags):
-            tracks.extend([
-                {
-                    "name": "Bass",
-                    "instrument": "bass",
+            # Add bass if available
+            string_instruments = available_instruments.get('strings', [])
+            if string_instruments:
+                bass_choice = "bass" if "bass" in string_instruments else string_instruments[0]
+                tracks.append({
+                    "name": bass_choice.title(),
+                    "instrument": bass_choice,
                     "category": "strings",
                     "role": "rhythmic", 
                     "priority": "medium",
                     "sections": ["verse1", "chorus1", "verse2", "chorus2", "bridge", "final_chorus"],
                     "pan": 0.0,
                     "volume": 0.8
-                },
-                {
-                    "name": "Drums",
-                    "instrument": "drums",
+                })
+            
+            # Add drums if available
+            percussion_instruments = available_instruments.get('percussion', [])
+            if percussion_instruments:
+                drum_choice = "drums" if "drums" in percussion_instruments else percussion_instruments[0]
+                tracks.append({
+                    "name": drum_choice.title(),
+                    "instrument": drum_choice,
                     "category": "percussion",
                     "role": "rhythmic",
                     "priority": "medium", 
                     "sections": ["chorus1", "verse2", "chorus2", "bridge", "final_chorus"],
                     "pan": 0.0,
                     "volume": 0.6
-                }
-            ])
+                })
         
         return tracks
     
@@ -1299,7 +1418,14 @@ Guidelines:
                 "overall_theme": "Instrumental composition",
                 "reasoning": "Instrumental track - no lyrics needed"
             }
-            logger.info("📝 LyricsAgent: Skipping - instrumental track")
+            # Initialize vocal assignments for instrumental tracks to ensure downstream agents have this data
+            state.vocal_assignments = {
+                "tracks": [],
+                "is_instrumental": True,
+                "voice_assignments": {},
+                "reasoning": "Instrumental track - no vocals needed"
+            }
+            logger.info("📝 LyricsAgent: Skipping - instrumental track (vocal assignments initialized)")
             return state
         
         if state.request.lyrics_option == "custom" and state.request.custom_lyrics:
@@ -1569,7 +1695,7 @@ Create complete vocal track assignments with melodic content. Respond ONLY with 
             "voiceId": "soprano01",
             "volume": 0.8,
             "pan": 0.0,
-            "mute": false,
+            "muted": false,
             "solo": false,
             "clips": [
                 {{
@@ -1620,10 +1746,10 @@ Create complete vocal track assignments with melodic content. Respond ONLY with 
 
 Critical Guidelines:
 - Create a clip for EVERY lyrical section that appears in the song structure
-- Map every line of lyrics to specific notes in the song's key ({key})
+- Map every line of lyrics to specific notes in the song key: {key}
 - Use appropriate vocal ranges for each voice (soprano: C4-C6, alto: G3-G5, tenor: C3-C5, bass: E2-E4)
 - Calculate accurate timing: startTime and duration based on structure timing
-- Create singable melodies that match the tempo ({tempo} BPM) and style
+- Create singable melodies that match the tempo: {tempo} BPM and style
 - Include appropriate effects (reverb, delay) for the style
 - For harmony tracks, create supporting notes that complement the lead melody
 - Use voice_id values that match available voices: {list(state.available_voices.keys())}
@@ -1767,7 +1893,7 @@ Critical Guidelines:
                 "voiceId": voice_id,
                 "volume": 0.8,
                 "pan": 0.0,
-                "mute": False,
+                "muted": False,
                 "solo": False,
                 "clips": clips
             }
@@ -1794,7 +1920,8 @@ Critical Guidelines:
         # Get instrumental tracks from arrangement plan
         planned_instrument_tracks = [t for t in state.arrangement.get('planned_tracks', []) 
                                    if t.get('category') in ['keyboards', 'strings', 'percussion', 'synth', 'woodwinds', 'brass', 'other']
-                                   and t.get('instrument') != 'vocals']
+                                   and t.get('instrument') != 'vocals' 
+                                   and t.get('category') != 'vocal']
         
         structure = state.arrangement.get('structure', {})
         key = state.global_params.get('key', 'C major')
@@ -1809,9 +1936,21 @@ Song Parameters:
 - Time Signature: {time_signature}
 - Style: {', '.join(state.request.style_tags)} {state.request.custom_style}
 - Song Idea: {state.request.song_idea}
+- Track Type: {'INSTRUMENTAL ONLY - No Vocals' if state.request.is_instrumental else 'Mixed - Includes Vocals'}
 
 Available Instruments by Category:
 {self.music_tools.format_instruments_for_prompt(state.available_instruments)}
+
+Available Samples:
+{self.music_tools.format_samples_for_prompt(state.available_samples)}
+
+SAMPLE SELECTION GUIDELINES:
+- For user-uploaded samples with BPM metadata, prefer samples that match or complement the song tempo ({tempo} BPM)
+- For samples with key information, choose samples that fit the song key ({key}) or related keys
+- Use sample tags to find appropriate sounds for the intended style: {', '.join(state.request.style_tags)}
+- Consider sample duration when creating clips - shorter samples for percussion hits, longer samples for melodic loops
+- Mix default instrument samples with user-uploaded samples for variety and personalized sound
+{'- INSTRUMENTAL FOCUS: Since this is an instrumental track, create rich, layered arrangements with prominent lead melodies, complex harmonies, and dynamic instrumental sections that compensate for the absence of vocals' if state.request.is_instrumental else '- VOCAL SUPPORT: Create arrangements that support and complement the vocal parts without overwhelming them'}
 
 Song Structure (with timing in seconds):
 {json.dumps(structure, indent=2)}
@@ -1819,7 +1958,86 @@ Song Structure (with timing in seconds):
 Planned Instrumental Tracks from Arrangement:
 {json.dumps(planned_instrument_tracks, indent=2)}
 
-Create complete instrumental tracks with musical content. Respond ONLY with a JSON object:
+Create complete instrumental tracks with musical content. You MUST use ONLY instruments from the available_instruments list and ONLY samples from the available_samples list.
+
+Respond ONLY with a JSON object following these exact structure guidelines:
+
+FOR MELODIC/HARMONIC INSTRUMENTS (piano, guitar, strings, synths):
+{{
+    "clips": [
+        {{
+            "id": "clip-piano-intro",
+            "trackId": "track-piano",
+            "startTime": 0,
+            "duration": 8,
+            "type": "audio",
+            "instrument": "piano",
+            "category": "keyboards",
+            "volume": 0.7,
+            "pan": 0.0,
+            "effects": {{"reverb": 0.1, "delay": 0, "distortion": 0}},
+            "notes": ["C4", "E4", "G4", "C5"],
+            "musical_content": {{
+                "chord_progression": ["Cmaj", "Am", "F", "G"],
+                "pattern": "arpeggiated_chords",
+                "rhythm_pattern": "steady_eighth_notes",
+                "role": "harmonic_foundation"
+            }}
+        }}
+    ]
+}}
+
+FOR PERCUSSION/DRUMS:
+{{
+    "clips": [
+        {{
+            "id": "clip-drums-verse",
+            "trackId": "track-drums",
+            "startTime": 8,
+            "duration": 16,
+            "type": "sample",
+            "instrument": "drums",
+            "category": "percussion",
+            "volume": 0.6,
+            "pan": 0.0,
+            "effects": {{"reverb": 0.1, "delay": 0, "distortion": 0}},
+            "sampleUrl": "/samples/drums/basic_rock_beat.wav",
+            "pattern": "four_on_floor",
+            "musical_content": {{
+                "drum_pattern": ["kick", "snare", "hihat", "crash"],
+                "rhythm_pattern": "rock_beat",
+                "role": "rhythmic_foundation"
+            }}
+        }}
+    ]
+}}
+
+FOR BASS INSTRUMENTS:
+{{
+    "clips": [
+        {{
+            "id": "clip-bass-verse",
+            "trackId": "track-bass",
+            "startTime": 8,
+            "duration": 16,
+            "type": "audio",
+            "instrument": "bass",
+            "category": "strings",
+            "volume": 0.8,
+            "pan": 0.0,
+            "effects": {{"reverb": 0.05, "delay": 0, "distortion": 0}},
+            "notes": ["C2", "A1", "F2", "G2"],
+            "musical_content": {{
+                "bass_line": ["C2", "A1", "F2", "G2"],
+                "pattern": "root_note_emphasis",
+                "rhythm_pattern": "quarter_note_foundation",
+                "role": "rhythmic_foundation"
+            }}
+        }}
+    ]
+}}
+
+Complete JSON Response:
 {{
     "tracks": [
         {{
@@ -1829,33 +2047,9 @@ Create complete instrumental tracks with musical content. Respond ONLY with a JS
             "category": "keyboards", 
             "volume": 0.7,
             "pan": 0.0,
-            "mute": false,
+            "muted": false,
             "solo": false,
-            "clips": [
-                {{
-                    "id": "clip-piano-intro",
-                    "trackId": "track-piano",
-                    "startTime": 0,
-                    "duration": 8,
-                    "type": "audio",
-                    "instrument": "piano",
-                    "category": "keyboards",
-                    "volume": 0.7,
-                    "pan": 0.0,
-                    "effects": {{"reverb": 0.1, "delay": 0, "distortion": 0}},
-                    "musical_content": {{
-                        "chord_progression": ["Cmaj", "Am", "F", "G"],
-                        "pattern": "arpeggiated_chords",
-                        "notes": [
-                            {{"note": "C4", "start": 0.0, "duration": 1.0, "velocity": 75}},
-                            {{"note": "E4", "start": 0.5, "duration": 1.0, "velocity": 70}},
-                            {{"note": "G4", "start": 1.0, "duration": 1.0, "velocity": 72}}
-                        ],
-                        "rhythm_pattern": "steady_eighth_notes",
-                        "role": "harmonic_foundation"
-                    }}
-                }}
-            ]
+            "clips": [/* Use appropriate clip structure from examples above */]
         }},
         {{
             "id": "track-bass",
@@ -1864,34 +2058,9 @@ Create complete instrumental tracks with musical content. Respond ONLY with a JS
             "category": "strings",
             "volume": 0.8,
             "pan": 0.0,
-            "mute": false,
+            "muted": false,
             "solo": false,
-            "clips": [
-                {{
-                    "id": "clip-bass-verse1",
-                    "trackId": "track-bass",
-                    "startTime": 8,
-                    "duration": 16,
-                    "type": "audio",
-                    "instrument": "bass",
-                    "category": "strings",
-                    "volume": 0.8,
-                    "pan": 0.0,
-                    "effects": {{"reverb": 0.05, "delay": 0, "distortion": 0}},
-                    "musical_content": {{
-                        "bass_line": ["C2", "A1", "F2", "G2"],
-                        "pattern": "root_note_emphasis",
-                        "notes": [
-                            {{"note": "C2", "start": 0.0, "duration": 2.0, "velocity": 85}},
-                            {{"note": "A1", "start": 4.0, "duration": 2.0, "velocity": 82}},
-                            {{"note": "F2", "start": 8.0, "duration": 2.0, "velocity": 83}},
-                            {{"note": "G2", "start": 12.0, "duration": 2.0, "velocity": 85}}
-                        ],
-                        "rhythm_pattern": "quarter_note_foundation",
-                        "role": "rhythmic_foundation"
-                    }}
-                }}
-            ]
+            "clips": [/* Use appropriate clip structure from examples above */]
         }}
     ],
     "instrumental_philosophy": "Explanation of instrumental choices and arrangement approach",
@@ -1902,13 +2071,15 @@ Create complete instrumental tracks with musical content. Respond ONLY with a JS
 
 Critical Guidelines:
 - Create clips for EVERY section where each instrument should play (based on planned tracks)
-- Use ONLY instruments from the available_instruments list
+- Use ONLY instruments from the available_instruments list - NO other instruments allowed
+- For percussion: use type="sample" with sampleUrl from available_samples 
+- For melodic instruments: use type="audio" with notes array and musical_content
 - Calculate accurate timing: startTime and duration based on structure timing in seconds
 - Create appropriate musical content for each instrument's role:
-  * Keyboards: chord progressions, arpeggios, melodic lines
-  * Strings: bass lines, melodic lines, harmonic support
-  * Percussion: drum patterns, rhythmic emphasis
-  * Woodwinds/Brass: melodic lines, harmonic fills
+  * Keyboards: chord progressions, arpeggios, melodic lines (use notes array)
+  * Strings: bass lines, melodic lines, harmonic support (use notes array)
+  * Percussion: drum patterns, rhythmic emphasis (use sampleUrl and pattern)
+  * Woodwinds/Brass: melodic lines, harmonic fills (use notes array)
 - Match musical content to song style: {', '.join(state.request.style_tags)}
 - Use appropriate effects for each instrument and style
 - Ensure all instruments work together harmonically in key: {key}
@@ -1919,6 +2090,7 @@ Critical Guidelines:
 - Ensure track and clip IDs are unique
 - Set appropriate volume levels and pan positions for instrument separation
 - Match tempo ({tempo} BPM) with appropriate note durations and patterns
+- For samples: use realistic file paths like "/samples/[category]/[filename].wav"
 """
         
         try:
@@ -2048,7 +2220,7 @@ Critical Guidelines:
                 "category": category,
                 "volume": 0.7,
                 "pan": 0.0,
-                "mute": False,
+                "muted": False,
                 "solo": False,
                 "clips": clips
             }
@@ -2078,6 +2250,7 @@ Critical Guidelines:
         prompt = f"""You are an audio engineer. Add appropriate effects to the tracks based on style and instrument type.
 
 Song Style: {', '.join(state.request.style_tags)} {state.request.custom_style}
+Track Type: {'INSTRUMENTAL ONLY - No Vocals' if state.request.is_instrumental else 'Mixed - Includes Vocals'}
 Tempo: {state.global_params.get('tempo')} BPM
 
 Current Tracks:
@@ -2304,6 +2477,23 @@ Guidelines:
                 "composition": "Simple design"
             })
             
+            # Generate actual album cover image using the concept
+            image_url = None
+            image_generation_error = None
+            
+            try:
+                logger.info("Generating album cover image using DALL-E-3...")
+                # Create a detailed prompt for image generation based on the concept
+                image_prompt = self._create_image_prompt_from_concept(result, state)
+                
+                # Generate the image using OpenAI DALL-E-3
+                image_url = await self._generate_album_cover_image(image_prompt)
+                logger.info(f"Album cover image generated successfully: {image_url}")
+                
+            except Exception as img_error:
+                logger.error(f"Album cover image generation failed: {img_error}")
+                image_generation_error = str(img_error)
+            
             state.album_art = {
                 "concept": result.get("concept", ""),
                 "color_palette": result.get("color_palette", []),
@@ -2312,11 +2502,16 @@ Guidelines:
                 "elements": result.get("elements", []),
                 "typography": result.get("typography", ""),
                 "composition": result.get("composition", ""),
+                "image_url": image_url,  # Add the generated image URL
+                "image_generation_error": image_generation_error,
                 "is_generated": True,
                 "provider": "openai"  # Always use OpenAI for album covers
             }
             
-            logger.info(f"Album art generated successfully with OpenAI: {result.get('concept', '')[:50]}...")
+            if image_url:
+                logger.info(f"Album art with image generated successfully: {result.get('concept', '')[:50]}...")
+            else:
+                logger.warning(f"Album art concept generated but image failed: {result.get('concept', '')[:50]}...")
             
         except Exception as e:
             logger.error(f"Design agent error: {e}")
@@ -2328,6 +2523,69 @@ Guidelines:
                 "is_generated": False,
                 "provider": "error"
             }
+        
+        return state
+    
+    def _create_image_prompt_from_concept(self, concept_data: Dict[str, Any], state: SongState) -> str:
+        """Create a detailed DALL-E prompt from the album art concept"""
+        song_name = state.song_metadata.get('name', 'Untitled')
+        style_tags = ', '.join(state.request.style_tags)
+        
+        # Base prompt with the concept
+        base_concept = concept_data.get('concept', 'Modern album cover design')
+        
+        # Add style and mood information
+        style = concept_data.get('style', 'modern')
+        mood = concept_data.get('mood', 'neutral')
+        elements = ', '.join(concept_data.get('elements', []))
+        
+        # Create a comprehensive prompt for DALL-E-3
+        prompt = f"""Professional album cover for "{song_name}". {base_concept}. 
+        
+Style: {style} {style_tags} music album cover. 
+Mood: {mood}. 
+Visual elements: {elements}.
+        
+High quality, professional music album artwork, suitable for digital music platforms like Spotify, Apple Music. 
+No text or typography overlays - just the visual artwork. 
+Artistic, eye-catching, and representative of the music genre. 
+Perfect for both large display and thumbnail sizes."""
+        
+        # Clean up the prompt
+        return ' '.join(prompt.split())
+    
+    async def _generate_album_cover_image(self, prompt: str) -> str:
+        """Generate album cover image using OpenAI DALL-E-3"""
+        try:
+            # Import here to avoid circular imports
+            from .ai_service import AIService
+            
+            # Initialize AI service
+            ai_service = AIService()
+            
+            if not ai_service.openai_client:
+                raise Exception("OpenAI client not available for image generation")
+            
+            logger.info(f"Generating album cover with prompt: {prompt[:100]}...")
+            
+            # Generate image using DALL-E-3
+            response = ai_service.openai_client.images.generate(
+                model="dall-e-3",
+                prompt=prompt,
+                size="1024x1024",
+                quality="standard",
+                style="vivid",
+                n=1
+            )
+            
+            image_url = response.data[0].url
+            logger.info(f"Album cover image generated successfully: {image_url}")
+            
+            return image_url
+            
+        except Exception as e:
+            logger.error(f"Image generation failed: {e}")
+            raise Exception(f"Album cover image generation failed: {str(e)}")
         
         return state
     
@@ -2466,6 +2724,15 @@ Validation Checks:
         # Add lyrics if available
         if state.lyrics.get("content"):
             song["lyrics"] = state.lyrics["content"]
+        
+        # Add album cover if available from design agent
+        if state.album_art and state.album_art.get("image_url"):
+            song["albumCover"] = state.album_art["image_url"]
+            logger.info(f"Added album cover to song structure: {state.album_art['image_url']}")
+        elif state.album_art and state.album_art.get("concept"):
+            # If no image URL but we have a concept, add that for reference
+            song["albumCoverConcept"] = state.album_art.get("concept", "")
+            logger.info("Added album cover concept to song structure (no image generated)")
         
         # Combine all tracks
         all_tracks = []
