@@ -8,21 +8,115 @@ from pathlib import Path
 
 from .utils import safe_log_error
 
-try:
-    from ..voice_service import VoiceService
-except ImportError:
-    VoiceService = None
+# Avoid importing VoiceService to prevent Flask context issues in background threads
+VoiceService = None
 
-# Import the standardized instrument scanning functions
-try:
-    from ...api.ai_routes import get_all_available_instruments, get_available_sample_instruments, get_instrument_chords
-except ImportError:
-    # Fallback functions if import fails
-    def get_all_available_instruments():
+# Flask-context-free versions of instrument scanning functions
+def get_all_available_instruments_no_flask():
+    """
+    Get all available instruments from all categories in the sample library
+    Flask-context-free version for use in background threads
+    """
+    try:
+        current_file = Path(__file__).resolve()
+        project_root = current_file.parent.parent.parent.parent
+        instruments_root = project_root / 'frontend' / 'public' / 'instruments'
+        
+        if not instruments_root.exists():
+            print(f"Warning: Instruments directory not found: {instruments_root}")
+            return []
+        
+        all_instruments = []
+        for category_dir in instruments_root.iterdir():
+            if category_dir.is_dir():
+                category = category_dir.name
+                instruments = get_available_sample_instruments_no_flask(category)
+                for instrument in instruments:
+                    all_instruments.append({
+                        'name': instrument,
+                        'category': category,
+                        'full_name': f"{category}/{instrument}",
+                        'display_name': instrument.replace('_', ' ').title()
+                    })
+        
+        print(f"Info: Found {len(all_instruments)} instruments across all categories")
+        return all_instruments
+    
+    except Exception as e:
+        print(f"Error getting all available instruments: {str(e)}")
         return []
-    def get_available_sample_instruments(category):
+
+def get_available_sample_instruments_no_flask(category):
+    """
+    Scan the public/instruments/[category] directory to find available instruments
+    Flask-context-free version for use in background threads
+    """
+    try:
+        current_file = Path(__file__).resolve()
+        project_root = current_file.parent.parent.parent.parent
+        instruments_dir = project_root / 'frontend' / 'public' / 'instruments' / category
+        print(f"Info: Looking for instruments in: {instruments_dir}")
+        if not instruments_dir.exists():
+            print(f"Warning: Samples directory not found: {instruments_dir}")
+            return []
+        instruments = []
+        for item in instruments_dir.iterdir():
+            if item.is_dir():
+                instruments.append(item.name)
+        print(f"Info: Found instruments: {instruments}")
+        return instruments
+    except Exception as e:
+        print(f"Error scanning sample instruments: {str(e)}")
         return []
-    def get_instrument_chords(category, instrument):
+
+def get_instrument_chords_no_flask(category, instrument):
+    """
+    Get available chords/samples for a specific instrument in a category
+    Flask-context-free version for use in background threads
+    """
+    try:
+        current_file = Path(__file__).resolve()
+        project_root = current_file.parent.parent.parent.parent
+        instruments_dir = project_root / 'frontend' / 'public' / 'instruments' / category / instrument
+        print(f"Info: Looking for {instrument} chords in: {instruments_dir}")
+        
+        if not instruments_dir.exists():
+            print(f"Warning: Instrument directory not found: {instruments_dir}")
+            return []
+        
+        chords = []
+
+        # Check for format directories directly in the instrument folder (newer structure)
+        format_dirs = ['mp3', 'wav', 'midi']
+        for format_name in format_dirs:
+            format_dir = instruments_dir / format_name
+            if format_dir.exists():
+                for audio_file in format_dir.iterdir():
+                    if audio_file.is_file() and audio_file.suffix.lower() in ['.mp3', '.wav']:
+                        # Extract chord name from filename (e.g., "C_major.mp3" -> "C_major")
+                        chord_name = audio_file.stem
+                        if chord_name not in chords:
+                            chords.append(chord_name)
+
+        # Also check for duration subdirectories (older structure)
+        for duration_dir in instruments_dir.iterdir():
+            if duration_dir.is_dir() and duration_dir.name not in format_dirs:
+                # Check multiple format directories in order of preference
+                for format_name in format_dirs:
+                    format_dir = duration_dir / format_name
+                    if format_dir.exists():
+                        for audio_file in format_dir.iterdir():
+                            if audio_file.is_file() and audio_file.suffix.lower() in ['.mp3', '.wav']:
+                                # Extract chord name from filename (e.g., "C_major.mp3" -> "C_major")
+                                chord_name = audio_file.stem
+                                if chord_name not in chords:
+                                    chords.append(chord_name)
+
+        print(f"Info: Found {len(chords)} chords for {instrument}")
+        return chords
+
+    except Exception as e:
+        print(f"Error getting chords for {instrument} in {category}: {str(e)}")
         return []
 
 
@@ -30,14 +124,36 @@ class MusicCompositionTools:
     """Tools for music composition and song structure manipulation"""
     
     def __init__(self):
-        self.available_instruments = self._load_available_instruments()
-        self.available_samples = self._load_available_samples()
-        self.available_voices = self._load_available_voices()
+        # Initialize as None - load lazily when first accessed
+        self._available_instruments = None
+        self._available_samples = None
+        self._available_voices = None
+    
+    @property
+    def available_instruments(self) -> Dict[str, List[str]]:
+        """Lazily load available instruments"""
+        if self._available_instruments is None:
+            self._available_instruments = self._load_available_instruments()
+        return self._available_instruments
+    
+    @property
+    def available_samples(self) -> Dict[str, Dict[str, List[str]]]:
+        """Lazily load available samples"""
+        if self._available_samples is None:
+            self._available_samples = self._load_available_samples()
+        return self._available_samples
+    
+    @property
+    def available_voices(self) -> Dict[str, Dict[str, Any]]:
+        """Lazily load available voices"""
+        if self._available_voices is None:
+            self._available_voices = self._load_available_voices()
+        return self._available_voices
     
     def _load_available_instruments(self) -> Dict[str, List[str]]:
         """Load available instruments from sample library using standardized functions"""
         try:
-            all_instruments = get_all_available_instruments()
+            all_instruments = get_all_available_instruments_no_flask()
             
             # Group instruments by category
             instruments = {}
@@ -64,17 +180,11 @@ class MusicCompositionTools:
                 'brass': ['Trumpet', 'Trombone', 'Horn'],
                 'woodwinds': ['Flute', 'Clarinet', 'Saxophone']
             }
-            
-            return instruments
-            
-        except Exception as e:
-            safe_log_error(f"Error loading instruments: {e}")
-            return {}
     
     def _load_available_samples(self) -> Dict[str, Dict[str, List[str]]]:
         """Load available samples from the sample library using standardized functions"""
         try:
-            all_instruments = get_all_available_instruments()
+            all_instruments = get_all_available_instruments_no_flask()
             
             samples = {}
             for instrument in all_instruments:
@@ -86,7 +196,7 @@ class MusicCompositionTools:
                     samples[category] = {}
                 
                 # Get chords/samples for this instrument
-                chords = get_instrument_chords(category, instrument_name)
+                chords = get_instrument_chords_no_flask(category, instrument_name)
                 samples[category][display_name] = chords
             
             safe_log_error(f"Loaded samples for {len(all_instruments)} instruments")

@@ -60,6 +60,11 @@
     "tempo": "Tempo",
     "volume": "Volume",
     "generateSong": "Genera Canzone",
+    "generationMethod": "Metodo di Generazione",
+    "simpleGeneration": "Generazione Semplice",
+    "multiAgentGeneration": "Generazione Multi-Agent (Raccomandato)",
+    "simpleDescription": "Generazione rapida di canzoni in singola passata con struttura di base.",
+    "multiAgentDescription": "Sistema avanzato a 9 agenti che crea canzoni professionali con arrangiamenti sofisticati, assegnazioni vocali e controllo qualità.",
     "initializeAudio": "Inizializza Audio",
     "retryAudio": "Riprova Audio",
     "reset": "Reimposta",
@@ -150,5 +155,52 @@
     "newProject": "Creare un nuovo progetto? Le modifiche non salvate andranno perse.",
     "invalidProject": "File di progetto non valido",
     "exportSoon": "La funzionalità di esportazione arriverà presto!"
+  },
+  "songGeneration": {
+    "generating": "Generazione della Tua Canzone",
+    "multiAgentSystem": "Sistema IA Multi-Agent in Azione",
+    "currentPhase": "Fase Attuale",
+    "processing": "Elaborazione",
+    "completed": "Completato",
+    "pending": "In Attesa",
+    "agents": {
+      "composer": "Compositore",
+      "arrangement": "Arrangiamento",
+      "lyrics": "Testi",
+      "vocal": "Vocale",
+      "instrument": "Strumento",
+      "effects": "Effetti",
+      "review": "Revisione",
+      "design": "Design",
+      "qa": "Controllo Qualità"
+    },
+    "descriptions": {
+      "composer": "Definizione parametri musicali globali: tempo, chiave, durata",
+      "arrangement": "Creazione struttura canzone e layout tracce",
+      "lyrics": "Generazione testi allineati con lo stile musicale",
+      "vocal": "Assegnazione voci e creazione melodie vocali",
+      "instrument": "Selezione strumenti e creazione contenuto musicale",
+      "effects": "Aggiunta effetti audio e elaborazione",
+      "review": "Valutazione completezza e qualità della canzone",
+      "design": "Creazione concetto arte album",
+      "qa": "Validazione finale e assemblaggio struttura"
+    },
+    "success": {
+      "title": "Canzone Generata con Successo!",
+      "multiAgent": "Sistema multi-agent completato!",
+      "fallback": "Struttura canzone creata!",
+      "projectCreated": "Progetto \"{name}\" creato con {track_count} tracce",
+      "tracksVisible": "Le tracce e clip generate sono ora visibili nella tua lista tracce e timeline."
+    }
+  },
+  "common": {
+    "cancel": "Annulla",
+    "ok": "OK",
+    "yes": "Sì",
+    "no": "No",
+    "optional": "opzionale",
+    "minutes": "minuti",
+    "complete": "completo",
+    "proceed": "Procedi"
   }
 }

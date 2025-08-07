@@ -3,7 +3,7 @@ AI Service API Routes
 Handles chat, music generation, and AI-powered composition features
 """
 
-from flask import Blueprint, request, jsonify, current_app
+from flask import Blueprint, request, jsonify, current_app, Response
 from flask_jwt_extended import jwt_required, get_jwt_identity
 from app.services.ai_service import AIService
 # Temporarily disable LangChain service due to pydantic compatibility issues
@@ -12,7 +12,8 @@ from app.models.song_structure import SongStructure
 from app.utils.decorators import handle_errors
 import json
 import os
-import os
+import time
+import asyncio
 from pathlib import Path
 from datetime import datetime
 
@@ -1324,3 +1325,247 @@ def generate_image():
     except Exception as e:
         current_app.logger.error(f"Image generation error: {str(e)}")
         return jsonify({'error': 'Failed to generate image'}), 500
+
+
+@ai_bp.route('/generate/song-langgraph-stream', methods=['POST'])
+@handle_errors
+def generate_song_langgraph_stream():
+    """
+    Generate a complete song structure using LangGraph multi-agent system with SSE streaming
+    """
+    from concurrent.futures import ThreadPoolExecutor
+    
+    data = request.get_json()
+    current_app.logger.info("Received LangGraph streaming song generation request")
+    
+    def generate():
+        try:
+            # Build request data from frontend payload
+            request_data = {
+                'song_idea': data.get('songIdea', ''),
+                'style_tags': data.get('selectedStyles', []),
+                'custom_style': data.get('customStyle', ''),
+                'lyrics_option': data.get('lyricsOption', 'automatically'),
+                'custom_lyrics': data.get('customLyrics', ''),
+                'is_instrumental': data.get('isInstrumental', False),
+                'duration': data.get('duration', ''),
+                'song_key': data.get('songKey', ''),
+                'selected_provider': data.get('selected_provider', 'anthropic'),
+                'selected_model': data.get('selected_model', 'claude-4-sonnet')
+            }
+            
+            # Debug: Log the provider selection from frontend
+            print(f"🔍 FRONTEND PROVIDER DATA:")
+            print(f"   - Raw data.get('selected_provider'): {data.get('selected_provider')}")
+            print(f"   - Raw data.get('selected_model'): {data.get('selected_model')}")
+            print(f"   - Final request_data selected_provider: {request_data['selected_provider']}")
+            print(f"   - Final request_data selected_model: {request_data['selected_model']}")
+            
+            # Send initial status
+            yield f"data: {json.dumps({'type': 'status', 'message': 'Initializing song generation...', 'progress': 0})}\n\n"
+            time.sleep(0.1)
+            
+            try:
+                # Import and setup LangGraph generator
+                from app.services.langgraph_song_generator import LangGraphSongGenerator, ensure_global_llms_initialized, SongGenerationRequest
+                
+                # Ensure global LLMs are initialized
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Setting up AI models...', 'progress': 5})}\n\n"
+                ensure_global_llms_initialized()
+                
+                # Get API keys
+                openai_api_key = os.getenv('OPENAI_API_KEY')
+                anthropic_api_key = os.getenv('ANTHROPIC_API_KEY')
+                
+                if not openai_api_key:
+                    yield f"data: {json.dumps({'type': 'error', 'error': 'OpenAI API key not configured'})}\n\n"
+                    return
+                
+                # Create generator
+                generator = LangGraphSongGenerator(
+                    openai_api_key=openai_api_key,
+                    anthropic_api_key=anthropic_api_key,
+                    provider=request_data['selected_provider'],
+                    model=request_data['selected_model']
+                )
+                
+                # Build request object
+                style_tags = request_data.get("style_tags", [])
+                song_idea = request_data.get("song_idea", "")
+                mood = ""
+                if style_tags:
+                    mood = ", ".join(style_tags)
+                if song_idea and mood:
+                    mood = f"{mood} (inspired by: {song_idea})"
+                elif song_idea:
+                    mood = song_idea
+                
+                request_obj = SongGenerationRequest(
+                    song_idea=song_idea,
+                    style_tags=style_tags,
+                    custom_style=request_data.get("custom_style", ""),
+                    lyrics_option=request_data.get("lyrics_option", "automatically"),
+                    custom_lyrics=request_data.get("custom_lyrics", ""),
+                    is_instrumental=request_data.get("is_instrumental", False),
+                    duration=request_data.get("duration", ""),
+                    song_key=request_data.get("song_key", ""),
+                    selected_provider=request_data.get("selected_provider", "anthropic"),  # Default to anthropic to match frontend
+                    selected_model=request_data.get("selected_model", "claude-4-sonnet"),  # Default to claude-4-sonnet to match frontend
+                    mood=mood
+                )
+                
+                # Initialize progress queue for cross-thread communication
+                progress_queue = []
+                
+                # Progress callback that adds to queue
+                def progress_callback(message, progress, agent=None):
+                    try:
+                        progress_data = {
+                            'type': 'progress',
+                            'message': message,
+                            'progress': progress,
+                            'agent': agent
+                        }
+                        progress_queue.append(f"data: {json.dumps(progress_data)}\n\n")
+                    except Exception as e:
+                        # Use print instead of current_app.logger to avoid application context issues
+                        print(f"Progress callback error: {e}")
+                
+                # Start the generation with streaming progress
+                yield f"data: {json.dumps({'type': 'status', 'message': 'Starting multi-agent workflow...', 'progress': 10})}\n\n"
+                
+                def run_generation():
+                    """Run the async generation in a separate thread"""
+                    try:
+                        # Run without Flask context to avoid "Working outside of application context" errors
+                        # Create new event loop for this thread
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                        print(f"DEBUG: Thread starting song generation...")
+                        print(f"DEBUG: Generator type: {type(generator)}")
+                        print(f"DEBUG: Generator has generate_song: {hasattr(generator, 'generate_song')}")
+                        print(f"DEBUG: Request object: {request_obj}")
+                        
+                        # Run the generator
+                        result = loop.run_until_complete(generator.generate_song(request_obj, progress_callback))
+                        print(f"DEBUG: Generation completed successfully")
+                        return result
+                    except Exception as e:
+                        # Use print instead of current_app.logger to avoid application context issues
+                        print(f"Generation thread error: {e}")
+                        print(f"Error type: {type(e)}")
+                        import traceback
+                        print(f"Full traceback:")
+                        traceback.print_exc()
+                        return {'success': False, 'error': str(e)}
+                    finally:
+                        if 'loop' in locals():
+                            loop.close()
+                
+                # Start generation in background thread
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    future = executor.submit(run_generation)
+                    
+                    # Stream progress while generation runs
+                    while not future.done():
+                        # Yield any queued progress updates
+                        while progress_queue:
+                            yield progress_queue.pop(0)
+                        
+                        # Small delay to prevent busy waiting
+                        time.sleep(0.5)
+                    
+                    # Get final result
+                    try:
+                        result = future.result(timeout=30)  # 30 second timeout for final result
+                    except Exception as e:
+                        result = {'success': False, 'error': f'Generation failed: {str(e)}'}
+                
+                # Yield any remaining progress updates
+                while progress_queue:
+                    yield progress_queue.pop(0)
+                
+                # Send completion
+                if result.get('success'):
+                    # Get song structure
+                    song_structure = result['song_structure']
+                    
+                    # Check if we should save to a project
+                    save_to_project = request_data.get('save_to_project', True)  # Default to True
+                    project_id = request_data.get('project_id')  # Optional existing project ID
+                    user_id = request_data.get('user_id', 'default')
+                    
+                    created_project = None
+                    if save_to_project:
+                        try:
+                            from app.services.project_service import ProjectService
+                            project_service = ProjectService()
+                            
+                            if project_id:
+                                # Update existing project
+                                created_project = project_service.update_project_from_song_structure(
+                                    project_id=project_id,
+                                    song_structure=song_structure
+                                )
+                                print(f"DEBUG: Updated existing project {project_id}")
+                            else:
+                                # Create new project
+                                created_project = project_service.create_project_from_song_structure(
+                                    song_structure=song_structure,
+                                    user_id=user_id
+                                )
+                                print(f"DEBUG: Created new project {created_project['id']}")
+                                
+                        except Exception as e:
+                            print(f"DEBUG: Failed to save to project: {e}")
+                            # Don't fail the whole generation, just log the error
+                    
+                    completion_data = {
+                        'type': 'result',
+                        'success': True,
+                        'song_structure': song_structure,
+                        'album_art': result.get('album_art', {}),
+                        'review_notes': result.get('review_notes', []),
+                        'qa_corrections': result.get('qa_corrections', []),
+                        'provider': request_data['selected_provider'],
+                        'model': request_data['selected_model'],
+                        'timestamp': datetime.utcnow().isoformat(),
+                        'project': created_project  # Include project info if created
+                    }
+                    yield f"data: {json.dumps(completion_data)}\n\n"
+                else:
+                    error_data = {
+                        'type': 'error',
+                        'success': False,
+                        'error': result.get('error', 'Song generation failed'),
+                        'errors': result.get('errors', []),
+                        'review_notes': result.get('review_notes', [])
+                    }
+                    yield f"data: {json.dumps(error_data)}\n\n"
+                    
+            except ImportError as e:
+                error_data = {
+                    'type': 'error',
+                    'success': False,
+                    'error': 'LangGraph song generation not available. Please install required dependencies.',
+                    'importError': True
+                }
+                yield f"data: {json.dumps(error_data)}\n\n"
+            
+        except Exception as e:
+            current_app.logger.error(f"LangGraph streaming generation error: {str(e)}")
+            error_data = {
+                'type': 'error',
+                'success': False,
+                'error': f'Song generation failed: {str(e)}'
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+    
+    return Response(generate(), mimetype='text/plain', headers={
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+        'Content-Type': 'text/event-stream',
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Cache-Control'
+    })

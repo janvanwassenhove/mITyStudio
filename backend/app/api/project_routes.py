@@ -310,3 +310,62 @@ def export_project(project_id):
     except Exception as e:
         current_app.logger.error(f"Export project error: {str(e)}")
         return jsonify({'error': 'Failed to export project'}), 500
+
+
+@project_bp.route('/from-song-structure', methods=['POST'])
+@handle_errors
+def create_project_from_song_structure():
+    """
+    Create a new project from a generated song structure
+    """
+    data = request.get_json()
+    song_structure = data.get('song_structure')
+    user_id = data.get('user_id', 'default')
+    
+    if not song_structure:
+        return jsonify({'error': 'Song structure is required'}), 400
+    
+    try:
+        project_service = ProjectService()
+        project = project_service.create_project_from_song_structure(
+            song_structure=song_structure,
+            user_id=user_id
+        )
+        
+        return jsonify({
+            'project': project,
+            'message': 'Project created successfully from song structure'
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Create project from song structure error: {str(e)}")
+        return jsonify({'error': f'Failed to create project: {str(e)}'}), 500
+
+
+@project_bp.route('/<project_id>/update-from-song-structure', methods=['PUT'])
+@handle_errors
+def update_project_from_song_structure(project_id):
+    """
+    Update an existing project with a new song structure
+    """
+    data = request.get_json()
+    song_structure = data.get('song_structure')
+    
+    if not song_structure:
+        return jsonify({'error': 'Song structure is required'}), 400
+    
+    try:
+        project_service = ProjectService()
+        project = project_service.update_project_from_song_structure(
+            project_id=project_id,
+            song_structure=song_structure
+        )
+        
+        return jsonify({
+            'project': project,
+            'message': 'Project updated successfully from song structure'
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"Update project from song structure error: {str(e)}")
+        return jsonify({'error': f'Failed to update project: {str(e)}'}), 500

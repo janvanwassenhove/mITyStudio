@@ -60,6 +60,11 @@
     "tempo": "Tempo",
     "volume": "Lautstärke",
     "generateSong": "Song Generieren",
+    "generationMethod": "Generierungsmethode",
+    "simpleGeneration": "Einfache Generierung",
+    "multiAgentGeneration": "Multi-Agent Generierung (Empfohlen)",
+    "simpleDescription": "Schnelle, einmalige Song-Generierung mit grundlegender Struktur.",
+    "multiAgentDescription": "Fortgeschrittenes 9-Agenten-System zur Erstellung professioneller Songs mit ausgereiften Arrangements, Gesangszuweisungen und Qualitätssicherung.",
     "initializeAudio": "Audio Initialisieren",
     "retryAudio": "Audio Wiederholen",
     "reset": "Zurücksetzen",
@@ -150,5 +155,52 @@
     "newProject": "Ein neues Projekt erstellen? Nicht gespeicherte Änderungen gehen verloren.",
     "invalidProject": "Ungültige Projektdatei",
     "exportSoon": "Export-Funktionalität kommt bald!"
+  },
+  "songGeneration": {
+    "generating": "Ihr Song Wird Erstellt",
+    "multiAgentSystem": "Multi-Agent KI-System in Aktion",
+    "currentPhase": "Aktuelle Phase",
+    "processing": "Verarbeitung",
+    "completed": "Abgeschlossen",
+    "pending": "Ausstehend",
+    "agents": {
+      "composer": "Komponist",
+      "arrangement": "Arrangement",
+      "lyrics": "Texte",
+      "vocal": "Gesang",
+      "instrument": "Instrument",
+      "effects": "Effekte",
+      "review": "Überprüfung",
+      "design": "Design",
+      "qa": "Qualitätssicherung"
+    },
+    "descriptions": {
+      "composer": "Definition globaler Musikparameter: Tempo, Tonart, Dauer",
+      "arrangement": "Erstellung der Song-Struktur und Spur-Layout",
+      "lyrics": "Generierung von Texten passend zum Musikstil",
+      "vocal": "Zuordnung von Stimmen und Erstellung von Gesangsmelodien",
+      "instrument": "Auswahl von Instrumenten und Erstellung musikalischer Inhalte",
+      "effects": "Hinzufügung von Audio-Effekten und Verarbeitung",
+      "review": "Bewertung der Song-Vollständigkeit und Qualität",
+      "design": "Erstellung des Album-Art-Konzepts",
+      "qa": "Finale Validierung und Struktur-Zusammenstellung"
+    },
+    "success": {
+      "title": "Song Erfolgreich Erstellt!",
+      "multiAgent": "Multi-Agent-System abgeschlossen!",
+      "fallback": "Song-Struktur erstellt!",
+      "projectCreated": "Projekt \"{name}\" mit {track_count} Spuren erstellt",
+      "tracksVisible": "Die generierten Spuren und Clips sind jetzt in Ihrer Spurliste und Timeline sichtbar."
+    }
+  },
+  "common": {
+    "cancel": "Abbrechen",
+    "ok": "OK",
+    "yes": "Ja",
+    "no": "Nein",
+    "optional": "optional",
+    "minutes": "Minuten",
+    "complete": "vollständig",
+    "proceed": "Fortfahren"
   }
 }

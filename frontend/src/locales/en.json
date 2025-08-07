@@ -173,6 +173,11 @@
     "longSong": "Long song",
     "key": "Key",
     "selectKey": "Select key...",
+    "generationMethod": "Generation Method",
+    "simpleGeneration": "Simple Generation",
+    "multiAgentGeneration": "Multi-Agent Generation (Recommended)",
+    "simpleDescription": "Fast, single-pass song generation with basic structure.",
+    "multiAgentDescription": "Advanced 9-agent system creating professional songs with sophisticated arrangements, voice assignments, and quality assurance.",
     "styles": {
       "pop": "Pop",
       "rock": "Rock",
@@ -194,13 +199,52 @@
     "error": "Error generating song. Please try again.",
     "pleaseEnterIdea": "Please enter a song idea first."
   },
+  "songGeneration": {
+    "generating": "Generating Your Song",
+    "multiAgentSystem": "Multi-Agent AI System at Work",
+    "currentPhase": "Current Phase",
+    "processing": "Processing",
+    "completed": "Completed",
+    "pending": "Pending",
+    "agents": {
+      "composer": "Composer",
+      "arrangement": "Arrangement",
+      "lyrics": "Lyrics",
+      "vocal": "Vocal",
+      "instrument": "Instrument",
+      "effects": "Effects",
+      "review": "Review",
+      "design": "Design",
+      "qa": "Quality Assurance"
+    },
+    "descriptions": {
+      "composer": "Defining global musical parameters: tempo, key, duration",
+      "arrangement": "Creating song structure and track layout",
+      "lyrics": "Generating lyrics aligned with musical style",
+      "vocal": "Assigning voices and creating vocal melodies",
+      "instrument": "Selecting instruments and creating musical content",
+      "effects": "Adding audio effects and processing",
+      "review": "Evaluating song completeness and quality",
+      "design": "Creating album art concept",
+      "qa": "Final validation and structure assembly"
+    },
+    "success": {
+      "title": "Song Generated Successfully!",
+      "multiAgent": "Multi-agent system completed!",
+      "fallback": "Song structure created!",
+      "projectCreated": "Project \"{name}\" created with {track_count} tracks",
+      "tracksVisible": "The generated tracks and clips are now visible in your track list and timeline."
+    }
+  },
   "common": {
     "cancel": "Cancel",
     "ok": "OK",
     "yes": "Yes",
     "no": "No",
     "optional": "optional",
-    "minutes": "minutes"
+    "minutes": "minutes",
+    "complete": "complete",
+    "proceed": "Proceed"
   },
   "dialogs": {
     "newProject": "Create a new project? Unsaved changes will be lost.",

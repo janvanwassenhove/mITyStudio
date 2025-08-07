@@ -60,6 +60,11 @@
     "tempo": "Tempo",
     "volume": "Volume",
     "generateSong": "Générer Chanson",
+    "generationMethod": "Méthode de Génération",
+    "simpleGeneration": "Génération Simple",
+    "multiAgentGeneration": "Génération Multi-Agent (Recommandé)",
+    "simpleDescription": "Génération rapide de chansons en une passe avec structure de base.",
+    "multiAgentDescription": "Système avancé à 9 agents créant des chansons professionnelles avec arrangements sophistiqués, assignations vocales et assurance qualité.",
     "initializeAudio": "Initialiser Audio",
     "retryAudio": "Réessayer Audio",
     "reset": "Réinitialiser",
@@ -150,5 +155,52 @@
     "newProject": "Créer un nouveau projet ? Les modifications non sauvegardées seront perdues.",
     "invalidProject": "Fichier de projet invalide",
     "exportSoon": "La fonctionnalité d'exportation arrive bientôt !"
+  },
+  "songGeneration": {
+    "generating": "Génération de Votre Chanson",
+    "multiAgentSystem": "Système IA Multi-Agent en Action",
+    "currentPhase": "Phase Actuelle",
+    "processing": "Traitement",
+    "completed": "Terminé",
+    "pending": "En Attente",
+    "agents": {
+      "composer": "Compositeur",
+      "arrangement": "Arrangement",
+      "lyrics": "Paroles",
+      "vocal": "Vocal",
+      "instrument": "Instrument",
+      "effects": "Effets",
+      "review": "Révision",
+      "design": "Design",
+      "qa": "Contrôle Qualité"
+    },
+    "descriptions": {
+      "composer": "Définition des paramètres musicaux globaux : tempo, clé, durée",
+      "arrangement": "Création de la structure de chanson et disposition des pistes",
+      "lyrics": "Génération de paroles alignées avec le style musical",
+      "vocal": "Attribution de voix et création de mélodies vocales",
+      "instrument": "Sélection d'instruments et création de contenu musical",
+      "effects": "Ajout d'effets audio et traitement",
+      "review": "Évaluation de l'exhaustivité et qualité de la chanson",
+      "design": "Création du concept d'art d'album",
+      "qa": "Validation finale et assemblage de structure"
+    },
+    "success": {
+      "title": "Chanson Générée avec Succès !",
+      "multiAgent": "Système multi-agent terminé !",
+      "fallback": "Structure de chanson créée !",
+      "projectCreated": "Projet \"{name}\" créé avec {track_count} pistes",
+      "tracksVisible": "Les pistes et clips générés sont maintenant visibles dans votre liste de pistes et timeline."
+    }
+  },
+  "common": {
+    "cancel": "Annuler",
+    "ok": "OK",
+    "yes": "Oui",
+    "no": "Non",
+    "optional": "optionnel",
+    "minutes": "minutes",
+    "complete": "terminé",
+    "proceed": "Continuer"
   }
 }

@@ -466,3 +466,159 @@ class ProjectService:
                 )
         
         return new_project
+
+    def create_project_from_song_structure(self, song_structure: Dict, user_id: str = 'default') -> Dict:
+        """Create a new project from a generated song structure"""
+        try:
+            # Extract basic project info from song structure
+            project_name = song_structure.get('name', 'Generated Song')
+            project_id = str(uuid.uuid4())
+            
+            # Create the base project
+            project = {
+                'id': project_id,
+                'name': project_name,
+                'description': f'AI-generated song: {project_name}',
+                'genre': 'AI Generated',
+                'tempo': song_structure.get('tempo', 120),
+                'key': song_structure.get('key', 'C'),
+                'time_signature': song_structure.get('timeSignature', [4, 4]),
+                'duration': song_structure.get('duration', 240),  # Default 4 minutes
+                'user_id': user_id,
+                'track_count': len(song_structure.get('tracks', [])),
+                'created_at': datetime.utcnow().isoformat(),
+                'updated_at': datetime.utcnow().isoformat(),
+                'tags': ['ai-generated', 'langgraph'],
+                'is_public': False
+            }
+            
+            # Store the project
+            self.projects[project_id] = project
+            
+            # Import tracks and clips from song structure
+            for track_data in song_structure.get('tracks', []):
+                # Create track
+                track = self.add_track(
+                    project_id=project_id,
+                    name=track_data.get('name', 'Untitled Track'),
+                    instrument=track_data.get('instrument', 'piano'),
+                    volume=track_data.get('volume', 0.8),
+                    pan=track_data.get('pan', 0),
+                    muted=track_data.get('muted', False),
+                    soloed=track_data.get('solo', False)
+                )
+                
+                # Add clips for this track
+                for clip_data in track_data.get('clips', []):
+                    # Convert song structure clip to project clip format
+                    clip = {
+                        'start_time': clip_data.get('startTime', 0),
+                        'duration': clip_data.get('duration', 4),
+                        'type': clip_data.get('type', 'synth'),
+                        'instrument': clip_data.get('instrument', track_data.get('instrument', 'piano')),
+                        'volume': clip_data.get('volume', 0.8),
+                        'effects': clip_data.get('effects', {
+                            'reverb': 0.0,
+                            'delay': 0.0,
+                            'distortion': 0.0
+                        })
+                    }
+                    
+                    # Add type-specific data
+                    if clip_data.get('notes'):
+                        clip['midi_data'] = clip_data['notes']
+                    
+                    if clip_data.get('text'):
+                        clip['text'] = clip_data['text']
+                        
+                    if clip_data.get('lyrics'):
+                        clip['lyrics'] = clip_data['lyrics']
+                        
+                    if clip_data.get('voiceId'):
+                        clip['voice_id'] = clip_data['voiceId']
+                    
+                    self.add_clip(
+                        project_id=project_id,
+                        track_id=track['id'],
+                        **clip
+                    )
+            
+            return project
+            
+        except Exception as e:
+            current_app.logger.error(f"Error creating project from song structure: {e}")
+            raise ValueError(f"Failed to create project from song structure: {str(e)}")
+
+    def update_project_from_song_structure(self, project_id: str, song_structure: Dict) -> Dict:
+        """Update an existing project with a new song structure"""
+        try:
+            if project_id not in self.projects:
+                raise ValueError(f"Project not found: {project_id}")
+            
+            project = self.projects[project_id]
+            
+            # Clear existing tracks and clips
+            project_tracks = [t for t in self.tracks.values() if t.get('project_id') == project_id]
+            for track in project_tracks:
+                track_clips = [c for c in self.clips.values() if c.get('track_id') == track['id']]
+                for clip in track_clips:
+                    del self.clips[clip['id']]
+                del self.tracks[track['id']]
+            
+            # Update project metadata
+            project.update({
+                'name': song_structure.get('name', project['name']),
+                'tempo': song_structure.get('tempo', project['tempo']),
+                'key': song_structure.get('key', project['key']),
+                'time_signature': song_structure.get('timeSignature', project.get('time_signature', [4, 4])),
+                'duration': song_structure.get('duration', project.get('duration', 240)),
+                'track_count': len(song_structure.get('tracks', [])),
+                'updated_at': datetime.utcnow().isoformat()
+            })
+            
+            # Import new tracks and clips
+            for track_data in song_structure.get('tracks', []):
+                track = self.add_track(
+                    project_id=project_id,
+                    name=track_data.get('name', 'Untitled Track'),
+                    instrument=track_data.get('instrument', 'piano'),
+                    volume=track_data.get('volume', 0.8),
+                    pan=track_data.get('pan', 0),
+                    muted=track_data.get('muted', False),
+                    soloed=track_data.get('solo', False)
+                )
+                
+                for clip_data in track_data.get('clips', []):
+                    clip = {
+                        'start_time': clip_data.get('startTime', 0),
+                        'duration': clip_data.get('duration', 4),
+                        'type': clip_data.get('type', 'synth'),
+                        'instrument': clip_data.get('instrument', track_data.get('instrument', 'piano')),
+                        'volume': clip_data.get('volume', 0.8),
+                        'effects': clip_data.get('effects', {
+                            'reverb': 0.0,
+                            'delay': 0.0,
+                            'distortion': 0.0
+                        })
+                    }
+                    
+                    if clip_data.get('notes'):
+                        clip['midi_data'] = clip_data['notes']
+                    if clip_data.get('text'):
+                        clip['text'] = clip_data['text']
+                    if clip_data.get('lyrics'):
+                        clip['lyrics'] = clip_data['lyrics']
+                    if clip_data.get('voiceId'):
+                        clip['voice_id'] = clip_data['voiceId']
+                    
+                    self.add_clip(
+                        project_id=project_id,
+                        track_id=track['id'],
+                        **clip
+                    )
+            
+            return project
+            
+        except Exception as e:
+            current_app.logger.error(f"Error updating project from song structure: {e}")
+            raise ValueError(f"Failed to update project from song structure: {str(e)}")

@@ -8,11 +8,8 @@ from flask import current_app
 
 def safe_log_error(message: str):
     """Safe error logging that works both inside and outside Flask context"""
-    try:
-        current_app.logger.error(message)
-    except (RuntimeError, NameError):
-        # Working outside application context or current_app not available
-        print(f"ERROR: {message}")
+    # For background threads and multi-agent workflows, just use print to avoid Flask context issues
+    print(f"ERROR: {message}")
 
 
 # Music theory constants

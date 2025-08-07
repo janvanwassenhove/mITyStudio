@@ -60,6 +60,11 @@
     "tempo": "Tempo",
     "volume": "Volume",
     "generateSong": "Lied Genereren",
+    "generationMethod": "Generatiemethode",
+    "simpleGeneration": "Eenvoudige Generatie",
+    "multiAgentGeneration": "Multi-Agent Generatie (Aanbevolen)",
+    "simpleDescription": "Snelle, eenmalige liedgeneratie met basisstructuur.",
+    "multiAgentDescription": "Geavanceerd 9-agent systeem dat professionele liedjes creëert met verfijnde arrangementen, stemtoewijzingen en kwaliteitsborging.",
     "initializeAudio": "Audio Initialiseren",
     "retryAudio": "Audio Opnieuw Proberen",
     "reset": "Resetten",
@@ -150,5 +155,52 @@
     "newProject": "Een nieuw project maken? Niet-opgeslagen wijzigingen gaan verloren.",
     "invalidProject": "Ongeldig projectbestand",
     "exportSoon": "Exportfunctionaliteit komt binnenkort!"
+  },
+  "songGeneration": {
+    "generating": "Uw Lied Wordt Gegenereerd",
+    "multiAgentSystem": "Multi-Agent AI Systeem in Actie",
+    "currentPhase": "Huidige Fase",
+    "processing": "Verwerken",
+    "completed": "Voltooid",
+    "pending": "Wachtend",
+    "agents": {
+      "composer": "Componist",
+      "arrangement": "Arrangement",
+      "lyrics": "Teksten",
+      "vocal": "Zang",
+      "instrument": "Instrument",
+      "effects": "Effecten",
+      "review": "Beoordeling",
+      "design": "Ontwerp",
+      "qa": "Kwaliteitscontrole"
+    },
+    "descriptions": {
+      "composer": "Definiëren van globale muziekparameters: tempo, toonaard, duur",
+      "arrangement": "Creëren van liedstructuur en track-indeling",
+      "lyrics": "Genereren van teksten afgestemd op muziekstijl",
+      "vocal": "Toewijzen van stemmen en creëren van zangmelodieën",
+      "instrument": "Selecteren van instrumenten en creëren van muzikale inhoud",
+      "effects": "Toevoegen van audio-effecten en verwerking",
+      "review": "Evalueren van liedvolledigheid en kwaliteit",
+      "design": "Creëren van albumhoes-concept",
+      "qa": "Finale validatie en structuur-assemblage"
+    },
+    "success": {
+      "title": "Lied Succesvol Gegenereerd!",
+      "multiAgent": "Multi-agent systeem voltooid!",
+      "fallback": "Liedstructuur gecreëerd!",
+      "projectCreated": "Project \"{name}\" gecreëerd met {track_count} tracks",
+      "tracksVisible": "De gegenereerde tracks en clips zijn nu zichtbaar in uw tracklist en tijdlijn."
+    }
+  },
+  "common": {
+    "cancel": "Annuleren",
+    "ok": "OK",
+    "yes": "Ja",
+    "no": "Nee",
+    "optional": "optioneel",
+    "minutes": "minuten",
+    "complete": "voltooid",
+    "proceed": "Doorgaan"
   }
 }

@@ -57,10 +57,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAudioStore } from '../stores/audioStore'
 import { useThemeStore } from '../stores/themeStore'
+import { useAudioStore } from '../stores/audioStore'
+import { projectService } from '../services/projectService'
 import { Music, FileText, FolderOpen, Save, Download } from 'lucide-vue-next'
 import ThemeToggle from './ThemeToggle.vue'
 import GenerateSongDialog from './GenerateSongDialog.vue'
@@ -93,7 +94,7 @@ const newProject = () => {
   }
 }
 
-const openProject = () => {
+const openProject = async () => {
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = '.json'
@@ -115,7 +116,17 @@ const openProject = () => {
   input.click()
 }
 
-const saveProject = () => {
+const saveProject = async () => {
+  try {
+    // Try to save to backend API first
+    const project = await projectService.createProjectFromSongStructure(audioStore.songStructure)
+    alert(`Project "${project.name}" saved successfully to workspace!`)
+    return
+  } catch (error) {
+    console.warn('Backend save failed, falling back to file download:', error)
+  }
+  
+  // Fallback to file download if backend fails
   const songData = audioStore.exportSongStructure()
   const blob = new Blob([songData], { type: 'application/json' })
   const url = URL.createObjectURL(blob)

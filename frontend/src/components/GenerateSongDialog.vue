@@ -1,6 +1,7 @@
 <template>
   <div v-if="show" class="modal-overlay" @click="handleOverlayClick">
-    <div class="modal-content" @click.stop>
+    <!-- Main dialog content - hidden when progress dialog is shown -->
+    <div v-if="!showProgressDialog" class="modal-content" @click.stop>
       <div class="modal-header">
         <h2>
           <Music :size="20" class="header-icon" />
@@ -182,6 +183,21 @@
             <div class="form-group">
               <label class="section-label">
                 <Bot :size="14" class="section-icon" />
+                {{ $t('generateSong.generationMethod') }}
+              </label>
+              <select v-model="generationMethod" class="input select">
+                <option value="simple">{{ $t('generateSong.simpleGeneration') }}</option>
+                <option value="langgraph">{{ $t('generateSong.multiAgentGeneration') }}</option>
+              </select>
+              <p class="method-description">
+                <span v-if="generationMethod === 'simple'">{{ $t('generateSong.simpleDescription') }}</span>
+                <span v-else>{{ $t('generateSong.multiAgentDescription') }}</span>
+              </p>
+            </div>
+
+            <div class="form-group">
+              <label class="section-label">
+                <Bot :size="14" class="section-icon" />
                 {{ $t('generateSong.aiProvider') }} & {{ $t('generateSong.model') }}
               </label>
               
@@ -237,6 +253,19 @@
         </button>
       </div>
     </div>
+    
+    <!-- Song Generation Progress Dialog - outside main dialog content -->
+    <SongGenerationProgressDialog
+      :is-visible="showProgressDialog"
+      :current-agent="currentAgent"
+      :completed-agents="completedAgents"
+      :is-completed="isGenerationCompleted"
+      :is-multi-agent-success="isMultiAgentSuccess"
+      :project-info="generationProjectInfo"
+      @cancel="cancelGeneration"
+      @close="closeProgressDialog"
+      @proceed="handleProceed"
+    />
   </div>
 </template>
 
@@ -246,6 +275,7 @@ import { useI18n } from 'vue-i18n'
 import { X, Music, Loader2, ChevronDown, Mic, Radio, Guitar, Piano, Drum, Zap, Disc, Heart, Volume2, Headphones, Star, Key, PenTool, Palette, Settings, Clock, Music2, Bot } from 'lucide-vue-next'
 import { useAIStore } from '../stores/aiStore'
 import { checkApiKeyStatus } from '../utils/api'
+import SongGenerationProgressDialog from './SongGenerationProgressDialog.vue'
 
 interface Props {
   show: boolean
@@ -269,6 +299,16 @@ const isGenerating = ref(false)
 const showAdvanced = ref(false)
 const duration = ref('')
 const songKey = ref('')
+const generationMethod = ref('langgraph')
+
+// Progress Dialog for LangGraph generation
+const showProgressDialog = ref(false)
+const currentAgent = ref('')
+const completedAgents = ref<string[]>([])
+const isGenerationCompleted = ref(false)
+const isMultiAgentSuccess = ref(false)
+const generationProjectInfo = ref<{ name: string; track_count: number } | null>(null)
+let generationController: AbortController | null = null
 
 // API key status checking
 const apiKeySet = ref(false)
@@ -449,7 +489,11 @@ const allStyles = computed(() => {
 })
 
 const handleOverlayClick = () => {
-  emit('close')
+  // Only close the dialog when the progress dialog is not showing
+  // During generation, the user should only be able to cancel via the Cancel button
+  if (!showProgressDialog.value) {
+    emit('close')
+  }
 }
 
 const toggleStyle = (style: string) => {
@@ -477,23 +521,269 @@ const generateSong = async () => {
   isGenerating.value = true
   
   try {
-    // AI provider and model are already set through computed properties
-    const prompt = buildSongPrompt()
-    
-    const response = await aiStore.sendMessage(prompt)
-    
-    console.log('Generated Song Structure:', response)
-    
-    // Here you would parse the response and update the audio store
-    // For now, just show the response
-    alert(t('generateSong.success'))
-    
-  } catch (error) {
+    if (generationMethod.value === 'langgraph') {
+      await generateSongWithLangGraph()
+      // Don't close dialog here - LangGraph function handles it
+    } else {
+      await generateSongSimple()
+      emit('close') // Close for simple generation
+    }
+  } catch (error: any) {
     console.error('Error generating song:', error)
-    alert(t('generateSong.error'))
+    console.error('Error details:', {
+      message: error?.message || 'Unknown error',
+      stack: error?.stack || 'No stack trace',
+      name: error?.name || 'Unknown error type'
+    })
+    const errorMessage = error?.message || 'Unknown error occurred'
+    alert(`${t('generateSong.error')}: ${errorMessage}`)
+    if (generationMethod.value !== 'langgraph') {
+      emit('close')
+    }
   } finally {
     isGenerating.value = false
-    emit('close')
+  }
+}
+
+const generateSongSimple = async () => {
+  // Original simple generation method
+  const prompt = buildSongPrompt()
+  const response = await aiStore.sendMessage(prompt)
+  console.log('Generated Song Structure:', response)
+  alert(t('generateSong.success'))
+}
+
+const cancelGeneration = () => {
+  if (generationController) {
+    generationController.abort()
+    generationController = null
+  }
+  showProgressDialog.value = false
+  currentAgent.value = ''
+  completedAgents.value = []
+  isGenerationCompleted.value = false
+  isMultiAgentSuccess.value = false
+  generationProjectInfo.value = null
+  isGenerating.value = false
+}
+
+const closeProgressDialog = () => {
+  showProgressDialog.value = false
+  currentAgent.value = ''
+  completedAgents.value = []
+  isGenerationCompleted.value = false
+  isMultiAgentSuccess.value = false
+  generationProjectInfo.value = null
+  emit('close')
+}
+
+const handleProceed = () => {
+  closeProgressDialog()
+}
+
+const generateSongWithLangGraph = async () => {
+  // Show progress dialog
+  showProgressDialog.value = true
+  currentAgent.value = ''
+  completedAgents.value = []
+  
+  // Create abort controller for cancellation
+  generationController = new AbortController()
+  
+  try {
+    // Multi-agent LangGraph generation with SSE streaming
+    const requestData = {
+      song_idea: songIdea.value,
+      style_tags: selectedStyles.value,
+      custom_style: customStyle.value,
+      lyrics_option: lyricsOption.value,
+      custom_lyrics: customLyrics.value,
+      is_instrumental: isInstrumental.value,
+      duration: duration.value,
+      song_key: songKey.value,
+      selected_provider: selectedProvider.value.toLowerCase(),
+      selected_model: selectedModel.value,
+      // Project saving options
+      save_to_project: true,  // Always save generated songs to projects
+      user_id: 'default'      // TODO: Replace with actual user ID when auth is implemented
+    }
+    
+    console.log('Sending request to backend:', requestData)
+    
+    // Use SSE for real-time progress updates
+    const response = await fetch('/api/ai/generate/song-langgraph-stream', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(requestData)
+    })
+    
+    console.log('Response received:', response.status, response.statusText)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.error('Backend error response:', errorText)
+      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`)
+    }
+    
+    const reader = response.body?.getReader()
+    if (!reader) {
+      throw new Error('No response body reader available')
+    }
+    
+    console.log('SSE reader initialized successfully')
+    
+    return new Promise((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reader.cancel()
+        reject(new Error('Song generation timed out after 7 minutes. Please try again.'))
+      }, 420000) // 7 minutes
+      
+      const processStream = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read()
+            if (done) break
+            
+            const chunk = new TextDecoder().decode(value)
+            const lines = chunk.split('\n')
+            
+            for (const line of lines) {
+              if (line.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(line.slice(6))
+                  
+                  if (data.type === 'progress') {
+                    // Update progress based on agent number and status
+                    const agentMapping = {
+                      'composer': 'composer',
+                      'arrangement': 'arrangement', 
+                      'lyrics': 'lyrics',
+                      'vocal': 'vocal',
+                      'instrument': 'instrument',
+                      'effects': 'effects',
+                      'review': 'review',
+                      'design': 'design',
+                      'qa': 'qa',
+                      'complete': 'complete'
+                    }
+                    
+                    const agentName = agentMapping[data.agent as keyof typeof agentMapping]
+                    if (agentName) {
+                      currentAgent.value = agentName
+                      
+                      // Mark previous agents as completed
+                      const agentOrder = ['composer', 'arrangement', 'lyrics', 'vocal', 'instrument', 'effects', 'review', 'design', 'qa']
+                      const currentIndex = agentOrder.indexOf(agentName)
+                      if (currentIndex >= 0) {
+                        completedAgents.value = agentOrder.slice(0, currentIndex)
+                        if (data.agent === 'complete') {
+                          completedAgents.value = [...agentOrder]
+                          currentAgent.value = ''
+                        }
+                      }
+                    }
+                    
+                    console.log(`Progress: ${data.message} (${data.progress}%)`)
+                  } else if (data.type === 'result') {
+                    clearTimeout(timeout)
+                    
+                    if (data.success) {
+                      // Complete all agents
+                      const allAgents = ['composer', 'arrangement', 'lyrics', 'vocal', 'instrument', 'effects', 'review', 'design', 'qa']
+                      completedAgents.value = [...allAgents]
+                      currentAgent.value = ''
+                      
+                      // Import the generated song structure into the audio store
+                      import('../stores/audioStore').then(({ useAudioStore }) => {
+                        const audioStore = useAudioStore()
+                        audioStore.loadSongStructure(data.song_structure)
+                        
+                        // Force UI update by triggering structure update
+                        audioStore.updateSongStructure()
+                      })
+                      
+                      // Log project creation info if available
+                      if (data.project) {
+                        console.log('Generated song saved to project:', data.project)
+                      }
+                      
+                      console.log('Generated Song Structure:', data.song_structure)
+                      console.log('Album Art:', data.album_art)
+                      console.log('Review Notes:', data.review_notes)
+                      
+                      // Set success state data
+                      isGenerationCompleted.value = true
+                      
+                      // Check if this was a fallback result
+                      const isFallback = data.review_notes?.some((note: string) => 
+                        note.includes('fallback') || note.includes('API keys')
+                      )
+                      
+                      isMultiAgentSuccess.value = !isFallback
+                      generationProjectInfo.value = data.project ? {
+                        name: data.project.name,
+                        track_count: data.project.track_count
+                      } : null
+                      
+                      // Keep dialog open with success state - user can proceed manually
+                      resolve(data)
+                    } else {
+                      reject(new Error(data.error || 'Song generation failed'))
+                    }
+                    return // Exit the processing loop
+                  } else if (data.type === 'error') {
+                    clearTimeout(timeout)
+                    reject(new Error(data.error || 'Song generation failed'))
+                    return // Exit the processing loop
+                  }
+                } catch (e) {
+                  console.error('Error parsing SSE data:', e, line)
+                }
+              }
+            }
+          }
+        } catch (error) {
+          clearTimeout(timeout)
+          reject(error)
+        }
+      }
+      
+      // Handle cancellation
+      if (generationController?.signal) {
+        generationController.signal.addEventListener('abort', () => {
+          clearTimeout(timeout)
+          reader.cancel()
+          reject(new Error('Generation cancelled by user'))
+        })
+      }
+      
+      processStream()
+    })
+    
+  } catch (error: any) {
+    showProgressDialog.value = false
+    if (error.name === 'AbortError') {
+      console.log('Song generation cancelled by user')
+    } else {
+      console.error('LangGraph generation error:', error)
+      
+      // Provide user-friendly error messages
+      if (error.message?.includes('timed out') || error.message?.includes('timeout')) {
+        alert(`${t('generateSong.error')}: Song generation timed out. The AI service may be busy. Please try again in a few moments.`)
+      } else if (error.message?.includes('network') || error.message?.includes('fetch')) {
+        alert(`${t('generateSong.error')}: Network error during generation. Please check your connection and try again.`)
+      } else if (error.message?.includes('Failed to fetch')) {
+        alert(`${t('generateSong.error')}: Could not connect to the AI service. Please check if the backend is running.`)
+      } else {
+        alert(`${t('generateSong.error')}: ${error.message || 'An unexpected error occurred during song generation.'}`)
+      }
+    }
+  } finally {
+    generationController = null
+    currentAgent.value = ''
+    completedAgents.value = []
   }
 }
 

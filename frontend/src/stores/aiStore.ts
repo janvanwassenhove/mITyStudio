@@ -5,8 +5,8 @@ import { useAudioStore } from './audioStore'
 
 // Configure axios base URL for backend
 const API_BASE_URL = process.env.NODE_ENV === 'development' 
-  ? 'http://localhost:5001' 
-  : (window as any).electronAPI?.constants.BACKEND_URL || 'http://localhost:5001'
+  ? 'http://localhost:5000' 
+  : (window as any).electronAPI?.constants.BACKEND_URL || 'http://localhost:5000'
 
 const api = axios.create({
   baseURL: API_BASE_URL,

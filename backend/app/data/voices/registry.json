@@ -1,0 +1,67 @@
+{
+  "voices": [
+    {
+      "id": "default",
+      "name": "Default Voice",
+      "type": "builtin",
+      "trained": true,
+      "language": "en",
+      "created_at": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "male-01",
+      "name": "Male Voice 1",
+      "type": "builtin",
+      "trained": true,
+      "language": "en",
+      "created_at": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "female-01",
+      "name": "Female Voice 1",
+      "type": "builtin",
+      "trained": true,
+      "language": "en",
+      "created_at": "2024-01-01T00:00:00Z"
+    },
+    {
+      "id": "voice-1753042295",
+      "name": "ttt",
+      "type": "custom",
+      "trained": true,
+      "language": "en",
+      "model_path": "app\\data\\voices\\voice-1753042295\\model.ckpt",
+      "config_path": "app\\data\\voices\\voice-1753042295\\config.yaml",
+      "voice_characteristics": {
+        "fundamental_freq": 153.7715606689453,
+        "formant_shift": 1.5014086503112027,
+        "spectral_centroid": 1501.4086503112028,
+        "spectral_rolloff": 2952.7992039769347,
+        "spectral_bandwidth": 1647.5112869618645,
+        "tempo": 117.45383522727273,
+        "zero_crossing_rate": 0.07171475900036858,
+        "voice_energy": 0.018309175968170166,
+        "voice_dynamics": 0.03584066778421402,
+        "mfcc_mean": [
+          -402.2196044921875,
+          87.25970458984375,
+          15.978327751159668,
+          28.442947387695312,
+          3.956267833709717,
+          3.4923484325408936,
+          3.4445555210113525,
+          3.182039976119995,
+          -1.6534404754638672,
+          11.283825874328613,
+          -3.505514144897461,
+          0.16429585218429565,
+          2.9532618522644043
+        ],
+        "vibrato_rate": 5.0,
+        "voice_texture": 1.0466498473960588,
+        "voice_warmth": 0.5352097016251376
+      },
+      "created_at": "2025-07-20T22:17:16Z"
+    }
+  ]
+}
