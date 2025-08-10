@@ -355,6 +355,123 @@ export class ChordService {
   }
 
   /**
+   * Analyze an array of notes and identify the chord(s) they represent
+   */
+  static analyzeNotesToChords(notes: string[]): string[] {
+    if (!notes || notes.length === 0) {
+      return ['C_major'] // Default fallback
+    }
+
+    // Extract note names without octaves
+    const noteNames = notes.map(note => note.replace(/\d+$/, ''))
+    
+    // Remove duplicates and sort
+    const uniqueNotes = [...new Set(noteNames)].sort()
+    
+    console.log('Analyzing notes:', notes, '-> unique notes:', uniqueNotes)
+    
+    // Define chord patterns (intervals from root)
+    const chordPatterns = {
+      'major': [0, 4, 7],           // Root, Major 3rd, Perfect 5th
+      'minor': [0, 3, 7],           // Root, Minor 3rd, Perfect 5th  
+      'dom7': [0, 4, 7, 10],        // Root, Major 3rd, Perfect 5th, Minor 7th
+      'maj7': [0, 4, 7, 11],        // Root, Major 3rd, Perfect 5th, Major 7th
+      'min7': [0, 3, 7, 10],        // Root, Minor 3rd, Perfect 5th, Minor 7th
+      'diminished': [0, 3, 6],      // Root, Minor 3rd, Diminished 5th
+      'augmented': [0, 4, 8],       // Root, Major 3rd, Augmented 5th
+      'sus2': [0, 2, 7],            // Root, Major 2nd, Perfect 5th
+      'sus4': [0, 5, 7]             // Root, Perfect 4th, Perfect 5th
+    }
+
+    // Convert note names to semitone values
+    const noteToSemitone: Record<string, number> = {
+      'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4,
+      'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9,
+      'A#': 10, 'Bb': 10, 'B': 11
+    }
+
+    const semitoneToNote: Record<number, string> = {
+      0: 'C', 1: 'C#', 2: 'D', 3: 'D#', 4: 'E', 5: 'F',
+      6: 'F#', 7: 'G', 8: 'G#', 9: 'A', 10: 'A#', 11: 'B'
+    }
+
+    // Convert notes to semitones
+    const noteSemitones = uniqueNotes
+      .map(note => noteToSemitone[note])
+      .filter(semitone => semitone !== undefined)
+      .sort((a, b) => a - b)
+
+    if (noteSemitones.length === 0) {
+      return ['C_major']
+    }
+
+    // Find the best chord match
+    const detectedChords: string[] = []
+
+    // Try each note as a potential root
+    for (const rootSemitone of noteSemitones) {
+      const rootNote = semitoneToNote[rootSemitone]
+      
+      // Check each chord type
+      for (const [chordType, intervals] of Object.entries(chordPatterns)) {
+        const expectedSemitones = intervals.map(interval => (rootSemitone + interval) % 12).sort((a, b) => a - b)
+        
+        // Check if the notes match this chord pattern
+        const matches = expectedSemitones.every(semitone => noteSemitones.includes(semitone))
+        
+        if (matches && expectedSemitones.length <= noteSemitones.length) {
+          const chordName = `${rootNote}_${chordType}`
+          detectedChords.push(chordName)
+          console.log(`✅ Detected chord: ${chordName} (${rootNote} ${chordType})`)
+        }
+      }
+    }
+
+    // If no perfect matches, try simpler analysis
+    if (detectedChords.length === 0) {
+      // Single note or unison - treat as major chord of that note
+      if (noteSemitones.length === 1) {
+        const rootNote = semitoneToNote[noteSemitones[0]]
+        const chordName = `${rootNote}_major`
+        detectedChords.push(chordName)
+        console.log(`🎵 Single note ${rootNote}, assuming major chord: ${chordName}`)
+      } 
+      // Two notes - try to infer chord type
+      else if (noteSemitones.length === 2) {
+        const [first, second] = noteSemitones
+        const interval = (second - first + 12) % 12
+        const rootNote = semitoneToNote[first]
+        
+        if (interval === 4) { // Major third
+          const chordName = `${rootNote}_major`
+          detectedChords.push(chordName)
+          console.log(`🎵 Major third interval, assuming major chord: ${chordName}`)
+        } else if (interval === 3) { // Minor third
+          const chordName = `${rootNote}_minor`
+          detectedChords.push(chordName)
+          console.log(`🎵 Minor third interval, assuming minor chord: ${chordName}`)
+        } else {
+          const chordName = `${rootNote}_major`
+          detectedChords.push(chordName)
+          console.log(`🎵 Unknown interval, defaulting to major chord: ${chordName}`)
+        }
+      }
+      // Multiple notes but no clear chord - use first note as major
+      else {
+        const rootNote = semitoneToNote[noteSemitones[0]]
+        const chordName = `${rootNote}_major`
+        detectedChords.push(chordName)
+        console.log(`🎵 Complex notes, using first note as major chord: ${chordName}`)
+      }
+    }
+
+    // Remove duplicates and return
+    const result = [...new Set(detectedChords)]
+    console.log('Final detected chords:', result)
+    return result.length > 0 ? result : ['C_major']
+  }
+
+  /**
    * Public method to generate chord notes from a root note
    */
   static generateChordNotes(root: string, type: ChordType = 'major'): string[] {

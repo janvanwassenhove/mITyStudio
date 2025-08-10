@@ -7,5 +7,6 @@ Remove test scaffolding after use.
 By default use terminal commands instead of powershell commands.
 If you need to use powershell, ensure it is removed after use.
 Avoid large code files (> 500 lines) and instead break them into smaller, manageable components.
-Don't create documentation files unless specifically requested.
+Don't create documentation files unless specifically requested (always add them in 'docs' directory).
 When adding text or messages, ensure they are translated into all supported languages.
+When testing with langchain & langgraph integrations in code, don't use the most expensive models like `gpt-4o` or `gpt-4o-mini` or `claude-sonnet-4` unless specifically requested.

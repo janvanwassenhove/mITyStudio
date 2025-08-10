@@ -310,6 +310,108 @@ class AudioService:
             'duration': 180.0  # 3 minutes placeholder
         }
     
+    def export_song_from_structure(self, song_structure: Dict, format: str = 'wav', 
+                                  quality: str = 'high', filename: str = 'exported_song') -> Dict:
+        """Export song from JSON structure as audio file"""
+        try:
+            import numpy as np
+            import io
+            import wave
+            import struct
+            
+            # Get song properties
+            duration = song_structure.get('duration', 60)  # Default 1 minute
+            tempo = song_structure.get('tempo', 120)
+            tracks = song_structure.get('tracks', [])
+            
+            current_app.logger.info(f"Exporting song: {filename}")
+            current_app.logger.info(f"Duration: {duration}s, Tempo: {tempo} BPM")
+            current_app.logger.info(f"Tracks: {len(tracks)}")
+            
+            # Generate a simple audio file (placeholder implementation)
+            sample_rate = 44100
+            samples = int(duration * sample_rate)
+            
+            # Create a simple tone based on the song structure
+            # This is a placeholder - in real implementation you'd render actual tracks
+            t = np.linspace(0, duration, samples, False)
+            
+            # Generate a simple chord progression based on song key
+            song_key = song_structure.get('key', 'C')
+            base_freq = {'C': 261.63, 'D': 293.66, 'E': 329.63, 'F': 349.23, 
+                        'G': 392.00, 'A': 440.00, 'B': 493.88}.get(song_key, 261.63)
+            
+            # Create a simple chord progression with multiple frequencies
+            audio_data = (
+                np.sin(2 * np.pi * base_freq * t) * 0.3 +  # Root
+                np.sin(2 * np.pi * base_freq * 1.25 * t) * 0.2 +  # Third
+                np.sin(2 * np.pi * base_freq * 1.5 * t) * 0.2  # Fifth
+            )
+            
+            # Add some rhythm based on tempo
+            beat_duration = 60.0 / tempo  # Duration of one beat in seconds
+            for i in range(int(duration / beat_duration)):
+                start_sample = int(i * beat_duration * sample_rate)
+                end_sample = int((i + 0.1) * beat_duration * sample_rate)  # Short beat
+                if end_sample < len(audio_data):
+                    audio_data[start_sample:end_sample] *= 1.5  # Accent the beat
+            
+            # Normalize audio
+            audio_data = audio_data / np.max(np.abs(audio_data)) * 0.8
+            
+            # Convert to 16-bit PCM
+            audio_data_int = (audio_data * 32767).astype(np.int16)
+            
+            # Create WAV file in memory
+            buffer = io.BytesIO()
+            with wave.open(buffer, 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(audio_data_int.tobytes())
+            
+            # Get the audio data
+            buffer.seek(0)
+            audio_bytes = buffer.getvalue()
+            
+            # Calculate file size
+            file_size = len(audio_bytes)
+            
+            # Store the audio data temporarily (in a real app, you'd use proper storage)
+            export_file_id = str(uuid.uuid4())
+            
+            # Store in a temporary dict (in production, use Redis or database)
+            if not hasattr(self, '_temp_exports'):
+                self._temp_exports = {}
+            
+            self._temp_exports[export_file_id] = {
+                'data': audio_bytes,
+                'filename': f"{filename}.{format}",
+                'content_type': 'audio/wav' if format == 'wav' else f'audio/{format}',
+                'size': file_size
+            }
+            
+            return {
+                'file_id': export_file_id,
+                'download_url': f"/api/audio/download-export/{export_file_id}",
+                'file_size': file_size,
+                'duration': float(duration),
+                'sample_rate': sample_rate,
+                'format': format,
+                'filename': f"{filename}.{format}"
+            }
+            
+        except Exception as e:
+            current_app.logger.error(f"Error exporting song from structure: {e}")
+            raise Exception(f"Failed to export song: {str(e)}")
+    
+    def get_export_file(self, file_id: str) -> Dict:
+        """Get exported file data"""
+        if hasattr(self, '_temp_exports') and file_id in self._temp_exports:
+            return self._temp_exports[file_id]
+        raise FileNotFoundError(f"Export file not found: {file_id}")
+    
+    
     def _extract_metadata(self, filepath: str, audio_data: np.ndarray, sample_rate: int) -> Dict:
         """Extract metadata from audio file"""
         try:

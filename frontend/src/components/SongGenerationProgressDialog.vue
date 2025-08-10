@@ -69,7 +69,8 @@
             :class="{ 
               'active': agent.status === 'active',
               'completed': agent.status === 'completed',
-              'pending': agent.status === 'pending'
+              'pending': agent.status === 'pending',
+              'skipped': agent.status === 'skipped'
             }"
           >
             <div class="agent-number">{{ index + 1 }}</div>
@@ -88,6 +89,10 @@
                 <span v-else-if="agent.status === 'completed'" class="status-completed">
                   <Check :size="12" />
                   {{ $t('songGeneration.completed') }}
+                </span>
+                <span v-else-if="agent.status === 'skipped'" class="status-skipped">
+                  <X :size="12" />
+                  {{ $t('songGeneration.skipped') }}
                 </span>
                 <span v-else class="status-pending">
                   <Clock :size="12" />
@@ -114,6 +119,100 @@
           </div>
         </div>
 
+        <!-- User Decision Required -->
+        <div v-if="userDecisionData" class="user-decision-panel">
+          <div class="decision-header">
+            <div class="decision-icon">
+              <CheckCircle :size="20" />
+            </div>
+            <div class="decision-title">
+              {{ $t('songGeneration.userDecision.title') }}
+            </div>
+          </div>
+          
+          <!-- Song Information -->
+          <div v-if="userDecisionData.song_info" class="song-info">
+            <h4>{{ userDecisionData.song_info.title }}</h4>
+            <p class="song-description">{{ userDecisionData.song_info.description }}</p>
+            <div class="song-details">
+              <span class="detail-item">
+                <strong>{{ $t('songGeneration.genre') }}:</strong> {{ userDecisionData.song_info.genre }}
+              </span>
+              <span class="detail-item">
+                <strong>{{ $t('songGeneration.mood') }}:</strong> {{ userDecisionData.song_info.mood }}
+              </span>
+              <span class="detail-item">
+                <strong>{{ $t('songGeneration.duration') }}:</strong> {{ userDecisionData.song_info.duration }}s
+              </span>
+            </div>
+          </div>
+
+          <!-- Quality Assessment -->
+          <div v-if="userDecisionData.quality_assessment" class="quality-assessment">
+            <h5>{{ $t('songGeneration.userDecision.qualityAssessment') }}</h5>
+            <div class="assessment-scores">
+              <div class="score-item">
+                <span class="score-label">{{ $t('songGeneration.creativity') }}:</span>
+                <span class="score-value">{{ userDecisionData.quality_assessment.creativity_score }}/10</span>
+              </div>
+              <div class="score-item">
+                <span class="score-label">{{ $t('songGeneration.coherence') }}:</span>
+                <span class="score-value">{{ userDecisionData.quality_assessment.coherence_score }}/10</span>
+              </div>
+              <div class="score-item">
+                <span class="score-label">{{ $t('songGeneration.overall') }}:</span>
+                <span class="score-value">{{ userDecisionData.quality_assessment.overall_score }}/10</span>
+              </div>
+            </div>
+            <div v-if="userDecisionData.quality_assessment.feedback" class="assessment-feedback">
+              <p>{{ userDecisionData.quality_assessment.feedback }}</p>
+            </div>
+          </div>
+
+          <!-- User Decision Options -->
+          <div class="decision-actions">
+            <div class="decision-prompt">
+              {{ $t('songGeneration.userDecision.prompt') }}
+            </div>
+            <div class="decision-buttons">
+              <button 
+                @click="submitUserDecision('accept')" 
+                class="btn btn-success decision-btn"
+                :disabled="submittingDecision"
+              >
+                <Check :size="16" />
+                {{ $t('songGeneration.userDecision.accept') }}
+              </button>
+              <button 
+                @click="submitUserDecision('improve')" 
+                class="btn btn-warning decision-btn"
+                :disabled="submittingDecision"
+              >
+                <Search :size="16" />
+                {{ $t('songGeneration.userDecision.improve') }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- QA Restart Feedback -->
+        <div v-if="restartFeedback" class="restart-feedback">
+          <div class="restart-header">
+            <div class="restart-icon">
+              <Search :size="16" />
+            </div>
+            <div class="restart-title">
+              {{ $t('songGeneration.qaRestart.title', { attempt: restartFeedback.attempt }) }}
+            </div>
+          </div>
+          <div class="restart-reason">
+            {{ restartFeedback.reason }}
+          </div>
+          <div class="restart-action">
+            {{ $t('songGeneration.qaRestart.improving') }}
+          </div>
+        </div>
+
         <!-- Cancel Button -->
         <div class="progress-actions">
           <button @click="cancelGeneration" class="btn btn-secondary">
@@ -127,7 +226,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { computed, watch, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { 
   Music, 
@@ -145,11 +244,6 @@ import {
   Clock
 } from 'lucide-vue-next'
 
-interface Agent {
-  id: string
-  icon: any
-  status: 'pending' | 'active' | 'completed'
-}
 
 interface Props {
   isVisible: boolean
@@ -158,12 +252,33 @@ interface Props {
   isCompleted?: boolean
   isMultiAgentSuccess?: boolean
   projectInfo?: { name: string; track_count: number } | null
+  isInstrumental?: boolean
 }
 
 interface Emits {
   (e: 'cancel'): void
   (e: 'close'): void
   (e: 'proceed'): void
+  (e: 'user-decision', decision: { choice: 'accept' | 'improve'; feedback_note?: string }): void
+}
+
+// User Decision Data Interface
+interface UserDecisionData {
+  type: 'user_decision_required'
+  song_info?: {
+    title: string
+    description: string
+    genre: string
+    mood: string
+    duration: number
+  }
+  quality_assessment?: {
+    creativity_score: number
+    coherence_score: number
+    overall_score: number
+    feedback: string
+  }
+  can_restart: boolean
 }
 
 const { t } = useI18n()
@@ -171,60 +286,116 @@ const { t } = useI18n()
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-// Agent definitions with icons and descriptions
-const agents = ref<Agent[]>([
-  {
-    id: 'composer',
-    icon: FileMusic,
-    status: 'pending'
-  },
-  {
-    id: 'arrangement',
-    icon: Sliders,
-    status: 'pending'
-  },
-  {
-    id: 'lyrics',
-    icon: FileMusic,
-    status: 'pending'
-  },
-  {
-    id: 'vocal',
-    icon: Mic,
-    status: 'pending'
-  },
-  {
-    id: 'instrument',
-    icon: Piano,
-    status: 'pending'
-  },
-  {
-    id: 'effects',
-    icon: Volume2,
-    status: 'pending'
-  },
-  {
-    id: 'review',
-    icon: Search,
-    status: 'pending'
-  },
-  {
-    id: 'design',
-    icon: Palette,
-    status: 'pending'
-  },
-  {
-    id: 'qa',
-    icon: CheckCircle,
-    status: 'pending'
+// QA Restart Feedback
+const restartFeedback = ref<{ reason: string; attempt: number } | null>(null)
+
+// User Decision Data
+const userDecisionData = ref<UserDecisionData | null>(null)
+const submittingDecision = ref(false)
+
+// Expose function to set restart feedback (called from parent)
+const setRestartFeedback = (reason: string, attempt: number) => {
+  restartFeedback.value = { reason, attempt }
+  // Clear feedback after 10 seconds
+  setTimeout(() => {
+    restartFeedback.value = null
+  }, 10000)
+}
+
+// Expose function to set user decision data (called from parent)
+const setUserDecisionData = (data: UserDecisionData) => {
+  userDecisionData.value = data
+}
+
+// Submit user decision
+const submitUserDecision = async (choice: 'accept' | 'improve') => {
+  if (submittingDecision.value) return
+  
+  submittingDecision.value = true
+  try {
+    // Emit decision to parent component
+    emit('user-decision', { choice })
+    
+    // Clear user decision data after submission
+    userDecisionData.value = null
+  } catch (error) {
+    console.error('Error submitting user decision:', error)
+  } finally {
+    submittingDecision.value = false
   }
-])
+}
+
+// Expose the functions for parent component
+defineExpose({ 
+  setRestartFeedback, 
+  setUserDecisionData 
+})
+
+// Agent definitions with icons and descriptions
+const agents = computed(() => {
+  const allAgents = [
+    {
+      id: 'composer',
+      icon: FileMusic,
+      status: 'pending'
+    },
+    {
+      id: 'arrangement',
+      icon: Sliders,
+      status: 'pending'
+    },
+    {
+      id: 'lyrics',
+      icon: FileMusic,
+      status: props.isInstrumental ? 'skipped' : 'pending'
+    },
+    {
+      id: 'vocal',
+      icon: Mic,
+      status: props.isInstrumental ? 'skipped' : 'pending'
+    }
+  ]
+
+  // Add remaining agents
+  allAgents.push(
+    {
+      id: 'instrument',
+      icon: Piano,
+      status: 'pending'
+    },
+    {
+      id: 'effects',
+      icon: Volume2,
+      status: 'pending'
+    },
+    {
+      id: 'review',
+      icon: Search,
+      status: 'pending'
+    },
+    {
+      id: 'design',
+      icon: Palette,
+      status: 'pending'
+    },
+    {
+      id: 'qa',
+      icon: CheckCircle,
+      status: 'pending'
+    }
+  )
+
+  return allAgents
+})
 
 const progressPercentage = computed(() => {
-  const totalAgents = agents.value.length
-  const completedCount = props.completedAgents.length
-  const currentCount = props.currentAgent ? 1 : 0
-  return ((completedCount + currentCount * 0.5) / totalAgents) * 100
+  // Filter completed agents to only include relevant ones for this track type
+  const relevantAgentIds = agents.value.filter(agent => agent.status !== 'skipped').map(agent => agent.id)
+  const relevantCompletedCount = props.completedAgents.filter(agentId => 
+    relevantAgentIds.includes(agentId)
+  ).length
+  const currentCount = props.currentAgent && relevantAgentIds.includes(props.currentAgent) ? 1 : 0
+  return ((relevantCompletedCount + currentCount * 0.5) / relevantAgentIds.length) * 100
 })
 
 const currentAgentName = computed(() => {
@@ -238,9 +409,12 @@ const currentAgentDescription = computed(() => {
 })
 
 // Update agent statuses based on props
-watch([() => props.currentAgent, () => props.completedAgents], () => {
+watch([() => props.currentAgent, () => props.completedAgents, () => props.isInstrumental], () => {
   agents.value.forEach(agent => {
-    if (props.completedAgents.includes(agent.id)) {
+    // Skip lyrics and vocal agents for instrumental tracks
+    if (props.isInstrumental && (agent.id === 'lyrics' || agent.id === 'vocal')) {
+      agent.status = 'skipped'
+    } else if (props.completedAgents.includes(agent.id)) {
       agent.status = 'completed'
     } else if (agent.id === props.currentAgent) {
       agent.status = 'active'
@@ -288,8 +462,30 @@ const handleProceed = () => {
   width: 90%;
   max-width: 600px;
   max-height: 90vh;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Custom scrollbar */
+.progress-dialog::-webkit-scrollbar {
+  width: 8px;
+}
+
+.progress-dialog::-webkit-scrollbar-track {
+  background: var(--surface-elevated);
+  border-radius: 4px;
+}
+
+.progress-dialog::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 4px;
+}
+
+.progress-dialog::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
 }
 
 /* Dark theme support */
@@ -333,6 +529,8 @@ const handleProceed = () => {
 
 .progress-content {
   padding: 1.5rem;
+  flex: 1;
+  min-height: 0;
 }
 
 @keyframes float {
@@ -531,6 +729,23 @@ const handleProceed = () => {
   color: white;
 }
 
+.agent-card.skipped {
+  border-color: var(--text-secondary);
+  background: var(--surface-elevated);
+  opacity: 0.7;
+}
+
+.agent-card.skipped .agent-number {
+  background: var(--text-secondary);
+  color: white;
+}
+
+.agent-card.skipped .agent-icon {
+  background: var(--text-secondary);
+  color: white;
+  opacity: 0.7;
+}
+
 @keyframes pulse {
   0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(158, 127, 255, 0.7); }
   70% { transform: scale(1.05); box-shadow: 0 0 0 10px rgba(158, 127, 255, 0); }
@@ -602,6 +817,15 @@ const handleProceed = () => {
   gap: 0.25rem;
 }
 
+.status-skipped {
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  opacity: 0.7;
+  font-style: italic;
+}
+
 /* Current Phase - Updated styling */
 .current-phase {
   text-align: center;
@@ -658,6 +882,65 @@ const handleProceed = () => {
   background: var(--primary);
   transform: scale(1.2);
   box-shadow: 0 0 8px rgba(158, 127, 255, 0.5);
+}
+
+/* QA Restart Feedback */
+.restart-feedback {
+  background: linear-gradient(135deg, rgba(255, 193, 7, 0.1) 0%, rgba(255, 193, 7, 0.05) 100%);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 12px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  animation: slideInRestart 0.3s ease-out;
+}
+
+.restart-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.restart-icon {
+  background: rgba(255, 193, 7, 0.2);
+  border-radius: 8px;
+  padding: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgb(255, 193, 7);
+}
+
+.restart-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: rgb(217, 119, 6);
+}
+
+.restart-reason {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+  line-height: 1.4;
+  padding-left: 0.25rem;
+}
+
+.restart-action {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-style: italic;
+  padding-left: 0.25rem;
+}
+
+@keyframes slideInRestart {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Actions - Updated to match GenerateSongDialog button style */
@@ -833,6 +1116,236 @@ const handleProceed = () => {
   .progress-dialog {
     margin: 1rem;
     width: calc(100% - 2rem);
+  }
+}
+
+/* User Decision Panel */
+.user-decision-panel {
+  background: linear-gradient(135deg, var(--surface-elevated) 0%, rgba(59, 130, 246, 0.05) 100%);
+  border: 2px solid var(--primary);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin: 1rem 0 2rem 0;
+  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.1);
+}
+
+.decision-header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.decision-icon {
+  background: var(--primary);
+  color: white;
+  padding: 0.5rem;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.decision-title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.song-info {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.song-info h4 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.song-description {
+  margin: 0 0 0.75rem 0;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.song-details {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.detail-item {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.detail-item strong {
+  color: var(--text);
+}
+
+.quality-assessment {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.quality-assessment h5 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.assessment-scores {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.score-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: var(--surface-elevated);
+  border-radius: 6px;
+}
+
+.score-label {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.score-value {
+  font-weight: 600;
+  color: var(--primary);
+}
+
+.assessment-feedback {
+  padding: 0.75rem;
+  background: var(--surface-elevated);
+  border-radius: 6px;
+  border-left: 3px solid var(--primary);
+}
+
+.assessment-feedback p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-style: italic;
+  line-height: 1.5;
+}
+
+.decision-actions {
+  margin-top: 1.5rem;
+  padding-bottom: 1rem;
+}
+
+.decision-prompt {
+  text-align: center;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 1rem;
+}
+
+.decision-buttons {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  padding-top: 0.5rem;
+}
+
+.decision-btn {
+  min-width: 140px;
+  padding: 0.75rem 1.5rem;
+  font-weight: 500;
+  border-radius: 8px;
+  transition: all var(--transition-normal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.decision-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none !important;
+}
+
+.btn-success {
+  background: var(--success);
+  color: white;
+  border: 1px solid var(--success);
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #16a34a;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+.btn-warning {
+  background: #f59e0b;
+  color: white;
+  border: 1px solid #f59e0b;
+}
+
+.btn-warning:hover:not(:disabled) {
+  background: #d97706;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
+}
+
+/* Dark theme support for user decision panel */
+@media (prefers-color-scheme: dark) {
+  .user-decision-panel {
+    background: linear-gradient(135deg, rgba(31, 41, 55, 0.9) 0%, rgba(59, 130, 246, 0.1) 100%);
+    border-color: rgba(59, 130, 246, 0.6);
+  }
+  
+  .song-info,
+  .quality-assessment {
+    background: rgba(31, 41, 55, 0.8);
+    border-color: rgba(75, 85, 99, 0.6);
+  }
+  
+  .score-item,
+  .assessment-feedback {
+    background: rgba(31, 41, 55, 0.6);
+  }
+}
+
+/* Mobile responsiveness for decision panel */
+@media (max-width: 768px) {
+  .user-decision-panel {
+    padding: 1rem;
+    margin: 0.75rem 0;
+  }
+  
+  .decision-buttons {
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  
+  .decision-btn {
+    width: 100%;
+  }
+  
+  .song-details {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  
+  .assessment-scores {
+    grid-template-columns: 1fr;
   }
 }
 </style>

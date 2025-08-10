@@ -43,9 +43,11 @@
       <!-- Settings Tab -->
       <div v-if="activeTab === 'settings'" class="tab-panel">
         <div class="settings-panel">
-          <div class="panel-header align-timeline-header">
-            <Settings class="header-icon" />
-            <h3>Settings</h3>
+          <div class="settings-header">
+            <div class="header-title">
+              <Settings class="header-icon" />
+              <h3>Settings</h3>
+            </div>
           </div>
           
           <div class="settings-content">
@@ -150,6 +152,39 @@
             </div>
             
             <div class="setting-section">
+              <h4>SoundFont Library</h4>
+              
+              <div class="setting-item">
+                <label>Upload SoundFont Files</label>
+                <button class="btn btn-primary" @click="openSoundFontUpload">
+                  <Upload class="icon" />
+                  Upload SF2 Files
+                </button>
+              </div>
+              
+              <div v-if="soundfontProcessing" class="soundfont-progress">
+                <div class="progress-bar">
+                  <div class="progress-fill" :style="{ width: `${soundfontProgress}%` }"></div>
+                </div>
+                <p class="progress-text">{{ soundfontStatusMessage }}</p>
+              </div>
+              
+              <div v-if="soundfontFiles.length > 0" class="soundfont-files">
+                <p class="files-header">Uploaded SoundFont Files ({{ soundfontFiles.length }}):</p>
+                <div class="file-list">
+                  <div 
+                    v-for="file in soundfontFiles" 
+                    :key="file.name"
+                    class="file-item"
+                  >
+                    <span class="file-name">{{ file.name }}</span>
+                    <span class="file-status" :class="file.status">{{ formatFileStatus(file.status) }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="setting-section">
               <h4>Actions</h4>
               
               <button class="btn btn-ghost full-width" @click="openDiagnostics">
@@ -233,9 +268,173 @@ const exportQuality = ref('high')
 // Diagnostics dialog state
 const showDiagnostics = ref(false)
 
+// SoundFont upload state
+const soundfontProcessing = ref(false)
+const soundfontProgress = ref(0)
+const soundfontStatusMessage = ref('')
+const soundfontFiles = ref<Array<{ name: string; status: string; instruments?: number }>>([])
+
 // Methods
 const formatPresetName = (name: string): string => {
   return name.charAt(0).toUpperCase() + name.slice(1)
+}
+
+const formatFileStatus = (status: string): string => {
+  switch (status) {
+    case 'uploading': return 'Uploading...'
+    case 'processing': return 'Processing...'
+    case 'completed': return 'Completed'
+    case 'error': return 'Error'
+    default: return status
+  }
+}
+
+const openSoundFontUpload = () => {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = '.sf2'
+  input.multiple = true
+  input.onchange = (e) => {
+    const files = (e.target as HTMLInputElement).files
+    if (files && files.length > 0) {
+      uploadSoundFontFiles(Array.from(files))
+    }
+  }
+  input.click()
+}
+
+const uploadSoundFontFiles = async (files: File[]) => {
+  soundfontProcessing.value = true
+  soundfontProgress.value = 0
+  soundfontStatusMessage.value = 'Preparing upload...'
+  
+  // Add files to list with uploading status
+  files.forEach(file => {
+    soundfontFiles.value.push({
+      name: file.name,
+      status: 'uploading'
+    })
+  })
+  
+  try {
+    const formData = new FormData()
+    files.forEach(file => {
+      formData.append('soundfonts', file)
+    })
+    
+    // Upload files
+    soundfontStatusMessage.value = 'Uploading files...'
+    soundfontProgress.value = 20
+    
+    console.log('Uploading to:', '/api/audio/soundfont/upload')
+    const response = await fetch('/api/audio/soundfont/upload', {
+      method: 'POST',
+      body: formData
+    })
+    
+    console.log('Upload response status:', response.status)
+    
+    if (!response.ok) {
+      const errorText = await response.text()
+      console.log('Upload error response:', errorText)
+      throw new Error(`Upload failed: ${response.status} ${response.statusText} - ${errorText}`)
+    }
+    
+    const result = await response.json()
+    console.log('Upload result:', result)
+    
+    if (!result.job_id) {
+      throw new Error('No job ID returned from server')
+    }
+    
+    // Update status to processing
+    soundfontFiles.value.forEach(file => {
+      if (file.status === 'uploading') {
+        file.status = 'processing'
+      }
+    })
+    
+    soundfontStatusMessage.value = 'Processing SoundFont files...'
+    soundfontProgress.value = 40
+    
+    // Poll for processing status
+    await pollSoundFontProcessing(result.job_id)
+    
+  } catch (error) {
+    console.error('SoundFont upload error:', error)
+    soundfontStatusMessage.value = `Error: ${error instanceof Error ? error.message : String(error)}`
+    
+    // Mark files as error
+    soundfontFiles.value.forEach(file => {
+      if (file.status === 'uploading' || file.status === 'processing') {
+        file.status = 'error'
+      }
+    })
+  } finally {
+    soundfontProcessing.value = false
+  }
+}
+
+const pollSoundFontProcessing = async (jobId: string) => {
+  const maxAttempts = 30 // 5 minutes max
+  let attempts = 0
+  
+  console.log('Starting to poll job status for jobId:', jobId)
+  
+  while (attempts < maxAttempts) {
+    try {
+      const statusUrl = `/api/audio/soundfont/status/${jobId}`
+      console.log(`Polling attempt ${attempts + 1}/${maxAttempts} - URL: ${statusUrl}`)
+      
+      const response = await fetch(statusUrl)
+      console.log('Status response status:', response.status)
+      
+      if (!response.ok) {
+        const errorText = await response.text()
+        console.log('Status error response:', errorText)
+        throw new Error(`Status check failed: ${response.status} ${response.statusText} - ${errorText}`)
+      }
+      
+      const status = await response.json()
+      console.log('Status response:', status)
+      
+      soundfontProgress.value = Math.min(40 + (status.progress || 0) * 0.6, 100)
+      soundfontStatusMessage.value = status.message || 'Processing...'
+      
+      if (status.completed) {
+        console.log('Job completed successfully')
+        // Update file statuses
+        soundfontFiles.value.forEach(file => {
+          if (file.status === 'processing') {
+            file.status = 'completed'
+            file.instruments = status.results?.[file.name]?.instruments_generated || 0
+          }
+        })
+        
+        soundfontStatusMessage.value = `Completed! Generated ${status.total_instruments || 0} instruments`
+        soundfontProgress.value = 100
+        break
+      }
+      
+      if (status.error) {
+        console.log('Job failed with error:', status.error)
+        throw new Error(status.error)
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 10000)) // Wait 10 seconds
+      attempts++
+      
+    } catch (error) {
+      console.error('Status check error:', error)
+      soundfontStatusMessage.value = `Error: ${error instanceof Error ? error.message : String(error)}`
+      break
+    }
+  }
+  
+  if (attempts >= maxAttempts) {
+    console.log('Polling timed out after', maxAttempts, 'attempts')
+    soundfontStatusMessage.value = 'Processing timed out. Please check the server.'
+  }
 }
 
 const openDiagnostics = () => {
@@ -386,10 +585,31 @@ const importSettings = () => {
   transition: all var(--transition-normal);
 }
 
+.settings-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
 .header-icon {
   width: 20px;
   height: 20px;
   color: var(--primary);
+}
+
+.header-title h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  color: var(--text);
 }
 
 .panel-header h3 {
@@ -549,6 +769,97 @@ const importSettings = () => {
   width: 100%;
   justify-content: center;
   margin-bottom: 0.5rem;
+}
+
+.soundfont-progress {
+  margin-top: 1rem;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--primary), var(--secondary));
+  transition: width 0.3s ease;
+}
+
+.progress-text {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  margin: 0;
+  text-align: center;
+}
+
+.soundfont-files {
+  margin-top: 1rem;
+}
+
+.files-header {
+  font-size: 0.875rem;
+  color: var(--text);
+  margin: 0 0 0.75rem 0;
+  font-weight: 500;
+}
+
+.file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.file-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 0.75rem;
+}
+
+.file-name {
+  color: var(--text);
+  font-weight: 500;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-status {
+  font-size: 0.625rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.file-status.uploading {
+  background: var(--warning);
+  color: white;
+}
+
+.file-status.processing {
+  background: var(--info);
+  color: white;
+}
+
+.file-status.completed {
+  background: var(--success);
+  color: white;
+}
+
+.file-status.error {
+  background: var(--error);
+  color: white;
 }
 
 .empty-state {

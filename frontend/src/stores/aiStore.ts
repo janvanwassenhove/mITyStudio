@@ -41,8 +41,8 @@ export const useAIStore = defineStore('ai', () => {
   // State
   const messages = ref<ChatMessage[]>([])
   const isGenerating = ref(false)
-  const selectedProvider = ref('anthropic')
-  const selectedModel = ref('claude-4-sonnet')
+  const selectedProvider = ref('openai')  // Default to OpenAI since GPT-5 is now available
+  const selectedModel = ref('gpt-5')      // Default to GPT-5 for best performance
   
   const providers: AIProvider[] = [
     {
@@ -66,14 +66,45 @@ export const useAIStore = defineStore('ai', () => {
       id: 'openai',
       name: 'OpenAI',
       models: [
+        // GPT-5 Family (Latest)
+        'gpt-5',
+        'gpt-5-2025-08-07',
+        'gpt-5-chat-latest',
+        'gpt-5-mini',
+        'gpt-5-mini-2025-08-07',
+        'gpt-5-nano',
+        'gpt-5-nano-2025-08-07',
+        // o1 Family (Reasoning)
+        'o1-pro',
+        'o1-pro-2025-03-19',
+        'o1',
+        'o1-2024-12-17',
+        'o1-mini',
+        'o1-mini-2024-09-12',
+        // GPT-4.1 Family
+        'gpt-4.1',
+        'gpt-4.1-2025-04-14',
+        'gpt-4.1-mini',
+        'gpt-4.1-mini-2025-04-14',
+        'gpt-4.1-nano',
+        'gpt-4.1-nano-2025-04-14',
+        // GPT-4o Family
+        'chatgpt-4o-latest',
         'gpt-4o',
+        'gpt-4o-2024-11-20',
+        'gpt-4o-2024-08-06',
+        'gpt-4o-2024-05-13',
         'gpt-4o-mini',
+        'gpt-4o-mini-2024-07-18',
+        // GPT-4 Family
         'gpt-4-turbo',
+        'gpt-4-turbo-2024-04-09',
         'gpt-4-turbo-preview',
         'gpt-4-0125-preview',
         'gpt-4-1106-preview',
         'gpt-4',
         'gpt-4-0613',
+        // GPT-3.5 Family
         'gpt-3.5-turbo',
         'gpt-3.5-turbo-0125',
         'gpt-3.5-turbo-1106',

@@ -28,9 +28,9 @@
           <Music class="icon" />
           {{ $t('header.generateSong') }}
         </button>
-        <button class="btn btn-primary" @click="exportProject">
+        <button class="btn btn-primary" @click="showExportSongDialog = true">
           <Download class="icon" />
-          {{ $t('header.export') }}
+          {{ $t('header.exportSong') }}
         </button>
       </nav>
       
@@ -54,6 +54,11 @@
     :show="showGenerateSongDialog" 
     @close="showGenerateSongDialog = false" 
   />
+  
+  <ExportSongDialog 
+    :show="showExportSongDialog" 
+    @close="showExportSongDialog = false" 
+  />
 </template>
 
 <script setup lang="ts">
@@ -65,6 +70,7 @@ import { projectService } from '../services/projectService'
 import { Music, FileText, FolderOpen, Save, Download } from 'lucide-vue-next'
 import ThemeToggle from './ThemeToggle.vue'
 import GenerateSongDialog from './GenerateSongDialog.vue'
+import ExportSongDialog from './ExportSongDialog.vue'
 
 const { locale, t } = useI18n()
 const audioStore = useAudioStore()
@@ -72,6 +78,7 @@ const themeStore = useThemeStore()
 
 const currentLocale = ref(locale.value)
 const showGenerateSongDialog = ref(false)
+const showExportSongDialog = ref(false)
 
 const changeLocale = () => {
   locale.value = currentLocale.value
@@ -138,7 +145,7 @@ const saveProject = async () => {
 }
 
 const exportProject = () => {
-  // Export functionality would be implemented here
+  // Legacy export functionality - kept for backwards compatibility
   alert(t('dialogs.exportSoon'))
 }
 

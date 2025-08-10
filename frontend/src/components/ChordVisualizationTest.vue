@@ -1,28 +1,37 @@
 <template>
   <div class="chord-panel">
-    <div class="panel-header">
-      <h3>🎶 Chord Editor</h3>
-      <p v-if="!selectedClip">Select a clip in the timeline to edit its chord sequence</p>
-      <p v-else>Editing chord sequence for {{ selectedClip.instrument }} clip</p>
-    </div>
-
-    <!-- Selected Clip Info -->
-    <div v-if="selectedClip" class="clip-info">
-      <div class="clip-details">
-        <div class="detail-row">
-          <label>Instrument:</label>
-          <span>{{ selectedClip.instrument }}</span>
-        </div>
-        <div class="detail-row">
-          <label>Duration:</label>
-          <span>{{ clipDuration }}s</span>
-        </div>
-        <div class="detail-row">
-          <label>Type:</label>
-          <span>{{ selectedClip.type }}</span>
-        </div>
+    <div class="chord-header">
+      <div class="header-title">
+        <Music2 class="header-icon" />
+        <h3>Chord Editor</h3>
       </div>
     </div>
+    
+    <div class="chord-content">
+      <div v-if="!selectedClip" class="no-selection">
+        <p>Select a clip in the timeline to edit its chord sequence</p>
+      </div>
+      <div v-else class="editing-info">
+        <p>Editing chord sequence for {{ selectedClip.instrument }} clip</p>
+      </div>
+
+      <!-- Selected Clip Info -->
+      <div v-if="selectedClip" class="clip-info">
+        <div class="clip-details">
+          <div class="detail-row">
+            <label>Instrument:</label>
+            <span>{{ selectedClip.instrument }}</span>
+          </div>
+          <div class="detail-row">
+            <label>Duration:</label>
+            <span>{{ clipDuration }}s</span>
+          </div>
+          <div class="detail-row">
+            <label>Type:</label>
+            <span>{{ selectedClip.type }}</span>
+          </div>
+        </div>
+      </div>
 
     <!-- Chord Sequence Editor -->
     <div v-if="selectedClip && selectedClip.notes" class="chord-editor">
@@ -187,12 +196,16 @@
       <h4>No Clip Selected</h4>
       <p>Select a clip in the timeline editor to edit its chord sequence and sample duration.</p>
     </div>
+    
+    </div> <!-- close chord-content -->
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
+import { Music2 } from 'lucide-vue-next'
 import { useAudioStore } from '../stores/audioStore'
+import { ChordService } from '../services/chordService'
 
 const audioStore = useAudioStore()
 
@@ -284,10 +297,14 @@ watch(
     })
     
     if (newClip) {
-      // Load chord sequence from clip notes
+      // Analyze chord sequence from clip notes
       const clipNotes = newClip.notes || []
-      console.log('Loading chord sequence from clip:', clipNotes)
-      chordSequence.value = [...clipNotes]
+      console.log('Analyzing chord sequence from clip notes:', clipNotes)
+      
+      // Use chord analysis to detect chords from the notes
+      const detectedChords = ChordService.analyzeNotesToChords(clipNotes)
+      console.log('Detected chords:', detectedChords)
+      chordSequence.value = [...detectedChords]
       
       // Load sample duration - clamp to slider range
       const clipSampleDuration = newClip.sampleDuration || 1
@@ -453,26 +470,54 @@ const handleDrop = (targetIndex: number) => {
 
 <style scoped>
 .chord-panel {
-  background: var(--surface);
-  padding: 1.5rem;
-  border: 1px solid var(--border);
-  margin-bottom: 1rem;
+  background: var(--background);
   height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chord-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--primary);
+}
+
+.header-title h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  color: var(--text);
+}
+
+.chord-content {
+  flex: 1;
   overflow-y: auto;
+  padding: 1rem;
 }
 
-.panel-header {
-  margin-bottom: 1.5rem;
+.no-selection,
+.editing-info {
   text-align: center;
+  margin-bottom: 1rem;
 }
 
-.panel-header h3 {
-  margin: 0 0 0.5rem 0;
-  color: var(--text-primary);
-  font-size: 1.25rem;
-}
-
-.panel-header p {
+.no-selection p,
+.editing-info p {
   margin: 0;
   color: var(--text-secondary);
   font-size: 0.875rem;

@@ -16,7 +16,8 @@
     "openProject": "Open Project",
     "saveProject": "Save Project",
     "generateSong": "Generate Song",
-    "export": "Export Project"
+    "export": "Export Project",
+    "exportSong": "Export Song"
   },
   "tracks": {
     "title": "Tracks",
@@ -206,6 +207,7 @@
     "processing": "Processing",
     "completed": "Completed",
     "pending": "Pending",
+    "skipped": "Skipped (Instrumentals Only)",
     "agents": {
       "composer": "Composer",
       "arrangement": "Arrangement",
@@ -234,7 +236,24 @@
       "fallback": "Song structure created!",
       "projectCreated": "Project \"{name}\" created with {track_count} tracks",
       "tracksVisible": "The generated tracks and clips are now visible in your track list and timeline."
-    }
+    },
+    "qaRestart": {
+      "title": "Quality Check - Attempt {attempt}",
+      "improving": "AI is refining the song for better quality..."
+    },
+    "userDecision": {
+      "title": "Song Quality Review",
+      "qualityAssessment": "Quality Assessment",
+      "prompt": "Would you like to accept this version or have the AI improve it?",
+      "accept": "Accept Song",
+      "improve": "Request Improvements"
+    },
+    "genre": "Genre",
+    "mood": "Mood",
+    "duration": "Duration",
+    "creativity": "Creativity",
+    "coherence": "Coherence",
+    "overall": "Overall Score"
   },
   "common": {
     "cancel": "Cancel",
@@ -250,5 +269,28 @@
     "newProject": "Create a new project? Unsaved changes will be lost.",
     "invalidProject": "Invalid project file",
     "exportSoon": "Export functionality coming soon!"
+  },
+  "exportSong": {
+    "title": "Export Song",
+    "songName": "Song Name",
+    "songNamePlaceholder": "Enter song name...",
+    "format": "Export Format",
+    "quality": "Export Quality",
+    "qualityHigh": "High (320kbps)",
+    "qualityMedium": "Medium (192kbps)",
+    "qualityLow": "Low (128kbps)",
+    "exportFolder": "Export Location",
+    "exportFolderPlaceholder": "Downloads folder",
+    "exportFolderHelp": "Generated audio file will be saved to your Downloads folder",
+    "browse": "Browse",
+    "includeProject": "Include project file",
+    "includeProjectHelp": "Also export the song structure as a JSON project file",
+    "export": "Export Song",
+    "exporting": "Exporting...",
+    "nameRequired": "Song name is required",
+    "success": "Song '{name}' exported successfully as {format}!",
+    "error": "Export failed: {error}",
+    "defaultFolder": "Downloads",
+    "browserLimitation": "Browser limitation: Files will be downloaded to your default Downloads folder"
   }
 }

@@ -9,13 +9,15 @@
   },
   "header": {
     "title": "mITy Studio",
-    "settings": "Configuración",
+    "settings": "Configuraciones",
     "help": "Ayuda",
     "logout": "Cerrar Sesión",
     "newProject": "Nuevo Proyecto",
     "openProject": "Abrir Proyecto",
     "saveProject": "Guardar Proyecto",
-    "export": "Exportar Proyecto"
+    "generateSong": "Generar Canción",
+    "export": "Exportar Proyecto",
+    "exportSong": "Exportar Canción"
   },
   "tracks": {
     "title": "Pistas",
@@ -156,6 +158,29 @@
     "invalidProject": "Archivo de proyecto inválido",
     "exportSoon": "¡La funcionalidad de exportación llegará pronto!"
   },
+  "exportSong": {
+    "title": "Exportar Canción",
+    "songName": "Nombre de la Canción",
+    "songNamePlaceholder": "Ingresa el nombre de la canción...",
+    "format": "Formato de Exportación",
+    "quality": "Calidad de Exportación",
+    "qualityHigh": "Alta (320kbps)",
+    "qualityMedium": "Media (192kbps)",
+    "qualityLow": "Baja (128kbps)",
+    "exportFolder": "Ubicación de Exportación",
+    "exportFolderPlaceholder": "Carpeta de Descargas",
+    "exportFolderHelp": "El archivo de audio generado se guardará en tu carpeta de Descargas",
+    "browse": "Examinar",
+    "includeProject": "Incluir archivo de proyecto",
+    "includeProjectHelp": "También exportar la estructura de la canción como archivo de proyecto JSON",
+    "export": "Exportar Canción",
+    "exporting": "Exportando...",
+    "nameRequired": "El nombre de la canción es requerido",
+    "success": "¡Canción '{name}' exportada exitosamente como {format}!",
+    "error": "Error en la exportación: {error}",
+    "defaultFolder": "Descargas",
+    "browserLimitation": "Limitación del navegador: Los archivos se descargarán a tu carpeta de Descargas predeterminada"
+  },
   "songGeneration": {
     "generating": "Generando Tu Canción",
     "multiAgentSystem": "Sistema IA Multi-Agente en Funcionamiento",
@@ -163,6 +188,7 @@
     "processing": "Procesando",
     "completed": "Completado",
     "pending": "Pendiente",
+    "skipped": "Omitido (Solo Instrumental)",
     "agents": {
       "composer": "Compositor",
       "arrangement": "Arreglo",
@@ -191,6 +217,10 @@
       "fallback": "¡Estructura de canción creada!",
       "projectCreated": "Proyecto \"{name}\" creado con {track_count} pistas",
       "tracksVisible": "Las pistas y clips generados ahora son visibles en tu lista de pistas y línea de tiempo."
+    },
+    "qaRestart": {
+      "title": "Control de Calidad - Intento {attempt}",
+      "improving": "La IA está refinando la canción para mejor calidad..."
     }
   },
   "common": {

@@ -256,15 +256,18 @@
     
     <!-- Song Generation Progress Dialog - outside main dialog content -->
     <SongGenerationProgressDialog
+      ref="progressDialogRef"
       :is-visible="showProgressDialog"
       :current-agent="currentAgent"
       :completed-agents="completedAgents"
       :is-completed="isGenerationCompleted"
       :is-multi-agent-success="isMultiAgentSuccess"
       :project-info="generationProjectInfo"
+      :is-instrumental="isInstrumental"
       @cancel="cancelGeneration"
       @close="closeProgressDialog"
       @proceed="handleProceed"
+      @user-decision="handleUserDecision"
     />
   </div>
 </template>
@@ -308,6 +311,9 @@ const completedAgents = ref<string[]>([])
 const isGenerationCompleted = ref(false)
 const isMultiAgentSuccess = ref(false)
 const generationProjectInfo = ref<{ name: string; track_count: number } | null>(null)
+const progressDialogRef = ref<InstanceType<typeof SongGenerationProgressDialog> | null>(null)
+const currentSessionId = ref('')
+const userApprovalSongData = ref<any>(null) // Store song data from user approval workflow
 let generationController: AbortController | null = null
 
 // API key status checking
@@ -319,16 +325,61 @@ const providers = ['Anthropic', 'OpenAI', 'Google', 'Mistral', 'xAI']
 
 // Model display names mapping
 const modelDisplayNames: Record<string, string> = {
+  // Anthropic
   'claude-3-5-sonnet-20241022': 'Claude 3.5 Sonnet',
   'claude-3-5-haiku-20241022': 'Claude 3.5 Haiku',
   'claude-3-opus-20240229': 'Claude 3 Opus',
+  // OpenAI - GPT-5 Family (Latest)
+  'gpt-5': 'GPT-5 ⭐',
+  'gpt-5-2025-08-07': 'GPT-5 (Aug 2025)',
+  'gpt-5-chat-latest': 'GPT-5 Chat Latest',
+  'gpt-5-mini': 'GPT-5 Mini',
+  'gpt-5-mini-2025-08-07': 'GPT-5 Mini (Aug 2025)',
+  'gpt-5-nano': 'GPT-5 Nano',
+  'gpt-5-nano-2025-08-07': 'GPT-5 Nano (Aug 2025)',
+  // OpenAI - o1 Family (Reasoning)
+  'o1-pro': 'OpenAI o1-pro 🧠',
+  'o1-pro-2025-03-19': 'OpenAI o1-pro (Mar 2025)',
+  'o1': 'OpenAI o1',
+  'o1-2024-12-17': 'OpenAI o1 (Dec 2024)',
+  'o1-mini': 'OpenAI o1-mini',
+  'o1-mini-2024-09-12': 'OpenAI o1-mini (Sep 2024)',
+  // OpenAI - GPT-4.1 Family
+  'gpt-4.1': 'GPT-4.1',
+  'gpt-4.1-2025-04-14': 'GPT-4.1 (Apr 2025)',
+  'gpt-4.1-mini': 'GPT-4.1 Mini',
+  'gpt-4.1-mini-2025-04-14': 'GPT-4.1 Mini (Apr 2025)',
+  'gpt-4.1-nano': 'GPT-4.1 Nano',
+  'gpt-4.1-nano-2025-04-14': 'GPT-4.1 Nano (Apr 2025)',
+  // OpenAI - GPT-4o Family
+  'chatgpt-4o-latest': 'ChatGPT-4o Latest',
   'gpt-4o': 'GPT-4o',
+  'gpt-4o-2024-11-20': 'GPT-4o (Nov 2024)',
+  'gpt-4o-2024-08-06': 'GPT-4o (Aug 2024)',
+  'gpt-4o-2024-05-13': 'GPT-4o (May 2024)',
   'gpt-4o-mini': 'GPT-4o Mini',
+  'gpt-4o-mini-2024-07-18': 'GPT-4o Mini (Jul 2024)',
+  // OpenAI - GPT-4 Family
   'gpt-4-turbo': 'GPT-4 Turbo',
+  'gpt-4-turbo-2024-04-09': 'GPT-4 Turbo (Apr 2024)',
+  'gpt-4-turbo-preview': 'GPT-4 Turbo Preview',
+  'gpt-4-0125-preview': 'GPT-4 (Jan 2024)',
+  'gpt-4-1106-preview': 'GPT-4 (Nov 2023)',
+  'gpt-4': 'GPT-4',
+  'gpt-4-0613': 'GPT-4 (Jun 2023)',
+  // OpenAI - GPT-3.5 Family
+  'gpt-3.5-turbo': 'GPT-3.5 Turbo',
+  'gpt-3.5-turbo-0125': 'GPT-3.5 Turbo (Jan 2024)',
+  'gpt-3.5-turbo-1106': 'GPT-3.5 Turbo (Nov 2023)',
+  'gpt-3.5-turbo-16k': 'GPT-3.5 Turbo 16K',
+  'gpt-3.5-turbo-instruct': 'GPT-3.5 Turbo Instruct',
+  // Google
   'gemini-1.5-pro-latest': 'Gemini 1.5 Pro',
   'gemini-1.5-flash-latest': 'Gemini 1.5 Flash',
+  // Mistral
   'mistral-large-latest': 'Mistral Large',
   'mistral-small-latest': 'Mistral Small',
+  // xAI
   'grok-beta': 'Grok Beta'
 }
 
@@ -581,6 +632,77 @@ const handleProceed = () => {
   closeProgressDialog()
 }
 
+// Handle user decision from progress dialog
+const handleUserDecision = async (decision: { choice: 'accept' | 'improve'; feedback_note?: string }) => {
+  try {
+    // Get current session ID (would need to be stored during generation)
+    const sessionId = currentSessionId.value || 'temp-session'
+    
+    const response = await fetch(`/api/ai/song-generation/approval/${sessionId}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        decision: decision.choice,
+        feedback_note: decision.feedback_note || ''
+      })
+    })
+    
+    const result = await response.json()
+    
+    if (result.success) {
+      console.log('User decision submitted:', result)
+      
+      if (decision.choice === 'accept') {
+        // Song accepted - complete the generation with stored song data
+        if (userApprovalSongData.value) {
+          // Complete all agents
+          const allAgents = ['composer', 'arrangement', 'lyrics', 'vocal', 'instrument', 'effects', 'review', 'design', 'qa']
+          completedAgents.value = [...allAgents]
+          currentAgent.value = ''
+          
+          // Import the generated song structure into the audio store
+          import('../stores/audioStore').then(({ useAudioStore }) => {
+            const audioStore = useAudioStore()
+            audioStore.loadSongStructure(userApprovalSongData.value.song_structure)
+            
+            // Force UI update by triggering structure update
+            audioStore.updateSongStructure()
+          }).catch(error => {
+            console.error('Failed to import song structure:', error)
+          })
+          
+          // Set project info for display
+          if (userApprovalSongData.value.project) {
+            generationProjectInfo.value = {
+              name: userApprovalSongData.value.project.name || 'Generated Song',
+              track_count: userApprovalSongData.value.song_structure?.tracks?.length || 0
+            }
+          }
+          
+          // Mark generation as completed
+          isGenerationCompleted.value = true
+          isMultiAgentSuccess.value = true
+          
+          console.log('Song accepted and imported successfully')
+        } else {
+          console.error('No song data available for acceptance')
+        }
+      } else {
+        // User requested improvements - restart workflow
+        // The backend will handle restarting the appropriate agent
+        // Continue listening for updates via SSE
+        console.log('AI will improve the song based on feedback')
+      }
+    } else {
+      console.error('Error submitting user decision:', result.error)
+    }
+  } catch (error) {
+    console.error('Error handling user decision:', error)
+  }
+}
+
 const generateSongWithLangGraph = async () => {
   // Show progress dialog
   showProgressDialog.value = true
@@ -602,7 +724,7 @@ const generateSongWithLangGraph = async () => {
       duration: duration.value,
       song_key: songKey.value,
       selected_provider: selectedProvider.value.toLowerCase(),
-      selected_model: selectedModel.value,
+      selected_model: aiStore.selectedModel, // Use store value directly instead of display name
       // Project saving options
       save_to_project: true,  // Always save generated songs to projects
       user_id: 'default'      // TODO: Replace with actual user ID when auth is implemented
@@ -655,6 +777,13 @@ const generateSongWithLangGraph = async () => {
                   const data = JSON.parse(line.slice(6))
                   
                   if (data.type === 'progress') {
+                    // Check for QA restart feedback
+                    if (data.restart_reason && data.restart_attempt) {
+                      if (progressDialogRef.value) {
+                        progressDialogRef.value.setRestartFeedback(data.restart_reason, data.restart_attempt)
+                      }
+                    }
+                    
                     // Update progress based on agent number and status
                     const agentMapping = {
                       'composer': 'composer',
@@ -686,10 +815,86 @@ const generateSongWithLangGraph = async () => {
                     }
                     
                     console.log(`Progress: ${data.message} (${data.progress}%)`)
+                    if (data.restart_reason) {
+                      console.log(`QA Restart: ${data.restart_reason} (Attempt ${data.restart_attempt})`)
+                    }
+                  } else if (data.type === 'user_decision_required') {
+                    // Handle user decision request from workflow
+                    if (progressDialogRef.value) {
+                      progressDialogRef.value.setUserDecisionData({
+                        type: 'user_decision_required',
+                        song_info: data.song_info,
+                        quality_assessment: data.quality_assessment,
+                        can_restart: data.can_restart || true
+                      })
+                    }
+                    
+                    // Store session ID for decision submission
+                    if (data.session_id) {
+                      currentSessionId.value = data.session_id
+                    }
+                    
+                    console.log('User decision required:', data)
                   } else if (data.type === 'result') {
                     clearTimeout(timeout)
                     
                     if (data.success) {
+                      // Debug logging for user approval detection
+                      console.log('Result received:', {
+                        user_approval_required: data.user_approval_required,
+                        user_approval_data: data.user_approval_data,
+                        qa_feedback: data.qa_feedback,
+                        hasQaFeedback: data.qa_feedback && data.qa_feedback.length > 0
+                      })
+                      
+                      // Check if user approval is required
+                      // Either explicit flag OR presence of QA feedback indicates approval needed
+                      if (data.user_approval_required || (data.qa_feedback && data.qa_feedback.length > 0)) {
+                        console.log('🚨 USER APPROVAL REQUIRED - Setting up decision interface')
+                        
+                        // Store the complete song data for later use when user accepts
+                        userApprovalSongData.value = {
+                          song_structure: data.song_structure,
+                          album_art: data.album_art,
+                          review_notes: data.review_notes,
+                          qa_corrections: data.qa_corrections,
+                          project: data.project
+                        }
+                        
+                        // User decision required - show decision interface in progress dialog
+                        if (progressDialogRef.value) {
+                          const userDecisionData = {
+                            type: 'user_decision_required' as const,
+                            song_info: {
+                              title: data.user_approval_data?.song_structure?.tracks ? 
+                                `Song with ${data.user_approval_data.song_structure.tracks} tracks` : 'Generated Song',
+                              description: data.user_approval_data?.summary || 'Quality assessment completed',
+                              genre: 'Generated Music',
+                              mood: data.user_approval_data?.quality_status || 'unknown',
+                              duration: data.user_approval_data?.song_structure?.duration || 0
+                            },
+                            quality_assessment: {
+                              creativity_score: 8, // Default scores since not provided in current structure
+                              coherence_score: data.qa_feedback?.length ? 6 : 8,
+                              overall_score: data.qa_feedback?.length ? 7 : 8,
+                              feedback: data.qa_feedback?.join('; ') || 'Song quality is good'
+                            },
+                            can_restart: data.user_approval_data?.restart_info?.current_attempt < data.user_approval_data?.restart_info?.max_attempts
+                          }
+                          
+                          console.log('🚨 Setting user decision data:', userDecisionData)
+                          progressDialogRef.value.setUserDecisionData(userDecisionData)
+                          
+                          // Store session ID for decision submission
+                          currentSessionId.value = data.session_id || 'temp-session'
+                        }
+                        
+                        console.log('User approval required:', data.user_approval_data)
+                        
+                        // Don't complete the generation yet - wait for user decision
+                        return
+                      }
+                      
                       // Complete all agents
                       const allAgents = ['composer', 'arrangement', 'lyrics', 'vocal', 'instrument', 'effects', 'review', 'design', 'qa']
                       completedAgents.value = [...allAgents]

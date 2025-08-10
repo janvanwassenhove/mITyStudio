@@ -1,6 +1,7 @@
 :root {
   /* Default Dark Theme Colors */
   --primary: #9E7FFF;
+  --primary-hover: #5a3ead;
   --secondary: #38bdf8;
   --accent: #f472b6;
   --background: #171717;

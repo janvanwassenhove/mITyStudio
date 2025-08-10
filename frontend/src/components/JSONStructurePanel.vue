@@ -1,7 +1,10 @@
 <template>
   <div class="json-panel">
-    <div class="json-header">
-      <h3>{{ $t('song.title') }}</h3>
+    <div class="song-header">
+      <div class="header-title">
+        <Sliders class="header-icon" />
+        <h3>{{ $t('song.title') }}</h3>
+      </div>
       <div class="json-controls">
         <button class="btn btn-ghost" @click="formatJSON" :title="$t('json.format')">
           <Code class="icon" />
@@ -179,7 +182,8 @@ import {
   ChevronDown,
   Image,
   Sparkles,
-  Upload
+  Upload,
+  Sliders
 } from 'lucide-vue-next'
 
 const audioStore = useAudioStore()
@@ -633,6 +637,33 @@ const formatDate = (dateString: string) => {
   align-items: center;
   justify-content: space-between;
   background: var(--surface);
+}
+
+.song-header {
+  padding: 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.header-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--primary);
+}
+
+.header-title h3 {
+  margin: 0;
+  font-size: 1.125rem;
+  color: var(--text);
 }
 
 .json-header h3 {

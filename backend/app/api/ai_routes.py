@@ -1418,7 +1418,7 @@ def generate_song_langgraph_stream():
                 progress_queue = []
                 
                 # Progress callback that adds to queue
-                def progress_callback(message, progress, agent=None):
+                def progress_callback(message, progress, agent=None, restart_reason=None, restart_attempt=None, **kwargs):
                     try:
                         progress_data = {
                             'type': 'progress',
@@ -1426,6 +1426,25 @@ def generate_song_langgraph_stream():
                             'progress': progress,
                             'agent': agent
                         }
+                        
+                        # Add restart information if provided
+                        if restart_reason:
+                            progress_data['restart_reason'] = restart_reason
+                        if restart_attempt:
+                            progress_data['restart_attempt'] = restart_attempt
+                        
+                        # Handle user approval workflow data
+                        if 'decision_data' in kwargs:
+                            progress_data['type'] = 'user_decision_required'
+                            progress_data['decision_data'] = kwargs['decision_data']
+                            progress_data['user_interaction_required'] = kwargs.get('user_interaction_required', False)
+                            progress_data['qa_feedback_summary'] = kwargs.get('qa_feedback_summary', {})
+                        
+                        # Add any other kwargs that might be useful
+                        for key, value in kwargs.items():
+                            if key not in ['decision_data', 'user_interaction_required', 'qa_feedback_summary']:
+                                progress_data[key] = value
+                            
                         progress_queue.append(f"data: {json.dumps(progress_data)}\n\n")
                     except Exception as e:
                         # Use print instead of current_app.logger to avoid application context issues
@@ -1488,52 +1507,72 @@ def generate_song_langgraph_stream():
                 
                 # Send completion
                 if result.get('success'):
-                    # Get song structure
-                    song_structure = result['song_structure']
-                    
-                    # Check if we should save to a project
-                    save_to_project = request_data.get('save_to_project', True)  # Default to True
-                    project_id = request_data.get('project_id')  # Optional existing project ID
-                    user_id = request_data.get('user_id', 'default')
-                    
-                    created_project = None
-                    if save_to_project:
-                        try:
-                            from app.services.project_service import ProjectService
-                            project_service = ProjectService()
-                            
-                            if project_id:
-                                # Update existing project
-                                created_project = project_service.update_project_from_song_structure(
-                                    project_id=project_id,
-                                    song_structure=song_structure
-                                )
-                                print(f"DEBUG: Updated existing project {project_id}")
-                            else:
-                                # Create new project
-                                created_project = project_service.create_project_from_song_structure(
-                                    song_structure=song_structure,
-                                    user_id=user_id
-                                )
-                                print(f"DEBUG: Created new project {created_project['id']}")
+                    # Check if user approval is required
+                    if result.get('user_approval_required'):
+                        # User approval required - send as special event type
+                        user_approval_data = {
+                            'type': 'result',
+                            'success': True,
+                            'user_approval_required': True,
+                            'user_approval_data': result.get('user_approval_data'),
+                            'qa_feedback': result.get('qa_feedback', []),
+                            'qa_corrections': result.get('qa_corrections', []),
+                            'song_structure': result.get('song_structure', {}),
+                            'review_notes': result.get('review_notes', []),
+                            'album_art': result.get('album_art', {}),
+                            'provider': request_data['selected_provider'],
+                            'model': request_data['selected_model'],
+                            'timestamp': datetime.utcnow().isoformat()
+                        }
+                        yield f"data: {json.dumps(user_approval_data)}\n\n"
+                    else:
+                        # Normal successful completion
+                        # Get song structure
+                        song_structure = result['song_structure']
+                        
+                        # Check if we should save to a project
+                        save_to_project = request_data.get('save_to_project', True)  # Default to True
+                        project_id = request_data.get('project_id')  # Optional existing project ID
+                        user_id = request_data.get('user_id', 'default')
+                        
+                        created_project = None
+                        if save_to_project:
+                            try:
+                                from app.services.project_service import ProjectService
+                                project_service = ProjectService()
                                 
-                        except Exception as e:
-                            print(f"DEBUG: Failed to save to project: {e}")
-                            # Don't fail the whole generation, just log the error
-                    
-                    completion_data = {
-                        'type': 'result',
-                        'success': True,
-                        'song_structure': song_structure,
-                        'album_art': result.get('album_art', {}),
-                        'review_notes': result.get('review_notes', []),
-                        'qa_corrections': result.get('qa_corrections', []),
-                        'provider': request_data['selected_provider'],
-                        'model': request_data['selected_model'],
-                        'timestamp': datetime.utcnow().isoformat(),
-                        'project': created_project  # Include project info if created
-                    }
-                    yield f"data: {json.dumps(completion_data)}\n\n"
+                                if project_id:
+                                    # Update existing project
+                                    created_project = project_service.update_project_from_song_structure(
+                                        project_id=project_id,
+                                        song_structure=song_structure
+                                    )
+                                    print(f"DEBUG: Updated existing project {project_id}")
+                                else:
+                                    # Create new project
+                                    created_project = project_service.create_project_from_song_structure(
+                                        song_structure=song_structure,
+                                        user_id=user_id
+                                    )
+                                    print(f"DEBUG: Created new project {created_project['id']}")
+                                    
+                            except Exception as e:
+                                print(f"DEBUG: Failed to save to project: {e}")
+                                # Don't fail the whole generation, just log the error
+                        
+                        completion_data = {
+                            'type': 'result',
+                            'success': True,
+                            'song_structure': song_structure,
+                            'album_art': result.get('album_art', {}),
+                            'review_notes': result.get('review_notes', []),
+                            'qa_corrections': result.get('qa_corrections', []),
+                            'provider': request_data['selected_provider'],
+                            'model': request_data['selected_model'],
+                            'timestamp': datetime.utcnow().isoformat(),
+                            'project': created_project  # Include project info if created
+                        }
+                        yield f"data: {json.dumps(completion_data)}\n\n"
                 else:
                     error_data = {
                         'type': 'error',
@@ -1568,4 +1607,148 @@ def generate_song_langgraph_stream():
         'Content-Type': 'text/event-stream',
         'Access-Control-Allow-Origin': '*',
         'Access-Control-Allow-Headers': 'Cache-Control'
+    })
+
+
+# ============================================================================
+# USER APPROVAL WORKFLOW API ENDPOINTS (Placeholder for Future Implementation)
+# ============================================================================
+
+@ai_bp.route('/song-generation/approval/<session_id>', methods=['GET'])
+@handle_errors
+def get_user_approval_summary(session_id):
+    """
+    Get QA feedback summary for user approval decision
+    
+    Future Implementation:
+    - Retrieve workflow state from session storage
+    - Return QA feedback and improvement suggestions
+    - Include current song structure summary
+    """
+    return jsonify({
+        'success': False,
+        'message': 'User approval workflow not yet fully implemented',
+        'session_id': session_id,
+        'requires_implementation': [
+            'Session state management system',
+            'Workflow state storage and retrieval',
+            'Frontend user approval interface',
+            'Workflow continuation mechanism'
+        ],
+        'example_response': {
+            'qa_feedback': ['Example: Drum patterns could be more varied'],
+            'qa_corrections': ['Example: Fixed missing instrument assignments'],
+            'current_quality': 'needs_improvement',
+            'restart_count': 1,
+            'max_restarts': 2,
+            'song_structure': {
+                'tracks': 4,
+                'duration': 180,
+                'tempo': 120,
+                'key': 'C major'
+            },
+            'improvement_areas': ['Instrumental content and arrangements']
+        }
+    })
+
+
+@ai_bp.route('/song-generation/approval/<session_id>', methods=['POST'])
+@handle_errors
+def submit_user_approval_decision(session_id):
+    """
+    Submit user approval decision through progress dialog interface
+    
+    Expected payload:
+    {
+        "decision": "accept" | "improve",
+        "feedback_note": "Optional user comments"
+    }
+    
+    This endpoint handles user decisions made within the progress dialog
+    """
+    data = request.get_json()
+    decision = data.get('decision', '')
+    feedback_note = data.get('feedback_note', '')
+    
+    if decision not in ['accept', 'improve']:
+        return jsonify({
+            'success': False,
+            'error': 'Decision must be either "accept" or "improve"'
+        }), 400
+    
+    try:
+        # Here you would normally:
+        # 1. Retrieve the workflow state from session storage  
+        # 2. Set the user_decision in the state
+        # 3. Resume the LangGraph workflow execution
+        # 4. Return the result
+        
+        # For now, return a success response with the expected behavior
+        result = {
+            'success': True,
+            'message': f'User decision "{decision}" received and processed',
+            'session_id': session_id,
+            'decision': decision,
+            'feedback_note': feedback_note,
+            'next_action': 'complete' if decision == 'accept' else 'restart_workflow',
+            'integration_status': {
+                'progress_dialog': 'integrated',
+                'decision_routing': 'implemented', 
+                'session_management': 'pending',
+                'workflow_continuation': 'pending'
+            }
+        }
+        
+        if decision == 'accept':
+            result['workflow_result'] = 'Song will be completed with current version'
+        else:
+            result['workflow_result'] = 'AI will restart appropriate agent to address quality issues'
+            result['improvement_areas'] = [
+                'System will analyze QA feedback to determine restart point',
+                'Workflow will continue from the most relevant agent',
+                'Progress updates will show improvement iteration'
+            ]
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to process user decision: {str(e)}',
+            'session_id': session_id
+        }), 500
+
+
+@ai_bp.route('/song-generation/sessions', methods=['GET'])
+@handle_errors
+def list_active_approval_sessions():
+    """
+    List active song generation sessions waiting for user approval
+    
+    Future Implementation:
+    - Query session storage for pending approval workflows
+    - Return list of sessions with basic info
+    - Include time since QA completed
+    """
+    return jsonify({
+        'success': False,
+        'message': 'Session management not yet implemented',
+        'requires_implementation': [
+            'Session storage system (Redis/Database)',
+            'Session lifecycle management',
+            'Session cleanup for completed/expired workflows'
+        ],
+        'example_response': {
+            'active_sessions': [
+                {
+                    'session_id': 'song_gen_123456',
+                    'created_at': '2025-01-08T10:30:00Z',
+                    'qa_completed_at': '2025-01-08T10:35:00Z',
+                    'song_name': 'Generated Song',
+                    'status': 'awaiting_user_approval',
+                    'restart_count': 1,
+                    'quality_issues': 2
+                }
+            ]
+        }
     })

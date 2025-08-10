@@ -24,9 +24,9 @@ INSTRUMENT & SAMPLE AWARENESS SYSTEM:
 - InstrumentAgent: Creates clips using ONLY available instruments and samples
 - VocalAgent: Assigns ONLY available voices to vocal tracks
 - System validates instrument/sample selections and provides fallbacks if invalid
-- JSON structure varies by instrument type:
-  * Melodic instruments: type="audio", notes array, musical_content
-  * Percussion/drums: type="sample", sampleUrl, pattern info
+- JSON structure follows mITyStudio schema exactly:
+  * Melodic instruments: type="synth", notes array directly in clip (NO wrapper)
+  * Percussion/drums: type="sample", sampleUrl
   * Vocals: type="lyrics", voices array with lyrics and notes
 
 The system respects the existing mITyStudio JSON schema and integrates with
@@ -38,8 +38,9 @@ import uuid
 import asyncio
 import logging
 import os
-import re
+import random
 import traceback
+import re
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 from dataclasses import dataclass, field
@@ -65,11 +66,29 @@ from .fallback_utils import safe_log_error
 
 # Try to import the full music tools
 MusicCompositionTools = None
+generate_intelligent_default_notes = None
 try:
-    from .langchain.music_tools import MusicCompositionTools
-    print("Successfully imported full MusicCompositionTools")
+    from .langchain.music_tools import MusicCompositionTools, generate_intelligent_default_notes
+    print("Successfully imported full MusicCompositionTools and pattern generation")
 except Exception as e:
     print(f"Warning: Full music tools not available, using fallbacks: {e}")
+    # Import pattern generation separately if needed
+    try:
+        from .langchain.music_tools import generate_intelligent_default_notes
+        print("Successfully imported pattern generation")
+    except Exception as e2:
+        print(f"Warning: Pattern generation not available: {e2}")
+        # Create a simple fallback
+        def generate_intelligent_default_notes(instrument, key='C', style='pop'):
+            """Simple fallback pattern generation"""
+            if 'bass' in instrument.lower():
+                return ["C2", "G2", "F2", "G2"]
+            elif 'piano' in instrument.lower():
+                return ["C4", "E4", "G4", "C5"]
+            elif 'drum' in instrument.lower():
+                return ["C4", "C4", "E4", "C4"]  # Kick-snare pattern
+            else:
+                return ["C4", "D4", "E4", "F4"]  # Simple melody
 
 # Try to import the full utils (but we already have fallback)
 try:
@@ -110,14 +129,14 @@ def _initialize_global_llms():
         print("❌ ChatAnthropic not available - LangChain Anthropic package not installed")  
         return
     
-    # Initialize OpenAI LLM with minimal parameters to avoid 'proxies' error
+    # Initialize OpenAI LLM with default parameters - model will be overridden per instance
     if ChatOpenAI and openai_key:
         try:
             print("🚀 Creating global OpenAI LLM...")
-            # Use minimal parameters to avoid compatibility issues
+            # Use default model for global instance - actual model selection happens per-instance
             _global_openai_llm = ChatOpenAI(
                 api_key=openai_key,
-                model="gpt-4",  # Use model instead of model_name
+                model="gpt-5",  # Default to GPT-5 for best performance
                 temperature=0.7,
                 max_retries=2,
                 timeout=120  # Increased to 2 minutes for complex song generation tasks
@@ -256,13 +275,22 @@ class SongState:
     # Review and QA
     review_notes: List[str] = field(default_factory=list)
     qa_corrections: List[str] = field(default_factory=list)
+    qa_feedback: List[str] = field(default_factory=list)
+    qa_restart_agent: str = ""  # Which agent to restart from based on QA feedback
+    qa_restart_count: int = 0   # Track number of QA restarts
+    max_qa_restarts: int = 2    # Limit QA restarts to prevent infinite loops
     is_ready_for_export: bool = False
+    
+    # User approval process
+    user_approval_data: Dict[str, Any] = field(default_factory=dict)  # QA feedback summary for user
+    user_decision: str = ""  # User decision: 'accept', 'improve', or ''
     
     # Final output
     final_song_json: Dict[str, Any] = field(default_factory=dict)
     
     # Workflow control
     current_agent: str = ""
+    previous_agent: str = ""  # Track which agent called the current one
     revision_count: int = 0
     max_revisions: int = 3
     
@@ -274,7 +302,7 @@ class LangGraphSongGenerator:
     """Main class for the multi-agent song generation system"""
     
     def __init__(self, openai_api_key: str = None, anthropic_api_key: str = None, 
-                 provider: str = "openai", model: str = "gpt-4"):
+                 provider: str = "openai", model: str = "gpt-5"):  # Default to GPT-5
         self.openai_api_key = openai_api_key
         self.anthropic_api_key = anthropic_api_key
         self.provider = provider
@@ -440,7 +468,7 @@ class LangGraphSongGenerator:
                 # For design phase, always use OpenAI with a good model for image generation
                 self.openai_llm = ChatOpenAI(
                     api_key=openai_key,
-                    model="gpt-4o",  # Best model for image generation prompts
+                    model="gpt-5",  # Use GPT-5 for best image generation prompts
                     temperature=0.7,
                     max_retries=2,
                     timeout=120
@@ -458,116 +486,179 @@ class LangGraphSongGenerator:
             else:
                 logger.warning("✗ No OpenAI LLM available - album cover generation may fail")
     
-    async def _safe_progress_callback(self, message: str, progress: int, agent: str = None):
+    async def _safe_progress_callback(self, message: str, progress: int, agent: str = None, restart_reason: str = None, restart_attempt: int = None, **kwargs):
         """Safely call progress callback whether it's async or sync"""
         if self.progress_callback:
             try:
                 if asyncio.iscoroutinefunction(self.progress_callback):
-                    await self._safe_progress_callback(message, progress, agent)
+                    await self.progress_callback(message, progress, agent, restart_reason, restart_attempt, **kwargs)
                 else:
-                    self.progress_callback(message, progress, agent)
+                    self.progress_callback(message, progress, agent, restart_reason, restart_attempt, **kwargs)
             except Exception as e:
                 logger.warning(f"Progress callback failed: {e}")
+    
+    def _calculate_restart_adjusted_progress(self, base_progress: int, state: SongState) -> int:
+        """
+        Calculate progress percentage accounting for QA restarts
+        When agents are restarted due to QA feedback, progress needs adjustment
+        """
+        if state.qa_restart_count == 0:
+            return base_progress
+        
+        # Reduce progress based on restart count to show rework
+        # Each restart reduces apparent progress by 10% to indicate rework
+        adjustment = min(state.qa_restart_count * 10, 30)  # Max 30% reduction
+        adjusted_progress = max(base_progress - adjustment, 0)
+        
+        return adjusted_progress
 
-    async def _call_llm_safely(self, prompt: str) -> str:
+    async def _call_llm_safely(self, prompt: str, max_retries: int = 3) -> str:
         """
         Call LLM with proper message format for both OpenAI and Anthropic
-        Anthropic requires at least one HumanMessage, OpenAI accepts SystemMessage only
+        Includes retry logic for API overload and rate limiting
         """
-        try:
-            # Check if LLM is available
-            if self.llm is None:
-                print(f"ERROR: LLM is None in _call_llm_safely!")
-                print(f"Global LLMs status - OpenAI: {bool(_global_openai_llm)}, Anthropic: {bool(_global_anthropic_llm)}")
-                raise ValueError("LLM is not initialized - cannot make API call")
-            
-            # Add comprehensive logging to track LLM usage
-            llm_type = type(self.llm).__name__
-            llm_model = getattr(self.llm, 'model', getattr(self.llm, 'model_name', 'unknown'))
-            print(f"🔍 CALLING LLM: {llm_type} | Model: {llm_model} | User wanted: {self.provider}")
-            print(f"DEBUG: About to call LLM {llm_type} with prompt length {len(prompt)}")
-            print(f"DEBUG: LLM instance: {self.llm}")
-            print(f"DEBUG: LLM has ainvoke: {hasattr(self.llm, 'ainvoke')}")
-            print(f"DEBUG: LLM has invoke: {hasattr(self.llm, 'invoke')}")
-            
-            # Verify the LLM matches user's selection
-            if self.provider.lower() == "anthropic" and llm_type != "ChatAnthropic":
-                print(f"🚨 WARNING: User selected ANTHROPIC but using {llm_type}!")
-                logger.warning(f"LLM mismatch: User wanted {self.provider} but using {llm_type}")
-            elif self.provider.lower() == "openai" and llm_type != "ChatOpenAI":
-                print(f"🚨 WARNING: User selected OPENAI but using {llm_type}!")
-                logger.warning(f"LLM mismatch: User wanted {self.provider} but using {llm_type}")
-            
-            # Check if we're using Anthropic LLM (either by provider or by actual LLM instance)
-            is_anthropic = (self.provider == "anthropic" or 
-                          (hasattr(self.llm, '__class__') and 'anthropic' in self.llm.__class__.__module__.lower()))
-            
-            if is_anthropic:
-                # Anthropic requires HumanMessage, use system prompt in a user message
-                messages = [HumanMessage(content=prompt)]
-                logger.debug("Using HumanMessage for Anthropic")
-            else:
-                # OpenAI can handle SystemMessage
-                messages = [SystemMessage(content=prompt)]
-                logger.debug("Using SystemMessage for OpenAI")
-            
-            print(f"DEBUG: About to call LLM with {len(messages)} messages")
-            
-            # Try async first, fallback to sync if needed
-            if hasattr(self.llm, 'ainvoke'):
-                print("DEBUG: Trying async ainvoke...")
-                try:
-                    # Check what ainvoke returns before awaiting
-                    ainvoke_result = self.llm.ainvoke(messages)
-                    print(f"DEBUG: ainvoke returned: {type(ainvoke_result)} - {ainvoke_result}")
-                    
-                    if ainvoke_result is None:
-                        print("ERROR: ainvoke returned None, trying sync invoke...")
-                        raise ValueError("ainvoke returned None")
-                    
-                    response = await ainvoke_result
-                    print(f"DEBUG: Async LLM call successful, response type: {type(response)}")
-                except Exception as async_error:
-                    print(f"DEBUG: Async call failed: {async_error}, trying sync...")
-                    # Fallback to sync call
-                    if hasattr(self.llm, 'invoke'):
-                        response = await asyncio.get_event_loop().run_in_executor(
-                            None, self.llm.invoke, messages
-                        )
-                        print(f"DEBUG: Sync LLM call successful, response type: {type(response)}")
-                    else:
-                        raise async_error
-            elif hasattr(self.llm, 'invoke'):
-                print("DEBUG: No ainvoke available, using sync invoke...")
-                response = await asyncio.get_event_loop().run_in_executor(
-                    None, self.llm.invoke, messages
-                )
-                print(f"DEBUG: Sync LLM call successful, response type: {type(response)}")
-            else:
-                raise ValueError("LLM has neither ainvoke nor invoke methods")
-            
-            print(f"DEBUG: Response content length: {len(response.content) if response and hasattr(response, 'content') and response.content else 'None'}")
-            
-            if not response or not hasattr(response, 'content') or not response.content:
-                print("ERROR: Response is empty or has no content!")
-                raise ValueError("LLM returned empty response")
+        last_exception = None
+        
+        for attempt in range(max_retries):
+            try:
+                # Check if LLM is available
+                if self.llm is None:
+                    print(f"ERROR: LLM is None in _call_llm_safely!")
+                    print(f"Global LLMs status - OpenAI: {bool(_global_openai_llm)}, Anthropic: {bool(_global_anthropic_llm)}")
+                    raise ValueError("LLM is not initialized - cannot make API call")
                 
-            return response.content.strip()
-        except Exception as e:
-            print(f"ERROR in _call_llm_safely: {e}")
-            print(f"ERROR type: {type(e)}")
-            print(f"ERROR traceback: {traceback.format_exc()}")
+                # Add comprehensive logging to track LLM usage
+                llm_type = type(self.llm).__name__
+                llm_model = getattr(self.llm, 'model', getattr(self.llm, 'model_name', 'unknown'))
+                print(f"🔍 CALLING LLM (Attempt {attempt + 1}/{max_retries}): {llm_type} | Model: {llm_model} | User wanted: {self.provider}")
+                
+                # Check if we're using Anthropic LLM (either by provider or by actual LLM instance)
+                is_anthropic = (self.provider == "anthropic" or 
+                              (hasattr(self.llm, '__class__') and 'anthropic' in self.llm.__class__.__module__.lower()))
+                
+                if is_anthropic:
+                    # Anthropic requires HumanMessage, use system prompt in a user message
+                    messages = [HumanMessage(content=prompt)]
+                    logger.debug("Using HumanMessage for Anthropic")
+                else:
+                    # OpenAI can handle SystemMessage
+                    messages = [SystemMessage(content=prompt)]
+                    logger.debug("Using SystemMessage for OpenAI")
+                
+                # Try async first, fallback to sync if needed
+                response = None
+                if hasattr(self.llm, 'ainvoke'):
+                    try:
+                        ainvoke_result = self.llm.ainvoke(messages)
+                        if ainvoke_result is None:
+                            raise ValueError("ainvoke returned None")
+                        response = await ainvoke_result
+                    except Exception as async_error:
+                        print(f"DEBUG: Async call failed: {async_error}, trying sync...")
+                        # Fallback to sync call
+                        if hasattr(self.llm, 'invoke'):
+                            response = await asyncio.get_event_loop().run_in_executor(
+                                None, self.llm.invoke, messages
+                            )
+                        else:
+                            raise async_error
+                elif hasattr(self.llm, 'invoke'):
+                    response = await asyncio.get_event_loop().run_in_executor(
+                        None, self.llm.invoke, messages
+                    )
+                else:
+                    raise ValueError("LLM has neither ainvoke nor invoke methods")
+                
+                if not response or not hasattr(response, 'content'):
+                    raise ValueError("LLM returned invalid response object")
+                
+                content = response.content
+                if not content or not content.strip():
+                    raise ValueError("LLM returned empty or whitespace-only content")
+                    
+                print(f"✅ LLM call successful on attempt {attempt + 1}")
+                return content.strip()
+                
+            except Exception as e:
+                last_exception = e
+                error_str = str(e).lower()
+                status_code = getattr(e, 'status_code', None)
+                
+                # Check for specific error types that warrant retry
+                is_retryable = (
+                    status_code == 529 or  # Anthropic overload
+                    "overloaded" in error_str or
+                    "rate limit" in error_str or
+                    "too many requests" in error_str or
+                    "service unavailable" in error_str or
+                    "internal server error" in error_str or
+                    "timeout" in error_str or
+                    "connection" in error_str
+                )
+                
+                if is_retryable and attempt < max_retries - 1:
+                    # Calculate exponential backoff with jitter
+                    base_delay = 2 ** attempt  # 1, 2, 4 seconds
+                    jitter = random.uniform(0.5, 1.5)  # Add randomness
+                    delay = base_delay * jitter
+                    
+                    print(f"🔄 Retryable error on attempt {attempt + 1}: {e}")
+                    print(f"⏳ Waiting {delay:.1f} seconds before retry...")
+                    
+                    # Try fallback provider if available and this is Anthropic overload
+                    if status_code == 529 and self.provider == "anthropic" and _global_openai_llm:
+                        print("🔄 Anthropic overloaded (529), trying OpenAI fallback...")
+                        original_llm = self.llm
+                        try:
+                            self.llm = _global_openai_llm
+                            # Don't wait for fallback attempt
+                            continue
+                        except Exception as fallback_error:
+                            print(f"❌ OpenAI fallback failed: {fallback_error}")
+                            self.llm = original_llm  # Restore original
+                    
+                    await asyncio.sleep(delay)
+                    continue
+                else:
+                    # Non-retryable error or max retries reached
+                    print(f"❌ Non-retryable error or max retries reached: {e}")
+                    break
+        
+        # If we get here, all retries failed
+        print(f"🚨 All {max_retries} attempts failed. Last error: {last_exception}")
+        
+        # Provide specific error messages
+        if last_exception:
+            error_str = str(last_exception).lower()
+            status_code = getattr(last_exception, 'status_code', None)
             
-            # Provide more specific error messages for timeouts
-            if "timeout" in str(e).lower() or "timed out" in str(e).lower():
-                logger.error(f"LLM request timed out after 120 seconds: {e}")
-                raise TimeoutError("LLM request timed out. The AI model took too long to respond. Please try again or use a simpler prompt.")
-            elif "rate limit" in str(e).lower():
-                logger.error(f"LLM rate limit exceeded: {e}")
-                raise Exception("API rate limit exceeded. Please wait a moment and try again.")
+            if status_code == 529:
+                raise Exception("Anthropic API is currently overloaded (Error 529). Please try again in a few minutes or switch to OpenAI provider.")
+            elif "timeout" in error_str or "timed out" in error_str:
+                raise TimeoutError("LLM request timed out after multiple attempts. The AI model took too long to respond. Please try again with a simpler prompt.")
+            elif "rate limit" in error_str:
+                raise Exception("API rate limit exceeded after multiple attempts. Please wait longer and try again.")
             else:
-                logger.error(f"LLM call failed: {e}")
-                raise
+                raise Exception(f"LLM failed after {max_retries} attempts: {last_exception}")
+        
+        # If we get here, all retries failed
+        print(f"🚨 All {max_retries} attempts failed. Last error: {last_exception}")
+        
+        # Provide specific error messages
+        if last_exception:
+            error_str = str(last_exception).lower()
+            status_code = getattr(last_exception, 'status_code', None)
+            
+            if status_code == 529:
+                raise Exception("Anthropic API is currently overloaded (Error 529). Please try again in a few minutes or switch to OpenAI provider.")
+            elif "timeout" in error_str or "timed out" in error_str:
+                raise TimeoutError("LLM request timed out after multiple attempts. The AI model took too long to respond. Please try again with a simpler prompt.")
+            elif "rate limit" in error_str:
+                raise Exception("API rate limit exceeded after multiple attempts. Please wait longer and try again.")
+            else:
+                raise Exception(f"LLM failed after {max_retries} attempts: {last_exception}")
+        else:
+            raise Exception(f"LLM failed after {max_retries} attempts with unknown error")
     
     def _safe_json_parse(self, json_text: str, fallback_data: Dict[str, Any] = None) -> Dict[str, Any]:
         """
@@ -735,14 +826,52 @@ class LangGraphSongGenerator:
     def _map_openai_model(self, model_id: str) -> str:
         """Map frontend model ID to actual OpenAI model name"""
         model_mapping = {
+            # GPT-5 Family (Latest)
+            'gpt-5': 'gpt-5',
+            'gpt-5-2025-08-07': 'gpt-5-2025-08-07',
+            'gpt-5-chat-latest': 'gpt-5-chat-latest',
+            'gpt-5-mini': 'gpt-5-mini',
+            'gpt-5-mini-2025-08-07': 'gpt-5-mini-2025-08-07',
+            'gpt-5-nano': 'gpt-5-nano',
+            'gpt-5-nano-2025-08-07': 'gpt-5-nano-2025-08-07',
+            # o1 Family (Reasoning)
+            'o1-pro': 'o1-pro',
+            'o1-pro-2025-03-19': 'o1-pro-2025-03-19',
+            'o1': 'o1',
+            'o1-2024-12-17': 'o1-2024-12-17',
+            'o1-mini': 'o1-mini',
+            'o1-mini-2024-09-12': 'o1-mini-2024-09-12',
+            # GPT-4.1 Family
+            'gpt-4.1': 'gpt-4.1',
+            'gpt-4.1-2025-04-14': 'gpt-4.1-2025-04-14',
+            'gpt-4.1-mini': 'gpt-4.1-mini',
+            'gpt-4.1-mini-2025-04-14': 'gpt-4.1-mini-2025-04-14',
+            'gpt-4.1-nano': 'gpt-4.1-nano',
+            'gpt-4.1-nano-2025-04-14': 'gpt-4.1-nano-2025-04-14',
+            # GPT-4o Family
+            'chatgpt-4o-latest': 'chatgpt-4o-latest',
             'gpt-4o': 'gpt-4o',
+            'gpt-4o-2024-11-20': 'gpt-4o-2024-11-20',
+            'gpt-4o-2024-08-06': 'gpt-4o-2024-08-06',
+            'gpt-4o-2024-05-13': 'gpt-4o-2024-05-13',
             'gpt-4o-mini': 'gpt-4o-mini',
+            'gpt-4o-mini-2024-07-18': 'gpt-4o-mini-2024-07-18',
+            # GPT-4 Family
             'gpt-4-turbo': 'gpt-4-turbo',
+            'gpt-4-turbo-2024-04-09': 'gpt-4-turbo-2024-04-09',
             'gpt-4-turbo-preview': 'gpt-4-turbo-preview',
+            'gpt-4-0125-preview': 'gpt-4-0125-preview',
+            'gpt-4-1106-preview': 'gpt-4-1106-preview',
             'gpt-4': 'gpt-4',
-            'gpt-3.5-turbo': 'gpt-3.5-turbo'
+            'gpt-4-0613': 'gpt-4-0613',
+            # GPT-3.5 Family
+            'gpt-3.5-turbo': 'gpt-3.5-turbo',
+            'gpt-3.5-turbo-0125': 'gpt-3.5-turbo-0125',
+            'gpt-3.5-turbo-1106': 'gpt-3.5-turbo-1106',
+            'gpt-3.5-turbo-16k': 'gpt-3.5-turbo-16k',
+            'gpt-3.5-turbo-instruct': 'gpt-3.5-turbo-instruct'
         }
-        return model_mapping.get(model_id, 'gpt-4')
+        return model_mapping.get(model_id, 'gpt-4o')  # Default to gpt-4o instead of gpt-4
     
     def _build_graph(self) -> None:
         """Build the LangGraph workflow"""
@@ -766,11 +895,20 @@ class LangGraphSongGenerator:
         # Define the workflow edges
         workflow.set_entry_point("composer")
         
-        # Linear progression with conditional vocal path
+        # Linear progression with conditional paths for instrumental tracks
         workflow.add_edge("composer", "arrangement")
-        workflow.add_edge("arrangement", "lyrics")
         
-        # Conditional edge: Skip vocal agent for instrumental tracks
+        # Conditional edge: Skip lyrics/vocal agents for instrumental tracks
+        workflow.add_conditional_edges(
+            "arrangement",
+            self._arrangement_decision,
+            {
+                "skip_lyrics_vocal": "instrument",  # Skip lyrics and vocal agents for instrumental tracks
+                "include_lyrics_vocal": "lyrics"    # Include lyrics and vocal agents for non-instrumental tracks
+            }
+        )
+        
+        # Conditional edge: Skip vocal agent for instrumental tracks (in case we reach lyrics)
         workflow.add_conditional_edges(
             "lyrics",
             self._vocal_decision,
@@ -795,16 +933,71 @@ class LangGraphSongGenerator:
         )
         
         workflow.add_edge("design", "qa")
-        workflow.add_edge("qa", END)
+        
+        # QA decision point - can restart specific agents based on feedback
+        workflow.add_conditional_edges(
+            "qa",
+            self._qa_decision,
+            {
+                "complete": END,           # Song validation passed
+                "user_review": "user_approval",      # Let user decide on improvements
+                "restart_composer": "composer",       # Restart from composer for tempo/key issues
+                "restart_arrangement": "arrangement", # Restart from arrangement for structure issues
+                "restart_lyrics": "lyrics",           # Restart from lyrics for lyric issues
+                "restart_vocal": "vocal",             # Restart from vocal for voice/vocal issues
+                "restart_instrument": "instrument",   # Restart from instrument for instrumental issues
+                "restart_effects": "effects",         # Restart from effects for effects issues
+                "restart_design": "design"            # Restart from design for album art issues
+            }
+        )
+        
+        # Add user approval node
+        workflow.add_node("user_approval", self._user_approval_agent)
+        
+        # User approval decision point
+        workflow.add_conditional_edges(
+            "user_approval",
+            self._user_approval_decision,
+            {
+                "accept": END,             # User accepts current version
+                "restart_composer": "composer",       # User wants to restart from composer
+                "restart_arrangement": "arrangement", # User wants to restart from arrangement
+                "restart_lyrics": "lyrics",           # User wants to restart from lyrics
+                "restart_vocal": "vocal",             # User wants to restart from vocal
+                "restart_instrument": "instrument",   # User wants to restart from instrument
+                "restart_effects": "effects",         # User wants to restart from effects
+                "restart_design": "design"            # User wants to restart from design
+            }
+        )
         
         # Compile the graph
         self.graph = workflow.compile()
+    
+    def _arrangement_decision(self, state: SongState) -> str:
+        """
+        Decision function to determine whether to include lyrics/vocal processing after arrangement
+        Returns 'skip_lyrics_vocal' for instrumental tracks, 'include_lyrics_vocal' for vocal tracks
+        """
+        logger.info(f"🎵 Arrangement Decision: Evaluating - is_instrumental={state.request.is_instrumental}")
+        logger.info(f"🎵 Arrangement Decision: Current agent={state.current_agent}, Previous agent={getattr(state, 'previous_agent', 'unknown')}")
+        logger.info(f"🎵 Arrangement Decision: QA restart count={getattr(state, 'qa_restart_count', 0)}")
+        
+        if state.request.is_instrumental:
+            logger.info("🎵 Workflow: Skipping lyrics and vocal agents - instrumental track selected")
+            logger.info("🎵 Workflow Routing: arrangement → instrument (bypassing lyrics/vocal)")
+            return "skip_lyrics_vocal"
+        else:
+            logger.info("🎤 Workflow: Including lyrics and vocal agents - vocal track selected")
+            logger.info("🎤 Workflow Routing: arrangement → lyrics → vocal → instrument")
+            return "include_lyrics_vocal"
     
     def _vocal_decision(self, state: SongState) -> str:
         """
         Decision function to determine whether to include vocal processing
         Returns 'skip_vocal' for instrumental tracks, 'include_vocal' for vocal tracks
         """
+        logger.info(f"🎵 Vocal Decision: Evaluating - is_instrumental={state.request.is_instrumental}")
+        
         if state.request.is_instrumental:
             logger.info("🎵 Workflow: Skipping vocal agent - instrumental track selected")
             return "skip_vocal"
@@ -891,6 +1084,7 @@ class LangGraphSongGenerator:
                 review_notes = final_state.get('review_notes', [])
                 qa_corrections = final_state.get('qa_corrections', [])
                 errors = final_state.get('errors', [])
+                user_approval_data = final_state.get('user_approval_data', None)
             else:
                 is_ready = final_state.is_ready_for_export
                 final_song_json = final_state.final_song_json
@@ -898,10 +1092,32 @@ class LangGraphSongGenerator:
                 review_notes = final_state.review_notes
                 qa_corrections = final_state.qa_corrections
                 errors = final_state.errors
+                user_approval_data = getattr(final_state, 'user_approval_data', None)
             
             await self._safe_progress_callback("Song generation completed!", 100)
             
-            if is_ready and final_song_json:
+            # Check if we're in a user approval state (waiting for user decision)
+            user_approval_pending = getattr(final_state, 'user_approval_pending', False) if hasattr(final_state, 'user_approval_pending') else final_state.get('user_approval_pending', False)
+            qa_feedback = final_state.get('qa_feedback', []) if isinstance(final_state, dict) else getattr(final_state, 'qa_feedback', [])
+            
+            if user_approval_data or (user_approval_pending and qa_feedback):
+                # We're at the user approval node - this is not an error, it's expected
+                logger.info("🤖 Generation reached user approval phase - waiting for user decision")
+                logger.info(f"🤖 User approval data exists: {bool(user_approval_data)}")
+                logger.info(f"🤖 User approval pending: {user_approval_pending}")
+                logger.info(f"🤖 QA feedback items: {len(qa_feedback)}")
+                
+                return {
+                    "success": True,
+                    "user_approval_required": True,
+                    "user_approval_data": user_approval_data,
+                    "qa_feedback": qa_feedback,
+                    "qa_corrections": qa_corrections,
+                    "song_structure": final_song_json,
+                    "review_notes": review_notes,
+                    "album_art": album_art
+                }
+            elif is_ready and final_song_json:
                 return {
                     "success": True,
                     "song_structure": final_song_json,
@@ -932,6 +1148,56 @@ class LangGraphSongGenerator:
                 "error": str(e),
                 "errors": [str(e)]
             }
+
+    async def handle_user_approval_decision(self, session_id: str, user_decision: str) -> Dict[str, Any]:
+        """
+        Handle user approval decision and continue the workflow
+        
+        Args:
+            session_id: Unique identifier for the generation session
+            user_decision: 'accept' to accept current version, 'improve' to request improvements
+            
+        Returns:
+            Dict with success status and continuation results
+        """
+        # In a real implementation, you would store session state in a database
+        # For now, this is a placeholder for the structure
+        
+        # This method would:
+        # 1. Retrieve the stored session state from database/cache
+        # 2. Set the user_decision in the state
+        # 3. Continue the workflow from the user_approval node
+        # 4. Return the final result
+        
+        logger.info(f"🤖 User Approval Handler: Received decision '{user_decision}' for session {session_id}")
+        
+        # Placeholder response - in real implementation this would continue the workflow
+        return {
+            "success": True,
+            "message": f"User decision '{user_decision}' received. Workflow continuation not yet implemented.",
+            "requires_frontend_integration": True,
+            "next_steps": [
+                "Store workflow state in session management system",
+                "Implement workflow continuation from user_approval node", 
+                "Add frontend UI for user approval decisions",
+                "Create API endpoint for user decision submission"
+            ]
+        }
+    
+    def get_user_approval_summary(self, session_id: str) -> Dict[str, Any]:
+        """
+        Get the current QA feedback summary for user approval
+        
+        Returns the QA evaluation results formatted for user decision making
+        """
+        # In a real implementation, this would retrieve from session storage
+        return {
+            "session_id": session_id,
+            "qa_feedback": [],
+            "current_quality": "unknown",
+            "improvement_areas": [],
+            "requires_session_management": True
+        }
     
     # ============================================================================
     # AGENT IMPLEMENTATIONS
@@ -948,7 +1214,10 @@ class LangGraphSongGenerator:
         # Send progress update if callback is available
         if self.progress_callback:
             try:
-                await self._safe_progress_callback("Composer: Setting tempo, key, and structure...", 15, "composer")
+                base_progress = 15
+                adjusted_progress = self._calculate_restart_adjusted_progress(base_progress, state)
+                restart_message = f" (restart {state.qa_restart_count})" if state.qa_restart_count > 0 else ""
+                await self._safe_progress_callback(f"Composer: Setting tempo, key, and structure...{restart_message}", adjusted_progress, "composer")
             except Exception as e:
                 logger.warning(f"Progress callback failed: {e}")
         
@@ -961,8 +1230,20 @@ class LangGraphSongGenerator:
         
         preferred_duration = duration_mapping.get(state.request.duration, {'seconds': 180, 'bars': 48})
         
+        # Build QA feedback context if this is a restart
+        qa_context = ""
+        if state.qa_restart_count > 0 and state.qa_feedback:
+            qa_context = f"""
+🔄 QA RESTART CONTEXT (Attempt {state.qa_restart_count + 1}):
+Previous iteration had issues that need addressing:
+{chr(10).join(f"- {feedback}" for feedback in state.qa_feedback)}
+
+Please specifically address these issues in your composition choices.
+"""
+        
         prompt = f"""You are a professional music composer. Based on the song request, define the global musical parameters.
 
+{qa_context}
 Song Request:
 - Idea: {state.request.song_idea}
 - Style Tags: {', '.join(state.request.style_tags)}
@@ -1080,11 +1361,54 @@ Key selection guidelines:
         # Calculate timing based on tempo and duration
         tempo = state.global_params.get('tempo', 120)
         duration_seconds = state.global_params.get('duration', 180)
+        
+        # Safeguard against division by zero
+        if duration_seconds <= 0:
+            logger.warning(f"Invalid duration {duration_seconds}, defaulting to 180 seconds")
+            duration_seconds = 180
+        
         bars_per_minute = tempo / 4  # Assuming 4/4 time signature
         total_bars = int((duration_seconds / 60) * bars_per_minute)
         
+        # Build QA feedback context if this is a restart
+        qa_context = ""
+        if state.qa_restart_count > 0 and state.qa_feedback:
+            # Filter QA feedback to only include relevant issues for this track type
+            relevant_feedback = []
+            for feedback in state.qa_feedback:
+                feedback_lower = feedback.lower()
+                # Skip vocal/lyrics feedback for instrumental tracks
+                if state.request.is_instrumental:
+                    if any(vocal_kw in feedback_lower for vocal_kw in ['vocal', 'voice', 'singing', 'singer', 'lyrics', 'lyric']):
+                        # Skip this feedback for instrumental tracks unless it's about missing instrumental equivalent
+                        if 'missing vocals track' in feedback_lower:
+                            # Convert to instrumental context
+                            relevant_feedback.append("structure: Focus on lead instrumental tracks for melody instead of vocal tracks")
+                        continue
+                    else:
+                        relevant_feedback.append(feedback)
+                else:
+                    # Include all feedback for vocal tracks
+                    relevant_feedback.append(feedback)
+            
+            if relevant_feedback:
+                track_type = "instrumental" if state.request.is_instrumental else "vocal"
+                qa_context = f"""
+🔄 QA RESTART CONTEXT (Attempt {state.qa_restart_count + 1}) for {track_type.upper()} track:
+Previous arrangement had issues that need addressing:
+{chr(10).join(f"- {feedback}" for feedback in relevant_feedback)}
+
+Please specifically address these structural and track arrangement issues.
+Pay special attention to:
+{"- Creating lead instrumental tracks for melody (NO vocal tracks needed)" if state.request.is_instrumental else "- Ensuring vocal tracks are included if lyrics are present"}
+- Adding drum/bass tracks for rhythmic foundation
+- Creating sufficient track variety for full arrangement
+- Proper section structure and timing
+"""
+        
         prompt = f"""You are a music arranger. Design the song structure and track arrangement for a complete, professional-sounding song.
 
+{qa_context}
 Song Parameters:
 - Tempo: {tempo} BPM
 - Key: {state.global_params.get('key')}
@@ -1232,25 +1556,42 @@ Guidelines:
             validated_tracks = []
             for track in planned_tracks:
                 instrument = track.get('instrument')
+                category = track.get('category', '')
                 
                 # Skip vocal tracks for instrumental songs
                 if state.request.is_instrumental and (instrument == "vocals" or track.get('category') == 'vocal'):
                     logger.info(f"🎹 ArrangementAgent: Skipping vocal track '{track.get('name')}' - instrumental song")
                     continue
                 
-                if instrument in all_available_instruments:
+                # Normalize instrument name and fix category if needed
+                original_instrument = instrument
+                normalized_instrument = self.music_tools.normalize_instrument_name(instrument, category)
+                corrected_category = self.music_tools.validate_instrument_category(normalized_instrument, category)
+                
+                # Update track with normalized values
+                if normalized_instrument != original_instrument:
+                    logger.info(f"🎹 ArrangementAgent: Normalized instrument '{original_instrument}' -> '{normalized_instrument}'")
+                    track['instrument'] = normalized_instrument
+                
+                if corrected_category != category:
+                    logger.info(f"🎹 ArrangementAgent: Corrected category '{category}' -> '{corrected_category}' for {normalized_instrument}")
+                    track['category'] = corrected_category
+                
+                if normalized_instrument in all_available_instruments:
                     validated_tracks.append(track)
                 else:
-                    logger.warning(f"🎹 ArrangementAgent: Skipping unavailable instrument: {instrument}")
-                    # Try to find a suitable replacement from the same category
-                    category = track.get('category', '')
-                    available_in_category = state.available_instruments.get(category, [])
+                    logger.warning(f"🎹 ArrangementAgent: Skipping unavailable instrument: {normalized_instrument}")
+                    # Try to find a suitable replacement from the corrected category
+                    available_in_category = state.available_instruments.get(corrected_category, [])
                     if available_in_category:
                         replacement = available_in_category[0]
                         track['instrument'] = replacement
-                        track['name'] = track['name'].replace(instrument, replacement.title())
+                        track['category'] = corrected_category
+                        track['name'] = track['name'].replace(original_instrument, replacement.replace('_', ' ').title())
                         validated_tracks.append(track)
-                        logger.info(f"🎹 ArrangementAgent: Replaced {instrument} with {replacement}")
+                        logger.info(f"🎹 ArrangementAgent: Replaced {normalized_instrument} with {replacement}")
+                    else:
+                        logger.warning(f"🎹 ArrangementAgent: No replacement found for {normalized_instrument} in category {corrected_category}")
             
             planned_tracks = validated_tracks
             
@@ -1262,11 +1603,13 @@ Guidelines:
                                          section_info.get("start_time", 0) + section_duration)
             
             # Scale if necessary to fit target duration
-            if abs(total_structure_time - duration_seconds) > 10:  # More than 10 seconds off
+            if abs(total_structure_time - duration_seconds) > 10 and total_structure_time > 0:  # More than 10 seconds off and valid time
                 scale_factor = duration_seconds / total_structure_time
                 for section_info in structure.values():
                     section_info["start_time"] = int(section_info["start_time"] * scale_factor)
                     section_info["duration"] = int(section_info["duration"] * scale_factor)
+            elif total_structure_time <= 0:
+                logger.warning(f"Invalid total_structure_time {total_structure_time}, using default structure timing")
             
             state.arrangement = {
                 "structure": structure,
@@ -1400,8 +1743,49 @@ Guidelines:
         - Section-specific lyrics matching song structure timing
         - Rhyme schemes and meter appropriate to tempo and style
         - Emotional alignment with request and arrangement
+        
+        CRITICAL PROTECTION: This agent should NEVER be called for instrumental tracks.
+        If called inappropriately, it will bypass all processing and return minimal state.
         """
+        state.previous_agent = state.current_agent
         state.current_agent = "lyrics"
+        
+        # Add workflow routing diagnostics
+        logger.info(f"🚦 WORKFLOW ROUTING: Lyrics agent called")
+        logger.info(f"🚦 WORKFLOW STATE: is_instrumental={state.request.is_instrumental}")
+        logger.info(f"🚦 WORKFLOW STATE: qa_restart_count={state.qa_restart_count}")
+        logger.info(f"🚦 WORKFLOW STATE: previous_agent={getattr(state, 'previous_agent', 'unknown')}")
+        logger.info(f"🚦 WORKFLOW STATE: current_agent={getattr(state, 'current_agent', 'unknown')}")
+        logger.info(f"🚦 WORKFLOW STATE: user_decision={getattr(state, 'user_decision', 'none')}")
+        
+        # PRIMARY PROTECTION: Immediately exit for instrumental tracks
+        if state.request.is_instrumental:
+            logger.warning("🚨 CRITICAL PROTECTION: Lyrics agent called for instrumental track - bypassing all processing!")
+            logger.error("🚨 WORKFLOW BUG: LangGraph routing failed to prevent lyrics agent execution for instrumental track")
+            logger.error(f"🚨 DEBUG INFO: Previous agent: {getattr(state, 'previous_agent', 'unknown')}")
+            logger.error(f"🚨 DEBUG INFO: QA restart count: {state.qa_restart_count}")
+            logger.error(f"🚨 DEBUG INFO: User decision: {getattr(state, 'user_decision', 'none')}")
+            
+            # Create minimal lyrics state for instrumental tracks
+            state.lyrics = {
+                "content": "",
+                "sections": {},
+                "is_instrumental": True,
+                "overall_theme": "Instrumental composition",
+                "reasoning": "PROTECTION BYPASS: Instrumental track - no lyrics needed"
+            }
+            
+            # Ensure vocal assignments exist for downstream agents
+            if not hasattr(state, 'vocal_assignments') or not state.vocal_assignments:
+                state.vocal_assignments = {
+                    "tracks": [],
+                    "is_instrumental": True,
+                    "voice_assignments": {},
+                    "reasoning": "PROTECTION BYPASS: Instrumental track - no vocals needed"
+                }
+            
+            logger.warning("📝 LyricsAgent: PROTECTION BYPASS completed - instrumental track")
+            return state
         
         # Send progress update if callback is available
         if self.progress_callback:
@@ -1425,7 +1809,8 @@ Guidelines:
                 "voice_assignments": {},
                 "reasoning": "Instrumental track - no vocals needed"
             }
-            logger.info("📝 LyricsAgent: Skipping - instrumental track (vocal assignments initialized)")
+            logger.info("📝 LyricsAgent: Completed - instrumental track (vocal assignments initialized)")
+            logger.info(f"📝 LyricsAgent: State is_instrumental flag = {state.request.is_instrumental}")
             return state
         
         if state.request.lyrics_option == "custom" and state.request.custom_lyrics:
@@ -1499,7 +1884,23 @@ Critical Guidelines:
         
         try:
             response = await self._call_llm_safely(prompt)
-            result = json.loads(response)
+            
+            # Handle empty or whitespace-only responses
+            if not response or not response.strip():
+                raise ValueError("LLM returned empty response for lyrics generation")
+            
+            # Clean response and validate JSON
+            cleaned_response = response.strip()
+            if not cleaned_response.startswith('{') or not cleaned_response.endswith('}'):
+                # Try to extract JSON from response if it contains other text
+                import re
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if json_match:
+                    cleaned_response = json_match.group(0)
+                else:
+                    raise ValueError(f"No valid JSON found in lyrics agent response: {cleaned_response[:200]}...")
+            
+            result = json.loads(cleaned_response)
             
             sections = result.get("sections", {})
             
@@ -1634,24 +2035,34 @@ Critical Guidelines:
         - Creates polyphonic vocal clips using available_voices
         - Handles lead vocals, harmonies, and backing vocals
         """
+        state.previous_agent = state.current_agent
         state.current_agent = "vocal"
         
-        # Send progress update if callback is available
+        # Add workflow routing diagnostics
+        logger.info(f"🚦 WORKFLOW ROUTING: Vocal agent called")
+        logger.info(f"🚦 WORKFLOW STATE: is_instrumental={state.request.is_instrumental}")
+        logger.info(f"🚦 WORKFLOW STATE: qa_restart_count={state.qa_restart_count}")
+        logger.info(f"🚦 WORKFLOW STATE: previous_agent={getattr(state, 'previous_agent', 'unknown')}")
+        
+        # EMERGENCY SAFEGUARD: Never run vocal agent for instrumental tracks
+        if state.request.is_instrumental:
+            logger.warning("🚨 EMERGENCY BYPASS: Vocal agent called for instrumental track - this indicates a workflow routing bug!")
+            logger.error("🚨 CRITICAL BUG: LangGraph conditional edges failed to prevent vocal agent execution for instrumental track")
+            state.vocal_assignments = {
+                "tracks": [],
+                "is_instrumental": True,
+                "voice_assignments": {},
+                "reasoning": "EMERGENCY BYPASS: Instrumental track - no vocals needed"
+            }
+            logger.warning("🎤 VocalAgent: EMERGENCY BYPASS completed - instrumental track")
+            return state
+
+        # Send progress update only if we're actually processing vocals
         if self.progress_callback:
             try:
                 await self._safe_progress_callback("Vocal: Assigning voices and vocal parts...", 45, "vocal")
             except Exception as e:
                 logger.warning(f"Progress callback failed: {e}")
-        
-        if state.request.is_instrumental or not state.lyrics.get("content"):
-            state.vocal_assignments = {
-                "tracks": [],
-                "is_instrumental": True,
-                "voice_assignments": {},
-                "reasoning": "Instrumental track - no vocals needed"
-            }
-            logger.info("🎤 VocalAgent: Skipping - instrumental track")
-            return state
         
         # Get vocal tracks from arrangement and song structure
         planned_vocal_tracks = [t for t in state.arrangement.get('planned_tracks', []) 
@@ -1763,7 +2174,23 @@ Critical Guidelines:
         
         try:
             response = await self._call_llm_safely(prompt)
-            result = json.loads(response)
+            
+            # Handle empty or whitespace-only responses
+            if not response or not response.strip():
+                raise ValueError("LLM returned empty response for vocal arrangement")
+            
+            # Clean response and validate JSON
+            cleaned_response = response.strip()
+            if not cleaned_response.startswith('{') or not cleaned_response.endswith('}'):
+                # Try to extract JSON from response if it contains other text
+                import re
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if json_match:
+                    cleaned_response = json_match.group(0)
+                else:
+                    raise ValueError(f"No valid JSON found in vocal agent response: {cleaned_response[:200]}...")
+            
+            result = json.loads(cleaned_response)
             
             tracks = result.get("tracks", [])
             voice_assignments = result.get("voice_assignments", {})
@@ -1928,6 +2355,10 @@ Critical Guidelines:
         tempo = state.global_params.get('tempo', 120)
         time_signature = state.global_params.get('timeSignature', '4/4')
         
+        # Store musical context for fallback generation
+        self._current_key = key
+        self._current_style_tags = state.request.style_tags
+        
         prompt = f"""You are a professional instrumental arranger and composer. Create detailed instrumental tracks with musical content.
 
 Song Parameters:
@@ -1970,19 +2401,30 @@ FOR MELODIC/HARMONIC INSTRUMENTS (piano, guitar, strings, synths):
             "trackId": "track-piano",
             "startTime": 0,
             "duration": 8,
-            "type": "audio",
+            "type": "synth",
             "instrument": "piano",
-            "category": "keyboards",
             "volume": 0.7,
             "pan": 0.0,
             "effects": {{"reverb": 0.1, "delay": 0, "distortion": 0}},
-            "notes": ["C4", "E4", "G4", "C5"],
-            "musical_content": {{
-                "chord_progression": ["Cmaj", "Am", "F", "G"],
-                "pattern": "arpeggiated_chords",
-                "rhythm_pattern": "steady_eighth_notes",
-                "role": "harmonic_foundation"
-            }}
+            "notes": ["C4", "E4", "G4", "C5", "F4", "A4", "C5", "G4"]  // Rich chord progression
+        }}
+    ]
+}}
+
+FOR BASS INSTRUMENTS:
+{{
+    "clips": [
+        {{
+            "id": "clip-bass-verse",
+            "trackId": "track-bass", 
+            "startTime": 8,
+            "duration": 16,
+            "type": "synth",
+            "instrument": "bass",
+            "volume": 0.8,
+            "pan": 0.0,
+            "effects": {{"reverb": 0.05, "delay": 0, "distortion": 0.1}},
+            "notes": ["C2", "G2", "F2", "G2", "C2", "E2", "F2", "G2"]  // Low octave bass line
         }}
     ]
 }}
@@ -1995,19 +2437,12 @@ FOR PERCUSSION/DRUMS:
             "trackId": "track-drums",
             "startTime": 8,
             "duration": 16,
-            "type": "sample",
+            "type": "synth",  
             "instrument": "drums",
-            "category": "percussion",
             "volume": 0.6,
             "pan": 0.0,
-            "effects": {{"reverb": 0.1, "delay": 0, "distortion": 0}},
-            "sampleUrl": "/samples/drums/basic_rock_beat.wav",
-            "pattern": "four_on_floor",
-            "musical_content": {{
-                "drum_pattern": ["kick", "snare", "hihat", "crash"],
-                "rhythm_pattern": "rock_beat",
-                "role": "rhythmic_foundation"
-            }}
+            "effects": {{"reverb": 0.2, "delay": 0, "distortion": 0}},
+            "notes": ["C4", "C4", "E4", "C4", "C4", "E4", "C4", "E4"]  // Kick-Snare pattern
         }}
     ]
 }}
@@ -2020,19 +2455,12 @@ FOR BASS INSTRUMENTS:
             "trackId": "track-bass",
             "startTime": 8,
             "duration": 16,
-            "type": "audio",
+            "type": "synth",
             "instrument": "bass",
-            "category": "strings",
             "volume": 0.8,
             "pan": 0.0,
             "effects": {{"reverb": 0.05, "delay": 0, "distortion": 0}},
-            "notes": ["C2", "A1", "F2", "G2"],
-            "musical_content": {{
-                "bass_line": ["C2", "A1", "F2", "G2"],
-                "pattern": "root_note_emphasis",
-                "rhythm_pattern": "quarter_note_foundation",
-                "role": "rhythmic_foundation"
-            }}
+            "notes": ["C2", "A1", "F2", "G2"]
         }}
     ]
 }}
@@ -2044,7 +2472,6 @@ Complete JSON Response:
             "id": "track-piano",
             "name": "Piano",
             "instrument": "piano",
-            "category": "keyboards", 
             "volume": 0.7,
             "pan": 0.0,
             "muted": false,
@@ -2055,7 +2482,6 @@ Complete JSON Response:
             "id": "track-bass",
             "name": "Bass",
             "instrument": "bass",
-            "category": "strings",
             "volume": 0.8,
             "pan": 0.0,
             "muted": false,
@@ -2072,30 +2498,58 @@ Complete JSON Response:
 Critical Guidelines:
 - Create clips for EVERY section where each instrument should play (based on planned tracks)
 - Use ONLY instruments from the available_instruments list - NO other instruments allowed
-- For percussion: use type="sample" with sampleUrl from available_samples 
-- For melodic instruments: use type="audio" with notes array and musical_content
+- For percussion: use type="synth" with notes array for rhythmic patterns (NOT samples)
+- For melodic instruments: use type="synth" with notes array directly in clip (NO musical_content wrapper)
 - Calculate accurate timing: startTime and duration based on structure timing in seconds
-- Create appropriate musical content for each instrument's role:
-  * Keyboards: chord progressions, arpeggios, melodic lines (use notes array)
-  * Strings: bass lines, melodic lines, harmonic support (use notes array)
-  * Percussion: drum patterns, rhythmic emphasis (use sampleUrl and pattern)
-  * Woodwinds/Brass: melodic lines, harmonic fills (use notes array)
+- CRITICAL SCHEMA COMPLIANCE: Follow the exact clip schema - put notes array directly in clip object, NOT inside musical_content
+- CORRECT clip structure: {{"id": "", "trackId": "", "startTime": 0, "duration": 4, "type": "synth", "instrument": "", "notes": ["C4", "E4", "G4", "C5"], "volume": 1.0, "effects": {{}}}}
+- WRONG format (DO NOT USE): {{"musical_content": {{"notes": [...]}}, ...}} - This is invalid and will cause errors
+
+MUSICAL PATTERN GUIDELINES:
+- BASS INSTRUMENTS: Use octave 2-3 (C2, D2, E2, F2, G2, A2, B2) for proper low-end foundation
+- PIANO/KEYBOARDS: Use chord progressions with octaves 4-5 (C4, E4, G4, C5, F4, A4, etc.)
+- DRUMS/PERCUSSION: Use rhythmic patterns with kick (C4) and snare (E4) emphasis
+- STRINGS: Use harmonic content in octaves 4-5 for melodic instruments, 2-3 for bass
+- WOODWINDS/BRASS: Use melodic lines in octaves 5-6 for bright, prominent melodies
+- CREATE VARIETY: Use at least 4-8 different notes per clip, avoid simple 2-note patterns
+- INSTRUMENT HARMONY: Different instruments should complement each other, not play identical patterns
+- RHYTHM VARIATION: Create interesting rhythmic interplay between instruments
+
+AVOID SIMPLE PATTERNS:
+- DO NOT use only ["C4", "G4"] - this is too basic
+- DO NOT have all instruments play the same notes
+- DO NOT ignore instrument ranges (bass should be low, melody should be higher)
+
 - Match musical content to song style: {', '.join(state.request.style_tags)}
 - Use appropriate effects for each instrument and style
 - Ensure all instruments work together harmonically in key: {key}
-- Create interesting rhythmic interplay between instruments
 - Consider instrument ranges and capabilities
 - Include both chordal and single-note content as appropriate
 - Plan dynamics: verses lighter, choruses fuller
 - Ensure track and clip IDs are unique
 - Set appropriate volume levels and pan positions for instrument separation
 - Match tempo ({tempo} BPM) with appropriate note durations and patterns
-- For samples: use realistic file paths like "/samples/[category]/[filename].wav"
 """
         
         try:
             response = await self._call_llm_safely(prompt)
-            result = json.loads(response)
+            
+            # Handle empty or whitespace-only responses
+            if not response or not response.strip():
+                raise ValueError("LLM returned empty response for instrumental arrangement")
+            
+            # Clean response and validate JSON
+            cleaned_response = response.strip()
+            if not cleaned_response.startswith('{') or not cleaned_response.endswith('}'):
+                # Try to extract JSON from response if it contains other text
+                import re
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if json_match:
+                    cleaned_response = json_match.group(0)
+                else:
+                    raise ValueError(f"No valid JSON found in instrument agent response: {cleaned_response[:200]}...")
+            
+            result = json.loads(cleaned_response)
             
             tracks = result.get("tracks", [])
             
@@ -2123,7 +2577,7 @@ Critical Guidelines:
             if missing_instruments:
                 logger.warning(f"🎹 InstrumentAgent: Missing planned instruments: {missing_instruments}")
             
-            # Ensure track and clip IDs are unique
+            # Ensure track and clip IDs are unique and fix schema compliance
             for i, track in enumerate(tracks):
                 if not track.get('id'):
                     track['id'] = f"track-instrument-{i+1}"
@@ -2131,8 +2585,39 @@ Critical Guidelines:
                     if not clip.get('id'):
                         clip['id'] = f"clip-{track['id']}-{j+1}"
                     clip['trackId'] = track['id']
+                    
+                    # Fix schema compliance: move notes from musical_content to clip level
+                    if 'musical_content' in clip:
+                        musical_content = clip.pop('musical_content')
+                        # Move notes to clip level if they exist in musical_content
+                        if 'notes' in musical_content and 'notes' not in clip:
+                            # Handle both simple notes array and complex note objects
+                            if isinstance(musical_content['notes'], list) and musical_content['notes']:
+                                # If notes are objects with 'note' property, extract just the note names
+                                if isinstance(musical_content['notes'][0], dict) and 'note' in musical_content['notes'][0]:
+                                    clip['notes'] = [note_obj['note'] for note_obj in musical_content['notes']]
+                                else:
+                                    # If notes are already simple strings, use as-is
+                                    clip['notes'] = musical_content['notes']
+                            else:
+                                # Fallback to simple default notes
+                                clip['notes'] = generate_intelligent_default_notes(clip.get('instrument', 'piano'), state.song_key or 'C', 'pop')
+                        # Remove other musical_content properties as they're not part of the schema
+                        logger.info(f"🔧 Fixed clip schema compliance for {clip['id']} - moved notes from musical_content to clip level")
+                    
+                    # Ensure all clips have required fields for schema compliance
+                    if 'notes' not in clip and clip.get('type') == 'synth':
+                        clip['notes'] = generate_intelligent_default_notes(clip.get('instrument', 'piano'), state.song_key or 'C', 'pop')  # Intelligent default notes for synth clips
+                        logger.debug(f"🔧 Added default notes to synth clip {clip['id']}")
+                    
+                    # Remove any remaining non-schema fields
+                    non_schema_fields = ['category', 'role', 'pattern']
+                    for field in non_schema_fields:
+                        if field in clip:
+                            clip.pop(field)
+                            logger.debug(f"🔧 Removed non-schema field '{field}' from clip {clip['id']}")
             
-            state.instrument_assignments = {
+            state.instrumental_content = {
                 "tracks": tracks,
                 "instrumental_philosophy": result.get("instrumental_philosophy", ""),
                 "harmonic_analysis": result.get("harmonic_analysis", ""),
@@ -2153,7 +2638,7 @@ Critical Guidelines:
                 planned_instrument_tracks, structure, state.available_instruments
             )
             
-            state.instrument_assignments = {
+            state.instrumental_content = {
                 "tracks": default_tracks,
                 "instrumental_philosophy": "Using default instrumental arrangement due to generation error",
                 "reasoning": "Fallback instrumental arrangement", 
@@ -2174,15 +2659,23 @@ Critical Guidelines:
                 {"name": "Bass", "instrument": "bass", "category": "strings"}
             ]
         
+        # Extract musical context from state
+        key = getattr(self, '_current_key', 'C major')
+        style_tags = getattr(self, '_current_style_tags', ['default'])
+        
         for i, planned_track in enumerate(planned_tracks):
             track_id = f"track-instrument-{i+1}"
             instrument = planned_track.get('instrument', 'piano')
             category = planned_track.get('category', 'keyboards')
             
+            # Normalize instrument name and fix category
+            normalized_instrument = self.music_tools.normalize_instrument_name(instrument, category)
+            corrected_category = self.music_tools.validate_instrument_category(normalized_instrument, category)
+            
             # Ensure instrument is available
-            if category in available_instruments and instrument not in available_instruments[category]:
-                if available_instruments[category]:
-                    instrument = available_instruments[category][0]  # Use first available in category
+            if corrected_category in available_instruments and normalized_instrument not in available_instruments[corrected_category]:
+                if available_instruments[corrected_category]:
+                    normalized_instrument = available_instruments[corrected_category][0]  # Use first available in category
             
             clips = []
             sections_to_play = planned_track.get('sections', list(structure.keys()))
@@ -2190,34 +2683,36 @@ Critical Guidelines:
             for section_name in sections_to_play:
                 if section_name in structure:
                     section_info = structure[section_name]
+                    section_duration = section_info.get('duration', 8)
+                    
+                    # Generate intelligent notes based on instrument and musical context
+                    intelligent_notes = self.music_tools.generate_intelligent_notes(
+                        instrument_name=normalized_instrument,
+                        category=corrected_category,
+                        key=key,
+                        style_tags=style_tags,
+                        duration_beats=max(4, section_duration // 2)  # Convert seconds to approximate beats
+                    )
                     
                     clip = {
                         "id": f"clip-{track_id}-{section_name}",
                         "trackId": track_id,
                         "startTime": section_info.get('start_time', 0),
-                        "duration": section_info.get('duration', 8),
-                        "type": "audio",
-                        "instrument": instrument,
-                        "category": category,
+                        "duration": section_duration,
+                        "type": "synth",  # Use "synth" for compatibility
+                        "instrument": normalized_instrument,  # Use normalized name
                         "volume": 0.7,
                         "pan": 0.0,
                         "effects": {"reverb": 0.1, "delay": 0, "distortion": 0},
-                        "musical_content": {
-                            "notes": [
-                                {"note": "C4", "start": 0.0, "duration": 2.0, "velocity": 75},
-                                {"note": "G4", "start": 2.0, "duration": 2.0, "velocity": 75}
-                            ],
-                            "pattern": "simple_default",
-                            "role": "harmonic"
-                        }
+                        "notes": intelligent_notes
                     }
                     clips.append(clip)
             
             track = {
                 "id": track_id,
-                "name": planned_track.get('name', f"{instrument.title()} Track"),
-                "instrument": instrument,
-                "category": category,
+                "name": planned_track.get('name', f"{normalized_instrument.replace('_', ' ').title()} Track"),
+                "instrument": normalized_instrument,  # Use normalized name
+                "category": corrected_category,
                 "volume": 0.7,
                 "pan": 0.0,
                 "muted": False,
@@ -2289,7 +2784,23 @@ Effect Guidelines (values 0.0-1.0):
         
         try:
             response = await self._call_llm_safely(prompt)
-            result = json.loads(response)
+            
+            # Handle empty or whitespace-only responses
+            if not response or not response.strip():
+                raise ValueError("LLM returned empty response for effects configuration")
+            
+            # Clean response and validate JSON
+            cleaned_response = response.strip()
+            if not cleaned_response.startswith('{') or not cleaned_response.endswith('}'):
+                # Try to extract JSON from response if it contains other text
+                import re
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if json_match:
+                    cleaned_response = json_match.group(0)
+                else:
+                    raise ValueError(f"No valid JSON found in effects agent response: {cleaned_response[:200]}...")
+            
+            result = json.loads(cleaned_response)
             
             state.effects_config = {
                 "track_effects": result.get("track_effects", {}),
@@ -2362,7 +2873,23 @@ Be constructive but focus on what works rather than minor improvements. Most son
         
         try:
             response = await self._call_llm_safely(prompt)
-            result = json.loads(response)
+            
+            # Handle empty or whitespace-only responses
+            if not response or not response.strip():
+                raise ValueError("LLM returned empty response for review analysis")
+            
+            # Clean response and validate JSON
+            cleaned_response = response.strip()
+            if not cleaned_response.startswith('{') or not cleaned_response.endswith('}'):
+                # Try to extract JSON from response if it contains other text
+                import re
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if json_match:
+                    cleaned_response = json_match.group(0)
+                else:
+                    raise ValueError(f"No valid JSON found in review agent response: {cleaned_response[:200]}...")
+            
+            result = json.loads(cleaned_response)
             
             state.review_notes = result.get("review_notes", [])
             state.is_ready_for_export = result.get("is_ready", False)
@@ -2430,14 +2957,15 @@ Guidelines:
 """
         
         try:
-            # Always use OpenAI specifically for album cover generation (best for image generation prompts)
-            llm_to_use = self.openai_llm if self.openai_llm else None
+            # ALWAYS force OpenAI for album cover generation - NEVER use Claude or other providers
+            logger.info("🎨 Design Agent: Forcing OpenAI model for image generation (ignoring user preference)")
             
-            if not llm_to_use:
-                # If no OpenAI available, log that we're skipping album art
-                logger.warning("No OpenAI LLM available for album art generation - skipping")
+            # Ensure we have OpenAI API key
+            openai_key = self.openai_api_key or os.getenv('OPENAI_API_KEY')
+            if not openai_key:
+                logger.warning("❌ No OpenAI API key available for album art generation - skipping")
                 state.album_art = {
-                    "concept": "Album art generation skipped - OpenAI not available",
+                    "concept": "Album art generation skipped - OpenAI API key not available",
                     "color_palette": ["#333333", "#666666", "#999999"],
                     "style": "minimalist",
                     "mood": "neutral",
@@ -2445,26 +2973,54 @@ Guidelines:
                     "typography": "modern",
                     "composition": "Simple text-based design",
                     "is_generated": False,
-                    "provider": "none"
+                    "provider": "none",
+                    "error": "No OpenAI API key"
                 }
                 return state
-                
-            # Use OpenAI for album cover generation
-            logger.info("Using OpenAI LLM for album cover generation")
             
-            # Check if it's an Anthropic LLM (shouldn't be for design, but safety check)
-            is_anthropic = hasattr(llm_to_use, '__class__') and 'anthropic' in llm_to_use.__class__.__module__.lower()
+            # IMPORTANT: Create dedicated OpenAI instance - do NOT use self.llm or any other LLM
+            # This ensures we never accidentally use Claude/Anthropic for image generation
+            logger.info("🔧 Creating dedicated OpenAI ChatGPT instance for design agent")
             
-            if is_anthropic:
-                messages = [HumanMessage(content=prompt)]
-            else:
-                messages = [SystemMessage(content=prompt)]
+            design_llm = ChatOpenAI(
+                model="gpt-4o",  # Use a reliable text model for concept generation
+                api_key=openai_key,
+                temperature=0.7,
+                max_tokens=1500
+            )
             
-            if hasattr(llm_to_use, 'ainvoke'):
-                response = await llm_to_use.ainvoke(messages)
+            # Verify it's actually OpenAI
+            llm_class_name = design_llm.__class__.__name__
+            llm_module = design_llm.__class__.__module__
+            logger.info(f"✅ Design Agent LLM: {llm_class_name} from {llm_module}")
+            
+            # Double-check we're not using Anthropic
+            if 'anthropic' in llm_module.lower() or 'claude' in llm_class_name.lower():
+                logger.error("❌ CRITICAL: Design agent incorrectly configured with Anthropic - forcing fallback")
+                state.album_art = {
+                    "concept": "Album art generation failed - incorrect model configuration",
+                    "color_palette": ["#333333", "#666666", "#999999"],
+                    "style": "minimalist",
+                    "mood": "neutral",
+                    "elements": [],
+                    "typography": "modern",
+                    "composition": "Simple text-based design",
+                    "is_generated": False,
+                    "provider": "error",
+                    "error": "Anthropic model incorrectly used for design agent"
+                }
+                return state
+            
+            logger.info("🔍 Design Agent: Using OpenAI ChatGPT-4o for album cover concept generation")
+            
+            messages = [SystemMessage(content=prompt)]
+            
+            # Call the LLM directly (not through _call_llm_safely to avoid user preference override)
+            if hasattr(design_llm, 'ainvoke'):
+                response = await design_llm.ainvoke(messages)
             else:
                 response = await asyncio.get_event_loop().run_in_executor(
-                    None, llm_to_use.invoke, messages
+                    None, design_llm.invoke, messages
                 )
             
             result = self._safe_json_parse(response.content.strip(), {
@@ -2560,15 +3116,15 @@ Perfect for both large display and thumbnail sizes."""
             # Import here to avoid circular imports
             from .ai_service import AIService
             
-            # Initialize AI service
+            # Initialize AI service with forced OpenAI configuration
             ai_service = AIService()
             
             if not ai_service.openai_client:
                 raise Exception("OpenAI client not available for image generation")
             
-            logger.info(f"Generating album cover with prompt: {prompt[:100]}...")
+            logger.info(f"🖼️ DALL-E-3: Generating album cover with prompt: {prompt[:100]}...")
             
-            # Generate image using DALL-E-3
+            # Generate image using DALL-E-3 (always uses OpenAI)
             response = ai_service.openai_client.images.generate(
                 model="dall-e-3",
                 prompt=prompt,
@@ -2579,15 +3135,13 @@ Perfect for both large display and thumbnail sizes."""
             )
             
             image_url = response.data[0].url
-            logger.info(f"Album cover image generated successfully: {image_url}")
+            logger.info(f"✅ Album cover image generated successfully: {image_url}")
             
             return image_url
             
         except Exception as e:
-            logger.error(f"Image generation failed: {e}")
+            logger.error(f"❌ Image generation failed: {e}")
             raise Exception(f"Album cover image generation failed: {str(e)}")
-        
-        return state
     
     async def _qa_agent(self, state: SongState) -> SongState:
         """
@@ -2599,7 +3153,10 @@ Perfect for both large display and thumbnail sizes."""
         # Progress callback for QA agent
         if self.progress_callback:
             try:
-                await self._safe_progress_callback("Agent 9/9: Final quality assurance and validation", 99, "qa")
+                base_progress = 99
+                adjusted_progress = self._calculate_restart_adjusted_progress(base_progress, state)
+                restart_message = f" (restart {state.qa_restart_count})" if state.qa_restart_count > 0 else ""
+                await self._safe_progress_callback(f"Agent 9/9: Final quality assurance and validation{restart_message}", adjusted_progress, "qa")
             except Exception as e:
                 print(f"Progress callback error: {e}")
         
@@ -2618,9 +3175,18 @@ Fix any remaining issues and ensure schema compliance. Respond ONLY with a JSON 
     ],
     "final_validation": "pass|fail",
     "remaining_issues": [
-        "Any issues that couldn't be automatically fixed"
+        "Specific issues that couldn't be automatically fixed - be precise about the problem area"
     ]
 }}
+
+When describing remaining_issues, use these keywords to help identify the responsible agent:
+- For tempo/key/timing issues: include words like "tempo", "bpm", "key", "time signature", "duration"
+- For song structure issues: include words like "structure", "arrangement", "sections", "track count"
+- For lyrical content: include words like "lyrics", "lyric", "verse", "chorus", "words"
+- For vocal issues: include words like "vocal", "voice", "singing", "harmony"
+- For instrumental content: include words like "instrument", "piano", "guitar", "drum", "bass", "notes", "pattern", "melody", "chord"
+- For audio effects: include words like "effect", "reverb", "delay", "distortion", "volume", "pan"
+- For visual/design: include words like "album", "cover", "art", "image", "visual", "design"
 
 Required Schema Fields:
 - id, name, tempo, timeSignature, key, tracks, duration, createdAt, updatedAt
@@ -2638,8 +3204,30 @@ Validation Checks:
 """
         
         try:
+            logger.info("🔍 QA Agent: Calling LLM for validation...")
             response = await self._call_llm_safely(prompt)
-            result = json.loads(response)
+            logger.info(f"🔍 QA Agent: LLM response received (length: {len(response)})")
+            
+            # Handle empty or whitespace-only responses
+            if not response or not response.strip():
+                raise ValueError("LLM returned empty response for QA validation")
+            
+            # Clean response and validate JSON
+            cleaned_response = response.strip()
+            if not cleaned_response.startswith('{') or not cleaned_response.endswith('}'):
+                # Try to extract JSON from response if it contains other text
+                import re
+                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                if json_match:
+                    cleaned_response = json_match.group(0)
+                else:
+                    raise ValueError(f"No valid JSON found in QA agent response: {cleaned_response[:200]}...")
+            
+            # Log the first 500 chars of response for debugging
+            logger.info(f"🔍 QA Agent: Response preview: {cleaned_response[:500]}...")
+            
+            result = json.loads(cleaned_response)
+            logger.info(f"🔍 QA Agent: JSON parsed successfully: {result}")
             
             state.qa_corrections = result.get("corrections_made", [])
             
@@ -2650,30 +3238,323 @@ Validation Checks:
             # Final validation
             if result.get("final_validation") == "pass" and not result.get("remaining_issues"):
                 state.is_ready_for_export = True
+                state.qa_feedback = []  # Clear any previous feedback
                 logger.info("✓ QA Agent: Song passed final validation")
             else:
-                state.errors.extend(result.get("remaining_issues", []))
-                logger.warning(f"⚠ QA Agent: Song failed validation - {result.get('remaining_issues', [])}")
+                # Store feedback for restart decision and explicitly mark as NOT ready
+                state.is_ready_for_export = False  # Explicitly set to False to trigger restart
+                state.qa_feedback = result.get("remaining_issues", [])
+                state.errors.extend(state.qa_feedback)
+                logger.warning(f"⚠ QA Agent: Song failed validation - {state.qa_feedback}")
+                
+                # Don't call completion callback yet - let the decision function handle restart
+                return state
             
         except Exception as e:
             safe_log_error(f"QA agent error: {e}")
             state.errors.append(f"QA: {str(e)}")
-            # Still try to finalize with current structure
+            
+            # Try to assemble the current structure for analysis
             state.final_song_json = final_song
-            # If we have a valid song structure, mark as ready despite LLM errors
-            if final_song and final_song.get('tracks') and len(final_song.get('tracks', [])) > 0:
+            
+            # Don't auto-approve if we already have QA feedback indicating issues
+            if state.qa_feedback:
+                logger.warning(f"QA agent error occurred, but previous QA feedback exists: {state.qa_feedback}")
+                # Keep existing feedback and let decision function handle restart
+                state.is_ready_for_export = False  # Ensure not ready for export
+                return state
+            
+            # Only auto-approve if we have a valid song structure AND no existing issues
+            if (final_song and 
+                final_song.get('tracks') and 
+                len(final_song.get('tracks', [])) > 0 and 
+                not state.errors):  # Check for no accumulated errors
+                
                 state.is_ready_for_export = True
                 state.qa_corrections.append("Auto-approved despite QA LLM error - song structure appears valid")
-                logger.info("✓ QA Agent: Auto-approved song despite LLM error (structure valid)")
+                logger.info("✓ QA Agent: Auto-approved song despite LLM error (structure valid, no previous issues)")
+            else:
+                # If we have structural issues or errors, don't auto-approve
+                logger.warning("QA agent error occurred with invalid structure or existing errors - not auto-approving")
+                # Set generic feedback to trigger restart
+                state.is_ready_for_export = False  # Explicitly set to False
+                state.qa_feedback = ["structure: QA validation failed due to technical error, needs review"]
+                return state
         
-        # Final completion callback
-        if self.progress_callback:
+        # Only call completion callback if we're actually ready for export
+        # Otherwise, the decision function will handle restart
+        if state.is_ready_for_export and self.progress_callback:
             try:
                 await self._safe_progress_callback("✓ Song generation complete! All agents finished.", 100, "complete")
             except Exception as e:
                 print(f"Progress callback error: {e}")
         
         return state
+
+    async def _user_approval_agent(self, state: SongState) -> SongState:
+        """
+        User Approval Agent: Presents QA feedback to user within progress dialog
+        - Shows QA evaluation and current song quality
+        - Waits for user decision through progress dialog interface
+        """
+        state.current_agent = "user_approval"
+        
+        # Prepare user feedback summary
+        final_song = self._assemble_song_structure(state)
+        
+        # Create comprehensive feedback for user decision within progress dialog
+        qa_summary = {
+            "qa_feedback": state.qa_feedback,
+            "qa_corrections": getattr(state, 'qa_corrections', []),
+            "current_quality": "needs_improvement" if state.qa_feedback else "good",
+            "restart_count": state.qa_restart_count,
+            "max_restarts": state.max_qa_restarts,
+            "song_structure": {
+                "tracks": len(final_song.get('tracks', [])),
+                "duration": final_song.get('duration', 0),
+                "tempo": final_song.get('tempo', 0),
+                "key": final_song.get('key', 'Unknown')
+            },
+            "improvement_areas": [],
+            "user_decision_required": True
+        }
+        
+        # Analyze potential improvement areas from QA feedback
+        if state.qa_feedback:
+            feedback_text = " ".join(state.qa_feedback).lower()
+            improvement_suggestions = []
+            
+            if any(word in feedback_text for word in ['tempo', 'bpm', 'key', 'timing']):
+                improvement_suggestions.append("Musical parameters (tempo, key, timing)")
+            if any(word in feedback_text for word in ['structure', 'arrangement', 'sections']):
+                improvement_suggestions.append("Song structure and arrangement")
+            if any(word in feedback_text for word in ['lyrics', 'lyric', 'words']):
+                improvement_suggestions.append("Lyrics and lyrical content")
+            if any(word in feedback_text for word in ['vocal', 'voice', 'singing']):
+                improvement_suggestions.append("Vocal assignments and melodies")
+            if any(word in feedback_text for word in ['instrument', 'notes', 'melody', 'harmony']):
+                improvement_suggestions.append("Instrumental content and arrangements")
+            if any(word in feedback_text for word in ['effect', 'reverb', 'delay', 'volume']):
+                improvement_suggestions.append("Audio effects and mixing")
+            if any(word in feedback_text for word in ['album', 'cover', 'art', 'design']):
+                improvement_suggestions.append("Album art and visual design")
+                
+            qa_summary["improvement_areas"] = improvement_suggestions
+        
+        # Store the feedback for the user interface
+        state.user_approval_data = qa_summary
+        
+        # Send progress update with user decision request integrated in progress dialog
+        if self.progress_callback:
+            try:
+                # Create user-friendly progress message
+                if state.qa_feedback:
+                    feedback_summary = f"{len(state.qa_feedback)} quality issues detected"
+                    quality_level = "needs improvement"
+                else:
+                    feedback_summary = "Good quality achieved"
+                    quality_level = "good"
+                
+                # Prepare decision message for progress dialog
+                decision_message = {
+                    "type": "user_decision_required",
+                    "title": "Quality Assessment Complete",
+                    "summary": f"Song generated with {qa_summary['song_structure']['tracks']} tracks ({feedback_summary})",
+                    "quality_status": quality_level,
+                    "qa_feedback": state.qa_feedback,
+                    "qa_corrections": state.qa_corrections,
+                    "improvement_areas": qa_summary["improvement_areas"],
+                    "song_info": {
+                        "tracks": qa_summary["song_structure"]["tracks"],
+                        "duration": f"{qa_summary['song_structure']['duration']} seconds",
+                        "tempo": f"{qa_summary['song_structure']['tempo']} BPM",
+                        "key": qa_summary["song_structure"]["key"]
+                    },
+                    "restart_info": {
+                        "current_attempt": state.qa_restart_count + 1,
+                        "max_attempts": state.max_qa_restarts + 1
+                    },
+                    "options": [
+                        {
+                            "id": "accept",
+                            "label": "Accept Current Version",
+                            "description": "Use the song as-is (fast completion)",
+                            "action": "complete"
+                        },
+                        {
+                            "id": "improve", 
+                            "label": "Request Improvements",
+                            "description": "AI will address the identified quality issues (takes more time)",
+                            "action": "restart",
+                            "disabled": state.qa_restart_count >= state.max_qa_restarts
+                        }
+                    ]
+                }
+                
+                await self._safe_progress_callback(
+                    message="⏸️ Quality assessment complete - Your decision needed",
+                    progress=95,
+                    agent="user_approval",
+                    decision_data=decision_message,
+                    user_interaction_required=True,
+                    qa_feedback_summary=qa_summary
+                )
+            except Exception as e:
+                logger.warning(f"Progress callback failed: {e}")
+        
+        # Log the user approval state
+        logger.info(f"🤖 User Approval: Presenting quality feedback in progress dialog")
+        logger.info(f"🤖 Quality status: {qa_summary['current_quality']}")
+        logger.info(f"🤖 QA feedback items: {len(state.qa_feedback)}")
+        if state.qa_feedback:
+            logger.info(f"🤖 Issues to address: {state.qa_feedback}")
+        
+        return state
+
+    def _user_approval_decision(self, state: SongState) -> str:
+        """
+        User decision point: Check what action the user wants to take
+        This function handles the routing based on user choice received through progress dialog
+        """
+        # Check if user has made a decision (this will be set by external interface via progress system)
+        user_decision = getattr(state, 'user_decision', None)
+        
+        logger.info(f"🤖 User Approval Decision: Starting decision check")
+        logger.info(f"🤖 User Approval Decision: user_decision = {user_decision}")
+        logger.info(f"🤖 User Approval Decision: qa_feedback count = {len(state.qa_feedback) if state.qa_feedback else 0}")
+        logger.info(f"🤖 User Approval Decision: qa_feedback = {state.qa_feedback}")
+        logger.info(f"🤖 User Approval Decision: user_approval_data exists = {hasattr(state, 'user_approval_data') and state.user_approval_data is not None}")
+        
+        if user_decision == 'accept':
+            logger.info("🤖 User Decision: User accepted current version")
+            logger.info("🤖 User Decision: ROUTING TO: accept")
+            state.is_ready_for_export = True
+            # Send completion update through progress callback
+            if self.progress_callback:
+                try:
+                    asyncio.create_task(self._safe_progress_callback(
+                        "✓ Song accepted by user - Generation complete!", 
+                        100, 
+                        "complete",
+                        user_choice="accept"
+                    ))
+                except Exception as e:
+                    logger.warning(f"Progress callback failed: {e}")
+            return "accept"
+            
+        elif user_decision == 'improve':
+            # User wants improvements - use automatic QA decision logic
+            logger.info("🤖 User Decision: User requested improvements")
+            state.qa_restart_count += 1
+            
+            # Use existing QA analysis logic to determine best restart point
+            feedback_text = " ".join(state.qa_feedback).lower() if state.qa_feedback else ""
+            
+            # Determine which agent to restart based on feedback content
+            restart_target = "restart_arrangement"  # Default
+            restart_reason = "General improvements requested"
+            
+            if any(word in feedback_text for word in ['tempo', 'bpm', 'key', 'timing']):
+                restart_target = "restart_composer"
+                restart_reason = "Musical parameters need adjustment"
+            elif any(word in feedback_text for word in ['structure', 'arrangement', 'sections']):
+                restart_target = "restart_arrangement"
+                restart_reason = "Song structure needs improvement"
+            elif any(word in feedback_text for word in ['lyrics', 'words']) and not state.request.is_instrumental:
+                restart_target = "restart_lyrics"
+                restart_reason = "Lyrics need refinement"
+                logger.info(f"🤖 User Decision: QA Analysis suggests lyrics restart for vocal track")
+            elif any(word in feedback_text for word in ['lyrics', 'words']) and state.request.is_instrumental:
+                # PROTECTION: Never restart lyrics for instrumental tracks
+                logger.warning(f"🚨 PROTECTION: QA mentioned lyrics feedback for INSTRUMENTAL track - redirecting to arrangement")
+                restart_target = "restart_arrangement"
+                restart_reason = "Arrangement needs refinement (lyrics feedback ignored for instrumental track)"
+            elif any(word in feedback_text for word in ['vocal', 'voice']) and not state.request.is_instrumental:
+                restart_target = "restart_vocal"
+                restart_reason = "Vocal arrangements need improvement"
+                logger.info(f"🤖 User Decision: QA Analysis suggests vocal restart for vocal track")
+            elif any(word in feedback_text for word in ['vocal', 'voice']) and state.request.is_instrumental:
+                # PROTECTION: Never restart vocal for instrumental tracks
+                logger.warning(f"🚨 PROTECTION: QA mentioned vocal feedback for INSTRUMENTAL track - redirecting to instrument")
+                restart_target = "restart_instrument"
+                restart_reason = "Instrumental content needs enhancement (vocal feedback ignored for instrumental track)"
+            elif any(word in feedback_text for word in ['instrument', 'notes', 'melody']):
+                restart_target = "restart_instrument"
+                restart_reason = "Instrumental content needs enhancement"
+            elif any(word in feedback_text for word in ['effect', 'reverb', 'volume']):
+                restart_target = "restart_effects"
+                restart_reason = "Audio effects need adjustment"
+            elif any(word in feedback_text for word in ['album', 'cover', 'art']):
+                restart_target = "restart_design"
+                restart_reason = "Album art needs improvement"
+            
+            # Send restart update through progress callback
+            if self.progress_callback:
+                try:
+                    agent_name = restart_target.replace("restart_", "").title()
+                    asyncio.create_task(self._safe_progress_callback(
+                        f"🔄 Restarting from {agent_name} agent - {restart_reason}",
+                        20 + (state.qa_restart_count * 10),  # Progressive restart indicator
+                        restart_target.replace("restart_", ""),
+                        user_choice="improve",
+                        restart_reason=restart_reason,
+                        restart_attempt=state.qa_restart_count
+                    ))
+                except Exception as e:
+                    logger.warning(f"Progress callback failed: {e}")
+            
+            logger.info(f"🤖 User Decision: Restarting from {restart_target} - {restart_reason}")
+            return restart_target
+            
+        else:
+            # No user decision yet - this is expected when first reaching user approval
+            logger.info("🤖 User Decision: No user decision provided yet - user approval UI should be displayed")
+            logger.info(f"🤖 User Decision: This is the FIRST TIME reaching user approval decision")
+            
+            # Check if there are issues that need addressing
+            if state.qa_feedback and len(state.qa_feedback) > 0:
+                logger.info(f"🤖 User Decision: QA feedback exists ({len(state.qa_feedback)} items) - should wait for user choice")
+                logger.info(f"🤖 User Decision: QA feedback items: {state.qa_feedback}")
+                # Don't auto-accept - instead, this should signal that user input is required
+                # The main generation function should detect user_approval_data and pause for user input
+                state.user_approval_pending = True
+                logger.info("🤖 User Decision: Setting user_approval_pending flag to pause workflow")
+                logger.info("🤖 User Decision: ROUTING TO: accept (but with user_approval_pending=True)")
+                return "accept"  # This will end the workflow, but main function will detect user_approval_data
+            else:
+                # No feedback means it's good to go
+                logger.info("🤖 User Decision: No issues detected - auto-accepting")
+                logger.info("🤖 User Decision: ROUTING TO: accept (auto-accept)")
+                state.is_ready_for_export = True
+                return "accept"
+
+    def set_user_decision(self, session_id: str, decision: str) -> bool:
+        """
+        Method to receive user decisions from the frontend through the progress dialog
+        This would be called by the API when user makes a choice
+        
+        Args:
+            session_id: The workflow session identifier
+            decision: 'accept' or 'improve'
+            
+        Returns:
+            bool: True if decision was set successfully
+        """
+        # In a complete implementation, this would:
+        # 1. Retrieve the workflow state from session storage
+        # 2. Set the user_decision field
+        # 3. Signal the workflow to continue from user_approval_decision
+        
+        logger.info(f"🤖 User Decision Received: session={session_id}, decision={decision}")
+        
+        if decision not in ['accept', 'improve']:
+            logger.error(f"🤖 Invalid user decision: {decision}")
+            return False
+        
+        # This is a placeholder - real implementation would update the stored workflow state
+        # and resume the LangGraph execution
+        logger.info(f"🤖 User Decision Set: {decision} (implementation pending)")
+        return True
     
     # ============================================================================
     # WORKFLOW CONTROL AND UTILITY METHODS
@@ -2705,6 +3586,37 @@ Validation Checks:
         
         logger.info("Review decision: continue to design phase")
         return "continue"
+    
+    async def _qa_decision(self, state: SongState) -> str:
+        """
+        Analyze QA feedback and decide whether to restart from a specific agent or complete
+        Uses priority-based analysis to handle multiple issues effectively
+        """
+        logger.info(f"🔍 QA Decision: Starting analysis (restart count: {state.qa_restart_count}/{state.max_qa_restarts})")
+        logger.info(f"🔍 QA Decision: Ready for export: {state.is_ready_for_export}")
+        logger.info(f"🔍 QA Decision: QA feedback count: {len(state.qa_feedback) if state.qa_feedback else 0}")
+        logger.info(f"🔍 QA Decision: QA feedback: {state.qa_feedback}")
+        
+        # Always complete after max QA restarts to prevent infinite loops
+        if state.qa_restart_count >= state.max_qa_restarts:
+            logger.info(f"🔄 QA Decision: Forcing completion after {state.qa_restart_count} QA restarts (limit: {state.max_qa_restarts})")
+            return "complete"
+        
+        # If there's QA feedback indicating issues, route to user approval
+        if state.qa_feedback and len(state.qa_feedback) > 0:
+            logger.info(f"🔄 QA Decision: QA feedback detected ({len(state.qa_feedback)} items) - routing to user approval")
+            logger.info(f"🔄 QA Decision: Feedback items: {state.qa_feedback}")
+            logger.info(f"🔄 QA Decision: ROUTING TO: user_review")
+            return "user_review"
+        elif state.is_ready_for_export:
+            logger.info("🔄 QA Decision: Song validation passed - completing workflow")
+            logger.info(f"🔄 QA Decision: ROUTING TO: complete")
+            return "complete"
+        else:
+            # No feedback but not ready for export - something went wrong, complete anyway
+            logger.warning("🔄 QA Decision: No QA feedback but not ready for export - completing anyway")
+            logger.warning(f"🔄 QA Decision: ROUTING TO: complete (fallback)")
+            return "complete"
     
     def _assemble_song_structure(self, state: SongState) -> Dict[str, Any]:
         """Assemble the current song structure from all agent outputs"""
@@ -2758,13 +3670,41 @@ Validation Checks:
             elif "effects" not in track:
                 track["effects"] = {"reverb": 0, "delay": 0, "distortion": 0}
             
-            # Apply clip-level effects
+            # Apply clip-level effects and ensure schema compliance
             for clip in track.get("clips", []):
                 clip_id = clip.get("id")
                 if clip_id in clip_effects:
                     clip["effects"] = clip_effects[clip_id]
                 elif "effects" not in clip:
                     clip["effects"] = {"reverb": 0, "delay": 0, "distortion": 0}
+                
+                # FINAL SCHEMA COMPLIANCE CHECK: Remove any remaining musical_content structures
+                if 'musical_content' in clip:
+                    musical_content = clip.pop('musical_content')
+                    # Move notes to clip level if they exist in musical_content
+                    if 'notes' in musical_content and 'notes' not in clip:
+                        # Handle both simple notes array and complex note objects
+                        if isinstance(musical_content['notes'], list) and musical_content['notes']:
+                            # If notes are objects with 'note' property, extract just the note names
+                            if isinstance(musical_content['notes'][0], dict) and 'note' in musical_content['notes'][0]:
+                                clip['notes'] = [note_obj['note'] for note_obj in musical_content['notes']]
+                            else:
+                                # If notes are already simple strings, use as-is
+                                clip['notes'] = musical_content['notes']
+                        else:
+                            # Fallback to simple default notes
+                            clip['notes'] = generate_intelligent_default_notes(clip.get('instrument', 'piano'), 'C', 'pop')
+                    logger.info(f"🔧 FINAL FIX: Removed musical_content from clip {clip_id} in final assembly")
+                
+                # Ensure synth clips have notes
+                if clip.get('type') == 'synth' and 'notes' not in clip:
+                    clip['notes'] = generate_intelligent_default_notes(clip.get('instrument', 'piano'), 'C', 'pop')
+                
+                # Remove any other non-schema fields
+                non_schema_fields = ['category', 'role', 'pattern']
+                for field in non_schema_fields:
+                    if field in clip:
+                        clip.pop(field)
         
         song["tracks"] = all_tracks
         return song

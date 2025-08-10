@@ -15,7 +15,9 @@
     "newProject": "Nieuw Project",
     "openProject": "Project Openen",
     "saveProject": "Project Opslaan",
-    "export": "Project Exporteren"
+    "generateSong": "Lied Genereren",
+    "export": "Project Exporteren",
+    "exportSong": "Lied Exporteren"
   },
   "tracks": {
     "title": "Tracks",
@@ -156,6 +158,29 @@
     "invalidProject": "Ongeldig projectbestand",
     "exportSoon": "Exportfunctionaliteit komt binnenkort!"
   },
+  "exportSong": {
+    "title": "Lied Exporteren",
+    "songName": "Naam van het Lied",
+    "songNamePlaceholder": "Voer liednaam in...",
+    "format": "Exportformaat",
+    "quality": "Exportkwaliteit",
+    "qualityHigh": "Hoog (320kbps)",
+    "qualityMedium": "Gemiddeld (192kbps)",
+    "qualityLow": "Laag (128kbps)",
+    "exportFolder": "Exportlocatie",
+    "exportFolderPlaceholder": "Downloads map",
+    "exportFolderHelp": "Het gegenereerde audiobestand wordt opgeslagen in je Downloads map",
+    "browse": "Bladeren",
+    "includeProject": "Projectbestand opnemen",
+    "includeProjectHelp": "Ook de liedstructuur exporteren als JSON projectbestand",
+    "export": "Lied Exporteren",
+    "exporting": "Exporteren...",
+    "nameRequired": "Liednaam is vereist",
+    "success": "Lied '{name}' succesvol geëxporteerd als {format}!",
+    "error": "Export mislukt: {error}",
+    "defaultFolder": "Downloads",
+    "browserLimitation": "Browserbeperking: Bestanden worden gedownload naar je standaard Downloads map"
+  },
   "songGeneration": {
     "generating": "Uw Lied Wordt Gegenereerd",
     "multiAgentSystem": "Multi-Agent AI Systeem in Actie",
@@ -163,6 +188,7 @@
     "processing": "Verwerken",
     "completed": "Voltooid",
     "pending": "Wachtend",
+    "skipped": "Overgeslagen (Alleen Instrumentaal)",
     "agents": {
       "composer": "Componist",
       "arrangement": "Arrangement",
@@ -191,6 +217,10 @@
       "fallback": "Liedstructuur gecreëerd!",
       "projectCreated": "Project \"{name}\" gecreëerd met {track_count} tracks",
       "tracksVisible": "De gegenereerde tracks en clips zijn nu zichtbaar in uw tracklist en tijdlijn."
+    },
+    "qaRestart": {
+      "title": "Kwaliteitscontrole - Poging {attempt}",
+      "improving": "AI verfijnt het lied voor betere kwaliteit..."
     }
   },
   "common": {

@@ -15,7 +15,9 @@
     "newProject": "Neues Projekt",
     "openProject": "Projekt Öffnen",
     "saveProject": "Projekt Speichern",
-    "export": "Projekt Exportieren"
+    "generateSong": "Song Generieren",
+    "export": "Projekt Exportieren",
+    "exportSong": "Song Exportieren"
   },
   "tracks": {
     "title": "Spuren",
@@ -156,6 +158,29 @@
     "invalidProject": "Ungültige Projektdatei",
     "exportSoon": "Export-Funktionalität kommt bald!"
   },
+  "exportSong": {
+    "title": "Song Exportieren",
+    "songName": "Song-Name",
+    "songNamePlaceholder": "Song-Namen eingeben...",
+    "format": "Exportformat",
+    "quality": "Exportqualität",
+    "qualityHigh": "Hoch (320kbps)",
+    "qualityMedium": "Mittel (192kbps)",
+    "qualityLow": "Niedrig (128kbps)",
+    "exportFolder": "Export-Speicherort",
+    "exportFolderPlaceholder": "Downloads-Ordner",
+    "exportFolderHelp": "Die generierte Audiodatei wird in Ihrem Downloads-Ordner gespeichert",
+    "browse": "Durchsuchen",
+    "includeProject": "Projektdatei einschließen",
+    "includeProjectHelp": "Auch die Song-Struktur als JSON-Projektdatei exportieren",
+    "export": "Song Exportieren",
+    "exporting": "Exportiert...",
+    "nameRequired": "Song-Name ist erforderlich",
+    "success": "Song '{name}' erfolgreich als {format} exportiert!",
+    "error": "Export fehlgeschlagen: {error}",
+    "defaultFolder": "Downloads",
+    "browserLimitation": "Browser-Einschränkung: Dateien werden in Ihren Standard-Downloads-Ordner heruntergeladen"
+  },
   "songGeneration": {
     "generating": "Ihr Song Wird Erstellt",
     "multiAgentSystem": "Multi-Agent KI-System in Aktion",
@@ -163,6 +188,7 @@
     "processing": "Verarbeitung",
     "completed": "Abgeschlossen",
     "pending": "Ausstehend",
+    "skipped": "Übersprungen (Nur Instrumental)",
     "agents": {
       "composer": "Komponist",
       "arrangement": "Arrangement",
@@ -191,6 +217,10 @@
       "fallback": "Song-Struktur erstellt!",
       "projectCreated": "Projekt \"{name}\" mit {track_count} Spuren erstellt",
       "tracksVisible": "Die generierten Spuren und Clips sind jetzt in Ihrer Spurliste und Timeline sichtbar."
+    },
+    "qaRestart": {
+      "title": "Qualitätskontrolle - Versuch {attempt}",
+      "improving": "KI verfeinert den Song für bessere Qualität..."
     }
   },
   "common": {

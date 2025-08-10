@@ -15,7 +15,9 @@
     "newProject": "Nuovo Progetto",
     "openProject": "Apri Progetto",
     "saveProject": "Salva Progetto",
-    "export": "Esporta Progetto"
+    "generateSong": "Genera Canzone",
+    "export": "Esporta Progetto",
+    "exportSong": "Esporta Canzone"
   },
   "tracks": {
     "title": "Tracce",
@@ -156,6 +158,29 @@
     "invalidProject": "File di progetto non valido",
     "exportSoon": "La funzionalità di esportazione arriverà presto!"
   },
+  "exportSong": {
+    "title": "Esporta Canzone",
+    "songName": "Nome della Canzone",
+    "songNamePlaceholder": "Inserisci il nome della canzone...",
+    "format": "Formato di Esportazione",
+    "quality": "Qualità di Esportazione",
+    "qualityHigh": "Alta (320kbps)",
+    "qualityMedium": "Media (192kbps)",
+    "qualityLow": "Bassa (128kbps)",
+    "exportFolder": "Posizione di Esportazione",
+    "exportFolderPlaceholder": "Cartella Download",
+    "exportFolderHelp": "Il file audio generato verrà salvato nella tua cartella Download",
+    "browse": "Sfoglia",
+    "includeProject": "Includi file di progetto",
+    "includeProjectHelp": "Esporta anche la struttura della canzone come file di progetto JSON",
+    "export": "Esporta Canzone",
+    "exporting": "Esportazione...",
+    "nameRequired": "Il nome della canzone è richiesto",
+    "success": "Canzone '{name}' esportata con successo come {format}!",
+    "error": "Esportazione fallita: {error}",
+    "defaultFolder": "Download",
+    "browserLimitation": "Limitazione del browser: I file verranno scaricati nella tua cartella Download predefinita"
+  },
   "songGeneration": {
     "generating": "Generazione della Tua Canzone",
     "multiAgentSystem": "Sistema IA Multi-Agent in Azione",
@@ -163,6 +188,7 @@
     "processing": "Elaborazione",
     "completed": "Completato",
     "pending": "In Attesa",
+    "skipped": "Saltato (Solo Strumentale)",
     "agents": {
       "composer": "Compositore",
       "arrangement": "Arrangiamento",
@@ -191,6 +217,10 @@
       "fallback": "Struttura canzone creata!",
       "projectCreated": "Progetto \"{name}\" creato con {track_count} tracce",
       "tracksVisible": "Le tracce e clip generate sono ora visibili nella tua lista tracce e timeline."
+    },
+    "qaRestart": {
+      "title": "Controllo Qualità - Tentativo {attempt}",
+      "improving": "L'IA sta perfezionando la canzone per una migliore qualità..."
     }
   },
   "common": {

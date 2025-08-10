@@ -3,7 +3,7 @@ Audio Processing API Routes
 Handles audio file processing, waveform generation, and audio effects
 """
 
-from flask import Blueprint, request, jsonify, current_app, send_file
+from flask import Blueprint, request, jsonify, current_app, send_file, Response
 from werkzeug.utils import secure_filename
 from app.services.audio_service import AudioService
 from app.utils.decorators import handle_errors
@@ -200,6 +200,32 @@ def download_audio(file_id):
         return jsonify({'error': 'Failed to download file'}), 500
 
 
+@audio_bp.route('/download-export/<file_id>', methods=['GET'])
+@handle_errors
+def download_export(file_id):
+    """
+    Download exported song file
+    """
+    try:
+        audio_service = AudioService()
+        export_data = audio_service.get_export_file(file_id)
+        
+        return Response(
+            export_data['data'],
+            mimetype=export_data['content_type'],
+            headers={
+                'Content-Disposition': f'attachment; filename="{export_data["filename"]}"',
+                'Content-Length': str(export_data['size'])
+            }
+        )
+        
+    except FileNotFoundError:
+        return jsonify({'error': 'Export file not found'}), 404
+    except Exception as e:
+        current_app.logger.error(f"Export download error: {str(e)}")
+        return jsonify({'error': 'Failed to download export'}), 500
+
+
 @audio_bp.route('/export', methods=['POST'])
 @handle_errors
 def export_project():
@@ -236,6 +262,55 @@ def export_project():
         return jsonify({'error': 'Failed to export project'}), 500
 
 
+@audio_bp.route('/export-song', methods=['POST'])
+@handle_errors
+def export_song():
+    """
+    Export song from JSON structure as audio file
+    """
+    data = request.get_json()
+    song_structure = data.get('song_structure')
+    format = data.get('format', 'wav')
+    quality = data.get('quality', 'high')
+    filename = data.get('filename', 'exported_song')
+    include_project = data.get('include_project', False)
+    
+    if not song_structure:
+        return jsonify({'error': 'Song structure is required'}), 400
+    
+    try:
+        audio_service = AudioService()
+        
+        # Generate audio from song structure
+        export_result = audio_service.export_song_from_structure(
+            song_structure=song_structure,
+            format=format,
+            quality=quality,
+            filename=filename
+        )
+        
+        response_data = {
+            'export_file_id': export_result['file_id'],
+            'download_url': export_result.get('download_url'),
+            'filename': f"{filename}.{format}",
+            'format': format,
+            'quality': quality,
+            'file_size': export_result['file_size'],
+            'duration': export_result['duration'],
+            'success': True
+        }
+        
+        # Include project file if requested
+        if include_project:
+            response_data['project_file'] = song_structure
+        
+        return jsonify(response_data)
+        
+    except Exception as e:
+        current_app.logger.error(f"Song export error: {str(e)}")
+        return jsonify({'error': f'Failed to export song: {str(e)}'}), 500
+
+
 @audio_bp.route('/supported-formats', methods=['GET'])
 def get_supported_formats():
     """
@@ -249,3 +324,62 @@ def get_supported_formats():
             'equalizer', 'limiter', 'gate', 'filter', 'modulation'
         ]
     })
+
+
+@audio_bp.route('/soundfont/upload', methods=['POST'])
+@handle_errors
+def upload_soundfont():
+    """
+    Upload SoundFont files and generate chord library
+    """
+    if 'soundfonts' not in request.files:
+        return jsonify({'error': 'No SoundFont files provided'}), 400
+    
+    files = request.files.getlist('soundfonts')
+    if not files:
+        return jsonify({'error': 'No files uploaded'}), 400
+    
+    # Validate file types
+    valid_files = []
+    for file in files:
+        if file.filename and file.filename.lower().endswith('.sf2'):
+            valid_files.append(file)
+    
+    if not valid_files:
+        return jsonify({'error': 'No valid SoundFont (.sf2) files found'}), 400
+    
+    try:
+        from app.services.soundfont_service import SoundFontService
+        
+        soundfont_service = SoundFontService()
+        job_id = soundfont_service.process_soundfont_files(valid_files)
+        
+        return jsonify({
+            'success': True,
+            'job_id': job_id,
+            'files_count': len(valid_files),
+            'message': f'Processing {len(valid_files)} SoundFont file(s)'
+        })
+        
+    except Exception as e:
+        current_app.logger.error(f"SoundFont upload error: {str(e)}")
+        return jsonify({'error': 'Failed to process SoundFont files'}), 500
+
+
+@audio_bp.route('/soundfont/status/<job_id>', methods=['GET'])
+@handle_errors
+def get_soundfont_status(job_id):
+    """
+    Get SoundFont processing status
+    """
+    try:
+        from app.services.soundfont_service import SoundFontService
+        
+        soundfont_service = SoundFontService()
+        status = soundfont_service.get_job_status(job_id)
+        
+        return jsonify(status)
+        
+    except Exception as e:
+        current_app.logger.error(f"SoundFont status error: {str(e)}")
+        return jsonify({'error': 'Failed to get processing status'}), 500

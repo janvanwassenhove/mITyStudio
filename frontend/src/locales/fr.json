@@ -15,7 +15,9 @@
     "newProject": "Nouveau Projet",
     "openProject": "Ouvrir Projet",
     "saveProject": "Sauvegarder Projet",
-    "export": "Exporter Projet"
+    "generateSong": "Générer Chanson",
+    "export": "Exporter Projet",
+    "exportSong": "Exporter Chanson"
   },
   "tracks": {
     "title": "Pistes",
@@ -156,6 +158,29 @@
     "invalidProject": "Fichier de projet invalide",
     "exportSoon": "La fonctionnalité d'exportation arrive bientôt !"
   },
+  "exportSong": {
+    "title": "Exporter la Chanson",
+    "songName": "Nom de la Chanson",
+    "songNamePlaceholder": "Entrez le nom de la chanson...",
+    "format": "Format d'Exportation",
+    "quality": "Qualité d'Exportation",
+    "qualityHigh": "Haute (320kbps)",
+    "qualityMedium": "Moyenne (192kbps)",
+    "qualityLow": "Basse (128kbps)",
+    "exportFolder": "Emplacement d'Exportation",
+    "exportFolderPlaceholder": "Dossier Téléchargements",
+    "exportFolderHelp": "Le fichier audio généré sera sauvegardé dans votre dossier Téléchargements",
+    "browse": "Parcourir",
+    "includeProject": "Inclure le fichier de projet",
+    "includeProjectHelp": "Exporter aussi la structure de la chanson comme fichier de projet JSON",
+    "export": "Exporter la Chanson",
+    "exporting": "Exportation...",
+    "nameRequired": "Le nom de la chanson est requis",
+    "success": "Chanson '{name}' exportée avec succès en {format} !",
+    "error": "Échec de l'exportation : {error}",
+    "defaultFolder": "Téléchargements",
+    "browserLimitation": "Limitation du navigateur : Les fichiers seront téléchargés dans votre dossier Téléchargements par défaut"
+  },
   "songGeneration": {
     "generating": "Génération de Votre Chanson",
     "multiAgentSystem": "Système IA Multi-Agent en Action",
@@ -163,6 +188,7 @@
     "processing": "Traitement",
     "completed": "Terminé",
     "pending": "En Attente",
+    "skipped": "Ignoré (Instrumental Seulement)",
     "agents": {
       "composer": "Compositeur",
       "arrangement": "Arrangement",
@@ -191,6 +217,10 @@
       "fallback": "Structure de chanson créée !",
       "projectCreated": "Projet \"{name}\" créé avec {track_count} pistes",
       "tracksVisible": "Les pistes et clips générés sont maintenant visibles dans votre liste de pistes et timeline."
+    },
+    "qaRestart": {
+      "title": "Contrôle Qualité - Tentative {attempt}",
+      "improving": "L'IA affine la chanson pour une meilleure qualité..."
     }
   },
   "common": {
