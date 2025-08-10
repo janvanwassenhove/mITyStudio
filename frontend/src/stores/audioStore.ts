@@ -903,7 +903,12 @@ Check your web server configuration to ensure it can serve audio files from: ${s
 
   // Enhanced clip scheduling with automatic sample detection
   const scheduleClip = async (clip: AudioClip, track: Track, fromPosition: number = 0) => {
-    if (track.muted) return
+    console.log(`[scheduleClip] Processing clip for track "${track.name}": muted=${track.muted}, volume=${track.volume}`)
+    
+    if (track.muted) {
+      console.log(`[scheduleClip] Skipping muted track: ${track.name}`)
+      return
+    }
 
     const startTime = clip.startTime
     const duration = clip.duration
@@ -914,6 +919,8 @@ Check your web server configuration to ensure it can serve audio files from: ${s
       console.log(`[scheduleClip] Skipping clip that ended before position ${fromPosition}:`, clip)
       return
     }
+
+    console.log(`[scheduleClip] Scheduling clip for "${track.name}": start=${startTime}s, duration=${duration}s, instrument=${track.instrument}`)
 
     // Automatically determine if we should use samples or synth
     const category = getTrackCategory(track)
@@ -1532,7 +1539,11 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     const soloTracks = songStructure.value.tracks.filter(track => track.solo)
     const tracksToPlay = soloTracks.length > 0 ? soloTracks : songStructure.value.tracks
 
-    console.log(`[generateAndScheduleSong] Scheduling for tracks from position ${fromPosition}:`, tracksToPlay.map(t => t.name))
+    console.log(`[generateAndScheduleSong] Scheduling for tracks from position ${fromPosition}:`)
+    console.log(`  - Total tracks: ${songStructure.value.tracks.length}`)
+    console.log(`  - Solo tracks: ${soloTracks.length} (${soloTracks.map(t => t.name).join(', ')})`)
+    console.log(`  - Tracks to play: ${tracksToPlay.length} (${tracksToPlay.map(t => t.name).join(', ')})`)
+    console.log(`  - Muted tracks: ${songStructure.value.tracks.filter(t => t.muted).map(t => t.name).join(', ') || 'none'}`)
     
     // For fresh playback (fromPosition = 0), ensure all clips are scheduled
     if (fromPosition === 0) {
@@ -1540,11 +1551,19 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     }
     
     // Schedule all clips
+    let totalScheduledClips = 0
     tracksToPlay.forEach(track => {
+      console.log(`[generateAndScheduleSong] Processing track "${track.name}" with ${track.clips.length} clips, muted: ${track.muted}, volume: ${track.volume}`)
       track.clips.forEach(clip => {
+        if (!track.muted) {
+          totalScheduledClips++
+          console.log(`  - Scheduling clip: start=${clip.startTime}s, duration=${clip.duration}s, notes=${clip.notes?.length || 0}`)
+        }
         scheduleClip(clip, track, fromPosition)
       })
     })
+    
+    console.log(`[generateAndScheduleSong] Total clips scheduled: ${totalScheduledClips}`)
 
     // Schedule metronome
     if (metronomeEnabled.value) {
@@ -1750,20 +1769,38 @@ Check your web server configuration to ensure it can serve audio files from: ${s
   */
 
   const play = async () => {
+    console.log('🎵 Play function called')
+    
     try {
-      if (!isInitialized.value) {
-        await initializeAudio()
+      // Ensure audio context is ready with proper user interaction handling
+      const isReady = await ensureAudioContextReady()
+      if (!isReady) {
+        console.error('❌ Cannot play: AudioContext not ready')
+        throw new Error('Audio system not ready. Please try again.')
       }
 
-      if (!isInitialized.value) {
-        console.error('Cannot play: Audio not initialized')
-        return
+      // Debug current song structure
+      console.log('🎵 Current song structure:', {
+        tracks: songStructure.value.tracks.length,
+        trackNames: songStructure.value.tracks.map(t => t.name),
+        mutedTracks: songStructure.value.tracks.filter(t => t.muted).map(t => t.name),
+        soloTracks: songStructure.value.tracks.filter(t => t.solo).map(t => t.name),
+        totalClips: songStructure.value.tracks.reduce((sum, t) => sum + t.clips.length, 0)
+      })
+
+      if (songStructure.value.tracks.length === 0) {
+        console.error('❌ Cannot play: No tracks in song structure')
+        throw new Error('No tracks available to play. Please generate or add tracks first.')
       }
 
-      // Ensure audio context is running
-      if (Tone.context.state !== 'running') {
-        await Tone.context.resume()
+      // Check for clips in tracks
+      const tracksWithClips = songStructure.value.tracks.filter(t => t.clips.length > 0)
+      if (tracksWithClips.length === 0) {
+        console.error('❌ Cannot play: No clips in any tracks')
+        throw new Error('No audio clips found in tracks. Please generate content first.')
       }
+
+      console.log('🎵 Tracks with clips:', tracksWithClips.map(t => `${t.name} (${t.clips.length} clips)`))
 
       console.log('[play] SIMPLIFIED: Starting playback without Transport...')
       
@@ -1797,8 +1834,14 @@ Check your web server configuration to ensure it can serve audio files from: ${s
       console.log('[play] SIMPLIFIED: Playback started with setTimeout scheduling')
       
     } catch (error) {
-      console.error('Failed to start playback:', error)
-      initializationError.value = error instanceof Error ? error.message : 'Unknown error'
+      console.error('❌ Playback error:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error'
+      initializationError.value = errorMessage
+      
+      // Show user-friendly error message for audio context issues
+      if (errorMessage.includes('suspended') || errorMessage.includes('AudioContext') || errorMessage.includes('Audio system not ready')) {
+        initializationError.value = 'Audio is blocked by your browser. Please click anywhere on the page first, then try playing again.'
+      }
     }
   }
 
@@ -2173,6 +2216,163 @@ Check your web server configuration to ensure it can serve audio files from: ${s
   // Unregister a preview audio element
   const unregisterPreviewAudio = (audio: HTMLAudioElement) => {
     previewAudioElements.value.delete(audio)
+  }
+
+  // Utility function to ensure AudioContext is ready for playback
+  const ensureAudioContextReady = async (): Promise<boolean> => {
+    try {
+      if (!isInitialized.value) {
+        console.log('🎵 Audio not initialized, initializing...')
+        await initializeAudio()
+      }
+
+      if (!isInitialized.value) {
+        console.error('❌ Cannot ensure audio ready: Initialization failed')
+        return false
+      }
+
+      // Check AudioContext state and start if needed
+      if (Tone.context.state !== 'running') {
+        console.log('🔊 AudioContext not running, attempting to start...')
+        try {
+          await Tone.start()
+          console.log('✅ AudioContext started successfully')
+        } catch (error) {
+          console.error('❌ Failed to start AudioContext:', error)
+          // Try alternative resume approach
+          try {
+            await Tone.context.resume()
+            console.log('✅ AudioContext resumed as fallback')
+          } catch (resumeError) {
+            console.error('❌ Failed to resume AudioContext:', resumeError)
+            return false
+          }
+        }
+      }
+
+      return true
+    } catch (error) {
+      console.error('❌ Error ensuring AudioContext ready:', error)
+      return false
+    }
+  }
+
+  // Debug utility to check and fix common playback issues
+  const debugAndFixPlaybackIssues = () => {
+    console.log('🔍 Debugging playback issues...')
+    
+    const tracks = songStructure.value.tracks
+    console.log(`Total tracks: ${tracks.length}`)
+    
+    const issues: string[] = []
+    let fixes = 0
+    
+    tracks.forEach((track, index) => {
+      console.log(`Track ${index + 1}: "${track.name}"`)
+      console.log(`  - Instrument: ${track.instrument}`)
+      console.log(`  - Muted: ${track.muted}`)
+      console.log(`  - Solo: ${track.solo}`)
+      console.log(`  - Volume: ${track.volume}`)
+      console.log(`  - Clips: ${track.clips.length}`)
+      
+      if (track.muted) {
+        issues.push(`Track "${track.name}" is muted`)
+      }
+      
+      if (track.volume === 0) {
+        issues.push(`Track "${track.name}" has volume set to 0`)
+        track.volume = 0.8 // Fix it
+        fixes++
+      }
+      
+      if (track.clips.length === 0) {
+        issues.push(`Track "${track.name}" has no clips`)
+      }
+      
+      track.clips.forEach((clip, clipIndex) => {
+        console.log(`    Clip ${clipIndex + 1}: start=${clip.startTime}s, duration=${clip.duration}s, notes=${clip.notes?.length || 0}`)
+        if (!clip.notes || clip.notes.length === 0) {
+          issues.push(`Track "${track.name}" clip ${clipIndex + 1} has no notes`)
+        } else {
+          // Check for repetitive or basic patterns
+          const uniqueNotes = [...new Set(clip.notes)]
+          if (uniqueNotes.length <= 2) {
+            issues.push(`Track "${track.name}" clip ${clipIndex + 1} has very simple pattern: [${clip.notes.join(', ')}]`)
+          }
+          console.log(`      Notes: [${clip.notes.join(', ')}] (${uniqueNotes.length} unique)`)
+        }
+      })
+    })
+    
+    const soloTracks = tracks.filter(t => t.solo)
+    if (soloTracks.length > 0) {
+      console.log(`⚠️ Solo tracks detected: ${soloTracks.map(t => t.name).join(', ')}`)
+      console.log('   Only solo tracks will play!')
+    }
+    
+    console.log('🔍 Issues found:')
+    issues.forEach(issue => console.log(`  - ${issue}`))
+    
+    if (fixes > 0) {
+      console.log(`✅ Fixed ${fixes} volume issues`)
+      updateSongStructure()
+    }
+    
+    return {
+      issues,
+      fixes,
+      totalTracks: tracks.length,
+      soloTracks: soloTracks.length,
+      mutedTracks: tracks.filter(t => t.muted).length,
+      tracksWithClips: tracks.filter(t => t.clips.length > 0).length
+    }
+  }
+
+  // Utility to enhance simple song patterns with better musical content
+  const enhanceSimplePatterns = () => {
+    console.log('🎵 Enhancing simple musical patterns...')
+    
+    const tracks = songStructure.value.tracks
+    let enhanced = 0
+    
+    tracks.forEach(track => {
+      track.clips.forEach(clip => {
+        if (clip.notes && clip.notes.length <= 2) {
+          const originalNotes = [...clip.notes]
+          
+          // Enhance based on instrument type
+          if (track.instrument.toLowerCase().includes('bass') || track.category === 'strings') {
+            // Bass should play lower notes
+            clip.notes = ['C2', 'G2', 'F2', 'G2']
+          } else if (track.instrument.toLowerCase().includes('drum') || track.category === 'percussion') {
+            // Drums should have percussive patterns
+            clip.notes = ['C4', 'C4', 'E4', 'C4', 'C4', 'E4', 'C4', 'E4']
+          } else if (track.category === 'keyboards') {
+            // Piano should have chord progressions
+            clip.notes = ['C4', 'E4', 'G4', 'C5', 'F4', 'A4', 'C5', 'G4']
+          } else if (track.category === 'woodwinds' || track.category === 'brass') {
+            // Wind instruments should have melodic lines
+            clip.notes = ['C5', 'D5', 'E5', 'F5', 'G5', 'E5', 'C5', 'G4']
+          } else if (track.category === 'strings') {
+            // String instruments (non-bass) should have harmonic content
+            clip.notes = ['G4', 'C5', 'E5', 'G5', 'C5', 'E5', 'G4', 'C5']
+          } else {
+            // Default enhancement - add more variety
+            clip.notes = ['C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5']
+          }
+          
+          console.log(`Enhanced ${track.name}: ${originalNotes.join(', ')} → ${clip.notes.join(', ')}`)
+          enhanced++
+        }
+      })
+    })
+    
+    if (enhanced > 0) {
+      console.log(`✅ Enhanced ${enhanced} clips with better musical patterns`)
+      updateSongStructure()
+    }
+    
+    return enhanced
   }
 
   // Force initialization with better error handling
@@ -2702,6 +2902,9 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     // Audio control
     initializeAudio,
     forceInitialize,
+    ensureAudioContextReady,
+    debugAndFixPlaybackIssues,
+    enhanceSimplePatterns,
     resetAudio,
     play,
     pause,
