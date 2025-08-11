@@ -73,21 +73,47 @@
           </label>
           <p class="help-text">{{ $t('exportSong.includeProjectHelp') }}</p>
         </div>
+
+        <!-- Export Status -->
+        <div v-if="exportStatus.show" class="export-status" :class="exportStatus.type">
+          <div class="status-icon">
+            <CheckCircle v-if="exportStatus.type === 'success'" class="icon" />
+            <AlertCircle v-else-if="exportStatus.type === 'error'" class="icon" />
+            <div v-else class="spinner-status"></div>
+          </div>
+          <div class="status-content">
+            <h4>{{ exportStatus.title }}</h4>
+            <p>{{ exportStatus.message }}</p>
+            <div v-if="exportStatus.details" class="status-details">
+              <p v-for="detail in exportStatus.details" :key="detail" class="detail-item">
+                {{ detail }}
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
       
       <div class="modal-footer">
-        <button @click="closeDialog" class="btn btn-ghost">
-          {{ $t('common.cancel') }}
-        </button>
-        <button 
-          @click="exportSong" 
-          class="btn btn-primary" 
-          :disabled="isExporting || !songName.trim()"
-        >
-          <Download v-if="!isExporting" class="icon" />
-          <div v-else class="spinner"></div>
-          {{ isExporting ? $t('exportSong.exporting') : $t('exportSong.export') }}
-        </button>
+        <!-- Show different buttons based on export status -->
+        <template v-if="exportStatus.show && exportStatus.type === 'success'">
+          <button @click="closeDialog" class="btn btn-primary">
+            {{ $t('common.close') }}
+          </button>
+        </template>
+        <template v-else>
+          <button @click="closeDialog" class="btn btn-ghost" :disabled="isExporting">
+            {{ $t('common.cancel') }}
+          </button>
+          <button 
+            @click="exportSong" 
+            class="btn btn-primary" 
+            :disabled="isExporting || !songName.trim() || (exportStatus.show && exportStatus.type === 'error')"
+          >
+            <Download v-if="!isExporting" class="icon" />
+            <div v-else class="spinner"></div>
+            {{ isExporting ? $t('exportSong.exporting') : $t('exportSong.export') }}
+          </button>
+        </template>
       </div>
     </div>
   </div>
@@ -96,7 +122,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { X, FolderOpen, Download } from 'lucide-vue-next'
+import { X, FolderOpen, Download, CheckCircle, AlertCircle } from 'lucide-vue-next'
 import { useAudioStore } from '../stores/audioStore'
 
 interface Props {
@@ -106,6 +132,14 @@ interface Props {
 interface ExportSettings {
   exportFormat: string
   exportQuality: string
+}
+
+interface ExportStatus {
+  show: boolean
+  type: 'success' | 'error' | 'loading'
+  title: string
+  message: string
+  details?: string[]
 }
 
 const props = defineProps<Props>()
@@ -123,6 +157,15 @@ const selectedQuality = ref('high')
 const exportFolder = ref('')
 const includeProject = ref(true)
 const isExporting = ref(false)
+
+// Export status state
+const exportStatus = ref<ExportStatus>({
+  show: false,
+  type: 'loading',
+  title: '',
+  message: '',
+  details: []
+})
 
 // Load settings from localStorage or default to settings panel values
 const loadExportSettings = (): ExportSettings => {
@@ -163,6 +206,8 @@ const initializeForm = () => {
 watch(() => props.show, (newShow) => {
   if (newShow) {
     initializeForm()
+    // Reset export status when dialog opens
+    exportStatus.value.show = false
   }
 })
 
@@ -185,11 +230,22 @@ const selectExportFolder = async () => {
 
 const exportSong = async () => {
   if (!songName.value.trim()) {
-    alert(t('exportSong.nameRequired'))
+    exportStatus.value = {
+      show: true,
+      type: 'error',
+      title: t('exportSong.error'),
+      message: t('exportSong.nameRequired')
+    }
     return
   }
 
   isExporting.value = true
+  exportStatus.value = {
+    show: true,
+    type: 'loading',
+    title: t('exportSong.exporting'),
+    message: t('exportSong.processingMessage')
+  }
 
   try {
     // Prepare export data
@@ -221,6 +277,23 @@ const exportSong = async () => {
     
     console.log('✅ Export completed:', result)
 
+    // Prepare success details
+    const successDetails = [
+      `${t('exportSong.fileSize')}: ${(result.file_size / 1024 / 1024).toFixed(2)} MB`,
+      `${t('exportSong.duration')}: ${result.duration.toFixed(1)}s`,
+      `${t('exportSong.sampleRate')}: ${result.sample_rate} Hz`,
+      `${t('exportSong.format')}: ${result.format.toUpperCase()}`
+    ]
+
+    // Show success status
+    exportStatus.value = {
+      show: true,
+      type: 'success',
+      title: t('exportSong.exportComplete'),
+      message: t('exportSong.downloadStarting'),
+      details: successDetails
+    }
+
     // Download the generated file
     if (result.download_url) {
       // Create download link
@@ -247,19 +320,24 @@ const exportSong = async () => {
       URL.revokeObjectURL(projectUrl)
     }
 
-    alert(t('exportSong.success', { name: songName.value, format: selectedFormat.value.toUpperCase() }))
-    closeDialog()
-
   } catch (error) {
     console.error('❌ Export failed:', error)
     const errorMessage = error instanceof Error ? error.message : 'Unknown error'
-    alert(t('exportSong.error', { error: errorMessage }))
+    
+    exportStatus.value = {
+      show: true,
+      type: 'error',
+      title: t('exportSong.exportFailed'),
+      message: t('exportSong.error', { error: errorMessage })
+    }
   } finally {
     isExporting.value = false
   }
 }
 
 const closeDialog = () => {
+  // Reset export status when closing
+  exportStatus.value.show = false
   emit('close')
 }
 
@@ -396,6 +474,95 @@ onMounted(() => {
   font-size: 0.75rem;
   color: var(--text-secondary);
   line-height: 1.4;
+}
+
+.export-status {
+  margin-top: 1rem;
+  padding: 1rem;
+  border-radius: 8px;
+  border: 1px solid;
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.export-status.success {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.3);
+  color: rgb(21, 128, 61);
+}
+
+.export-status.error {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.3);
+  color: rgb(185, 28, 28);
+}
+
+.export-status.loading {
+  background: rgba(59, 130, 246, 0.1);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: rgb(30, 64, 175);
+}
+
+.status-icon {
+  flex-shrink: 0;
+  margin-top: 0.125rem;
+}
+
+.status-icon .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.spinner-status {
+  width: 20px;
+  height: 20px;
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.status-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.status-content h4 {
+  margin: 0 0 0.25rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: inherit;
+}
+
+.status-content p {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: inherit;
+  opacity: 0.9;
+}
+
+.status-details {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid;
+  border-color: inherit;
+  opacity: 0.7;
+}
+
+.detail-item {
+  margin: 0.25rem 0;
+  font-size: 0.75rem;
+  font-family: 'Courier New', monospace;
+}
+
+.detail-item:first-child {
+  margin-top: 0;
+}
+
+.detail-item:last-child {
+  margin-bottom: 0;
 }
 
 .modal-footer {

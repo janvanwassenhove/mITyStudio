@@ -231,6 +231,7 @@
     "optional": "optioneel",
     "minutes": "minuten",
     "complete": "voltooid",
-    "proceed": "Doorgaan"
+    "proceed": "Doorgaan",
+    "close" : "Sluiten"
   }
 }

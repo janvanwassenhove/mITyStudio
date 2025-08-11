@@ -263,7 +263,8 @@
     "optional": "optional",
     "minutes": "minutes",
     "complete": "complete",
-    "proceed": "Proceed"
+    "proceed": "Proceed",
+    "close": "Close"
   },
   "dialogs": {
     "newProject": "Create a new project? Unsaved changes will be lost.",
@@ -291,6 +292,13 @@
     "success": "Song '{name}' exported successfully as {format}!",
     "error": "Export failed: {error}",
     "defaultFolder": "Downloads",
-    "browserLimitation": "Browser limitation: Files will be downloaded to your default Downloads folder"
+    "browserLimitation": "Browser limitation: Files will be downloaded to your default Downloads folder",
+    "processingMessage": "Generating audio from your song structure...",
+    "exportComplete": "Export Complete!",
+    "exportFailed": "Export Failed",
+    "downloadStarting": "Your song has been generated successfully. Download should start automatically.",
+    "fileSize": "File Size",
+    "duration": "Duration",
+    "sampleRate": "Sample Rate"
   }
 }
