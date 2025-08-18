@@ -262,6 +262,10 @@ class SongState:
     available_samples: Dict[str, Dict[str, List[str]]] = field(default_factory=dict)
     available_voices: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     
+    # User-uploaded samples with metadata
+    available_user_samples: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    sample_metadata: Dict[str, Any] = field(default_factory=dict)  # Complete sample data
+    
     # Progressive song structure building
     song_metadata: Dict[str, Any] = field(default_factory=dict)
     global_params: Dict[str, Any] = field(default_factory=dict)
@@ -1021,12 +1025,20 @@ class LangGraphSongGenerator:
         # - available_instruments: Dict[category, List[instrument_names]] - instruments by category
         # - available_samples: Dict[category, Dict[group, List[sample_names]]] - samples by category/group  
         # - available_voices: Dict[voice_id, voice_info] - voice data with ranges
+        # - available_user_samples: Dict[category, List[sample_info]] - user-uploaded samples with metadata
         # Agents should validate all instrument/sample selections against these lists
+        # PRIORITY: Agents should prioritize and suggest user-uploaded samples when appropriate
+        
+        # Get comprehensive sample data including user uploads
+        all_samples_data = self.music_tools.get_all_available_samples()
+        
         initial_state = SongState(
             request=request,
             available_instruments=self.music_tools.available_instruments,
             available_samples=self.music_tools.available_samples,
-            available_voices=self.music_tools.available_voices
+            available_voices=self.music_tools.available_voices,
+            available_user_samples=all_samples_data.get('user_samples', {}),
+            sample_metadata=all_samples_data  # Complete sample data for agents
         )
         
         try:
@@ -1421,6 +1433,11 @@ Song Parameters:
 Available Instruments by Category:
 {self.music_tools.format_instruments_for_prompt(state.available_instruments)}
 
+Available User-Uploaded Samples:
+{self.music_tools.format_samples_for_prompt(state.available_user_samples) if state.available_user_samples else "No user samples available"}
+
+{f"Sample Library Analysis - Total Available: {state.sample_metadata.get('total_count', 0)} samples ({state.sample_metadata.get('user_count', 0)} user-uploaded)" if state.sample_metadata else ""}
+
 Available Voices: {list(state.available_voices.keys())}
 
 Design a complete song arrangement. Respond ONLY with a JSON object:
@@ -1510,6 +1527,8 @@ Guidelines:
 - Create a logical song structure that builds energy and maintains interest
 - Plan 3-8 tracks typically, depending on style complexity  
 - CRITICAL: Use ONLY instruments from the available_instruments list above - NO other instruments
+- PRIORITY: When selecting instruments, prioritize ones that have user-uploaded samples available (check Available User-Uploaded Samples section)
+- USER SAMPLE STRATEGY: If user has uploaded samples in relevant categories, incorporate instruments that can utilize those samples
 - CRITICAL FOR INSTRUMENTAL TRACKS: DO NOT include any vocal tracks or voice_id assignments
 - Include appropriate tracks for the style (rock: drums+bass+guitar, jazz: piano+bass+drums, orchestral: strings+brass+woodwinds, etc.)
 - For instrumental tracks: Focus on melodic instruments that can carry the main themes
@@ -1518,6 +1537,7 @@ Guidelines:
 - Plan which sections each track will play in (not all tracks play throughout)
 - Use appropriate pan positions for stereo field
 - Match instruments to style requirements from available options only
+- Consider user sample metadata (BPM, key, tags) when planning arrangement to make best use of uploaded samples
 - Instrument Selection Rules:
   * For keyboards role: choose from available keyboards instruments
   * For strings role: choose from available strings instruments  
@@ -2372,12 +2392,22 @@ Song Parameters:
 Available Instruments by Category:
 {self.music_tools.format_instruments_for_prompt(state.available_instruments)}
 
-Available Samples:
+Available Default Samples:
 {self.music_tools.format_samples_for_prompt(state.available_samples)}
 
+🎵 PRIORITY: Available User-Uploaded Samples 🎵
+{self.music_tools.format_samples_for_prompt(state.available_user_samples) if state.available_user_samples else "No user samples uploaded yet"}
+
+{f"📊 Sample Library Statistics: {state.sample_metadata.get('total_count', 0)} total samples ({state.sample_metadata.get('user_count', 0)} user-uploaded, {state.sample_metadata.get('combined_count', 0)} default)" if state.sample_metadata else ""}
+
 SAMPLE SELECTION GUIDELINES:
+- 🌟 HIGHEST PRIORITY: Use user-uploaded samples whenever possible - these are custom content the user specifically added
 - For user-uploaded samples with BPM metadata, prefer samples that match or complement the song tempo ({tempo} BPM)
 - For samples with key information, choose samples that fit the song key ({key}) or related keys
+- Consider sample tags and categories to match the song style and mood
+- User samples should be integrated creatively into the arrangement - they're not just backing tracks
+- When using user samples, note their metadata (BPM, key, duration) in your reasoning
+- Fall back to default samples only when user samples aren't suitable for the specific instrument role
 - Use sample tags to find appropriate sounds for the intended style: {', '.join(state.request.style_tags)}
 - Consider sample duration when creating clips - shorter samples for percussion hits, longer samples for melodic loops
 - Mix default instrument samples with user-uploaded samples for variety and personalized sound

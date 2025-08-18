@@ -63,6 +63,59 @@
         
         <div class="message-content">
           <div class="message-text" v-html="formatMessage(message.content)"></div>
+          
+          <!-- Sample Controls - Enhanced UI for samples mentioned in AI responses -->
+          <div v-if="extractedSamples(message.content).length > 0" class="sample-controls">
+            <h5 class="sample-controls-title">
+              <Music class="icon" />
+              Referenced Samples
+            </h5>
+            <div class="sample-list">
+              <div 
+                v-for="sample in extractedSamples(message.content)" 
+                :key="sample.id"
+                class="sample-item"
+              >
+                <div class="sample-waveform" v-if="sample.waveform">
+                  <canvas 
+                    :ref="el => sampleWaveformCanvases[sample.id] = el as HTMLCanvasElement"
+                    class="waveform-canvas"
+                    :width="80"
+                    :height="32"
+                  ></canvas>
+                </div>
+                
+                <div class="sample-info">
+                  <div class="sample-name">{{ sample.name }}</div>
+                  <div class="sample-meta">
+                    <span class="duration">{{ formatDuration(sample.duration) }}</span>
+                    <span v-if="sample.bpm" class="bpm">{{ sample.bpm }} BPM</span>
+                    <span class="category">{{ sample.category }}</span>
+                  </div>
+                </div>
+                
+                <div class="sample-actions">
+                  <button 
+                    class="sample-action-btn play-btn"
+                    @click="toggleSamplePlayback(sample)"
+                    :disabled="playingSampleId && playingSampleId !== sample.id"
+                  >
+                    <Play v-if="playingSampleId !== sample.id" class="icon" />
+                    <Pause v-else class="icon" />
+                  </button>
+                  
+                  <button 
+                    class="sample-action-btn add-btn"
+                    @click="addSampleToTrack(sample)"
+                    title="Add to new track"
+                  >
+                    <Plus class="icon" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+          
           <div class="message-time">{{ formatTime(message.timestamp) }}</div>
           
           <div v-if="message.actions" class="message-actions">
@@ -195,10 +248,11 @@
 import { ref, computed, nextTick, onMounted, watch } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
 import { useAIStore } from '../stores/aiStore'
+import { useSampleStore } from '../stores/sampleStore'
 import { checkApiKeyStatus as apiCheckApiKeyStatus, getAllSampleInstruments } from '../utils/api'
 import { 
   Bot, User, Trash2, Send, Paperclip, Mic, Lightbulb, Key,
-  Music, Play, Plus, Download, Upload, Settings, Volume2, Mic2
+  Music, Play, Plus, Download, Upload, Settings, Volume2, Mic2, Pause, Square
 } from 'lucide-vue-next'
 
 interface ChatAction {
@@ -211,6 +265,7 @@ interface ChatAction {
 
 const audioStore = useAudioStore()
 const aiStore = useAIStore()
+const sampleStore = useSampleStore()
 
 // State - Use AI store messages instead of local state
 const currentMessage = ref('')
@@ -218,6 +273,12 @@ const isListening = ref(false)
 const showSuggestions = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const messageInput = ref<HTMLTextAreaElement>()
+
+// Sample playback state
+const playingSampleId = ref<string | null>(null)
+const currentAudio = ref<HTMLAudioElement | null>(null)
+const sampleWaveformCanvases = ref<Record<string, HTMLCanvasElement>>({})
+const samplePlayProgress = ref<Record<string, number>>({})
 
 // Computed properties from AI store
 const messages = computed(() => aiStore.messages.map(msg => ({
@@ -1518,7 +1579,15 @@ const addChordProgression = (type: string, suggestedInstrument?: string) => {
         type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
         instrument: instrument,
         volume: 0.7,
-        effects: { reverb: 0.2, delay: 0, distortion: 0 }
+        effects: { 
+          reverb: 0.2, 
+          delay: 0, 
+          distortion: 0,
+          pitchShift: 0,
+          chorus: 0,
+          filter: 0,
+          bitcrush: 0
+        }
       })
     }
     
@@ -1550,7 +1619,15 @@ const addDrumPattern = (genre: string = 'house', elements: string[] = [], patter
         type: (clipType === 'sample' ? 'sample' : 'synth') as 'synth' | 'sample',
         instrument: instrument,
         volume: 0.8,
-        effects: { reverb: 0.1, delay: 0, distortion: 0 }
+        effects: { 
+          reverb: 0.1, 
+          delay: 0, 
+          distortion: 0,
+          pitchShift: 0,
+          chorus: 0,
+          filter: 0,
+          bitcrush: 0
+        }
       })
     }
     
@@ -1582,10 +1659,34 @@ const addBassTrack = (type?: string) => {
     
     // Add bass clips with different settings based on type
     const effects = bassType === 'sub' 
-      ? { reverb: 0, delay: 0, distortion: 0 }
+      ? { 
+          reverb: 0, 
+          delay: 0, 
+          distortion: 0,
+          pitchShift: 0,
+          chorus: 0,
+          filter: 0,
+          bitcrush: 0
+        }
       : bassType === 'electric'
-        ? { reverb: 0.1, delay: 0, distortion: 0.2 }
-        : { reverb: 0, delay: 0, distortion: 0.1 }
+        ? { 
+            reverb: 0.1, 
+            delay: 0, 
+            distortion: 0.2,
+            pitchShift: 0,
+            chorus: 0,
+            filter: 0,
+            bitcrush: 0
+          }
+        : { 
+            reverb: 0, 
+            delay: 0, 
+            distortion: 0.1,
+            pitchShift: 0,
+            chorus: 0,
+            filter: 0,
+            bitcrush: 0
+          }
     
     for (let i = 0; i < 4; i++) {
       audioStore.addClip(trackId, {
@@ -1609,7 +1710,15 @@ const addVocalTrack = () => {
   const trackId = audioStore.addTrack('Vocals', instrument)
   if (trackId) {
     audioStore.updateTrack(trackId, {
-      effects: { reverb: 0.3, delay: 0.2, distortion: 0 }
+      effects: { 
+        reverb: 0.3, 
+        delay: 0.2, 
+        distortion: 0, 
+        pitchShift: 0, 
+        chorus: 0, 
+        filter: 0, 
+        bitcrush: 0 
+      }
     })
     
     sendMessage(`🎤 Added vocal track with ${instrument} and professional effects chain! Ready for recording.`)
@@ -1634,7 +1743,15 @@ const addMelodyTrack = (suggestedInstrument: string = 'synth') => {
         instrument: instrument,
         notes: ['C4', 'E4', 'G4', 'C5'],
         volume: 0.7,
-        effects: { reverb: 0.2, delay: 0, distortion: 0 }
+        effects: { 
+          reverb: 0.2, 
+          delay: 0, 
+          distortion: 0,
+          pitchShift: 0,
+          chorus: 0,
+          filter: 0,
+          bitcrush: 0
+        }
       })
       sendMessage(`🎵 ${instrument} melody track added with a basic pattern!`)
     }
@@ -1691,11 +1808,35 @@ const applyEffects = (specificEffects?: string[]) => {
         } else {
           // Apply default effects
           if (track.instrument === 'vocals') {
-            track.effects = { reverb: 0.3, delay: 0.2, distortion: 0 }
+            track.effects = { 
+              reverb: 0.3, 
+              delay: 0.2, 
+              distortion: 0, 
+              pitchShift: 0, 
+              chorus: 0, 
+              filter: 0, 
+              bitcrush: 0 
+            }
           } else if (track.instrument === 'drums') {
-            track.effects = { reverb: 0.1, delay: 0, distortion: 0.1 }
+            track.effects = { 
+              reverb: 0.1, 
+              delay: 0, 
+              distortion: 0.1, 
+              pitchShift: 0, 
+              chorus: 0, 
+              filter: 0, 
+              bitcrush: 0 
+            }
           } else {
-            track.effects = { reverb: 0.2, delay: 0.1, distortion: 0 }
+            track.effects = { 
+              reverb: 0.2, 
+              delay: 0.1, 
+              distortion: 0, 
+              pitchShift: 0, 
+              chorus: 0, 
+              filter: 0, 
+              bitcrush: 0 
+            }
           }
         }
       })
@@ -1805,7 +1946,15 @@ const addLyricsFromJSON = (lyricsData: any) => {
           audioStore.updateTrack(trackId, {
             volume: 0.8,
             pan: 0,
-            effects: { reverb: 0, delay: 0, distortion: 0 }
+            effects: { 
+              reverb: 0, 
+              delay: 0, 
+              distortion: 0, 
+              pitchShift: 0, 
+              chorus: 0, 
+              filter: 0, 
+              bitcrush: 0 
+            }
           })
         }
       }
@@ -2123,6 +2272,211 @@ const toggleVoiceInput = () => {
   // Voice input functionality would go here
   console.log('Voice input toggled:', isListening.value)
 }
+
+// Sample-related functions
+const extractedSamples = (content: string) => {
+  if (!content) return []
+  
+  // Extract sample information from AI response
+  const samples: any[] = []
+  
+  // Look for the detailed sample format that the AI returns
+  // Pattern: {'name': 'sample_name', 'id': 'sample_id', ...}
+  const sampleRegex = /\{'name':\s*'([^']+)',\s*'id':\s*'([^']+)'[^}]*\}/g
+  let match
+  
+  while ((match = sampleRegex.exec(content)) !== null) {
+    const sampleName = match[1]
+    const sampleId = match[2]
+    
+    // Find the actual sample in the sample store
+    const actualSample = sampleStore.localSamples.find((s: any) => s.id === sampleId)
+    if (actualSample && !samples.find(existing => existing.id === sampleId)) {
+      samples.push(actualSample)
+    }
+  }
+  
+  // Also look for sample names mentioned in the text (for backup)
+  if (samples.length === 0) {
+    const allSamples = sampleStore.localSamples
+    allSamples.forEach((sample: any) => {
+      if (content.includes(sample.name) && !samples.find(existing => existing.id === sample.id)) {
+        samples.push(sample)
+      }
+    })
+  }
+  
+  return samples.slice(0, 5) // Limit to 5 samples to avoid overwhelming the UI
+}
+
+const formatDuration = (duration: number): string => {
+  if (!duration || isNaN(duration)) return '0:00'
+  const minutes = Math.floor(duration / 60)
+  const seconds = Math.floor(duration % 60)
+  return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
+const toggleSamplePlayback = async (sample: any) => {
+  if (playingSampleId.value === sample.id) {
+    // Stop current playback
+    if (currentAudio.value) {
+      audioStore.unregisterPreviewAudio(currentAudio.value)
+      currentAudio.value.pause()
+      currentAudio.value = null
+    }
+    playingSampleId.value = null
+    return
+  }
+
+  // Stop any existing playback
+  if (currentAudio.value) {
+    audioStore.unregisterPreviewAudio(currentAudio.value)
+    currentAudio.value.pause()
+  }
+
+  try {
+    const audio = new Audio(sample.url)
+    audio.volume = 0.7
+    
+    // Register with audio store for global stop functionality
+    audioStore.registerPreviewAudio(audio)
+    currentAudio.value = audio
+    playingSampleId.value = sample.id
+    
+    audio.onended = () => {
+      playingSampleId.value = null
+      if (currentAudio.value) {
+        audioStore.unregisterPreviewAudio(currentAudio.value)
+      }
+      currentAudio.value = null
+    }
+    
+    audio.onerror = () => {
+      playingSampleId.value = null
+      if (currentAudio.value) {
+        audioStore.unregisterPreviewAudio(currentAudio.value)
+      }
+      currentAudio.value = null
+    }
+
+    await audio.play()
+  } catch (error) {
+    console.error('Failed to play sample:', error)
+    playingSampleId.value = null
+    if (currentAudio.value) {
+      audioStore.unregisterPreviewAudio(currentAudio.value)
+    }
+    currentAudio.value = null
+  }
+}
+
+const addSampleToTrack = (sample: any) => {
+  // Create a new track with the sample
+  const trackId = audioStore.addTrack(
+    sample.name,
+    'sample',
+    sample.url,
+    sample.category
+  )
+  
+  if (trackId) {
+    audioStore.addClip(trackId, {
+      startTime: audioStore.currentTime || 0,
+      duration: sample.duration,
+      type: 'sample',
+      instrument: 'sample',
+      sampleUrl: sample.url,
+      volume: 0.8,
+      effects: { 
+        reverb: 0, 
+        delay: 0, 
+        distortion: 0,
+        pitchShift: 0,
+        chorus: 0,
+        filter: 0,
+        bitcrush: 0
+      },
+      waveform: sample.waveform
+    })
+    
+    // Show success message
+    console.log(`Added sample "${sample.name}" to new track`)
+  }
+}
+
+// Waveform drawing function
+const drawSampleWaveform = (canvas: HTMLCanvasElement, waveform: number[], progress = 0) => {
+  const ctx = canvas.getContext('2d')
+  if (!ctx || !waveform || waveform.length === 0) return
+  
+  const { width, height } = canvas
+  
+  // Clear canvas
+  ctx.clearRect(0, 0, width, height)
+  
+  // Set colors based on theme
+  ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue('--primary') || '#6c63ff'
+  ctx.fillStyle = ctx.strokeStyle + '20' // Add transparency
+  ctx.lineWidth = 1
+  
+  // Draw waveform
+  ctx.beginPath()
+  const centerY = height / 2
+  const amplitude = height * 0.4
+  
+  for (let i = 0; i < waveform.length; i++) {
+    const x = (i / (waveform.length - 1)) * width
+    const y = centerY - (waveform[i] * amplitude)
+    
+    if (i === 0) {
+      ctx.moveTo(x, y)
+    } else {
+      ctx.lineTo(x, y)
+    }
+  }
+  
+  ctx.stroke()
+  
+  // Draw progress indicator if playing
+  if (progress > 0 && progress <= 1) {
+    const progressX = width * progress
+    ctx.save()
+    ctx.globalAlpha = 0.3
+    ctx.fillRect(0, 0, progressX, height)
+    ctx.restore()
+  }
+}
+
+// Watch for canvas refs and draw waveforms
+watch(sampleWaveformCanvases, (canvases) => {
+  nextTick(() => {
+    Object.keys(canvases).forEach(sampleId => {
+      const canvas = canvases[sampleId]
+      const sample = sampleStore.localSamples.find((s: any) => s.id === sampleId)
+      if (canvas && sample && sample.waveform) {
+        drawSampleWaveform(canvas, sample.waveform)
+      }
+    })
+  })
+}, { deep: true })
+
+// Update waveform progress during playback
+watch(currentAudio, (audio) => {
+  if (audio && playingSampleId.value) {
+    const updateProgress = () => {
+      if (audio && !audio.paused && !audio.ended && playingSampleId.value) {
+        const sample = sampleStore.localSamples.find((s: any) => s.id === playingSampleId.value)
+        const canvas = sampleWaveformCanvases.value[playingSampleId.value]
+        if (sample && canvas && sample.waveform && sample.duration) {
+          const progress = audio.currentTime / sample.duration
+          drawSampleWaveform(canvas, sample.waveform, progress)
+        }
+        requestAnimationFrame(updateProgress)
+      }
+    }
+    requestAnimationFrame(updateProgress)
+  }
+})
 </script>
 
 <style scoped>
@@ -2963,5 +3317,193 @@ const toggleVoiceInput = () => {
     padding: 0.75rem;
     max-height: 250px;
   }
+}
+
+/* Sample Controls Styles */
+.sample-controls {
+  margin: 1rem 0;
+  padding: 1rem;
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.sample-controls-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem 0;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.sample-controls-title .icon {
+  width: 16px;
+  height: 16px;
+  color: var(--primary);
+}
+
+.sample-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.sample-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  min-height: 60px;
+}
+
+.sample-item:hover {
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(108, 99, 255, 0.12);
+  transform: translateY(-1px);
+}
+
+.sample-waveform {
+  flex-shrink: 0;
+  width: 80px;
+  height: 32px;
+}
+
+.waveform-canvas {
+  border-radius: 4px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border);
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.sample-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.sample-name {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.3;
+}
+
+.sample-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
+}
+
+.sample-meta .duration {
+  background: var(--primary);
+  color: white;
+  padding: 0.2rem 0.5rem;
+  border-radius: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  font-size: 0.7rem;
+}
+
+.sample-meta .bpm {
+  background: var(--surface-subtle);
+  padding: 0.2rem 0.4rem;
+  border-radius: 8px;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 0.7rem;
+}
+
+.sample-meta .category {
+  text-transform: capitalize;
+  background: var(--warning, #f59e0b);
+  color: white;
+  padding: 0.2rem 0.4rem;
+  border-radius: 8px;
+  font-weight: 500;
+  white-space: nowrap;
+  font-size: 0.7rem;
+}
+
+.sample-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.sample-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0.4rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+}
+
+.sample-action-btn:hover {
+  border-color: var(--primary);
+  background: var(--primary);
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(108, 99, 255, 0.2);
+}
+
+.sample-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.sample-action-btn.playing {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: white;
+}
+
+.sample-action-btn.play-btn:hover {
+  background: var(--success);
+  border-color: var(--success);
+}
+
+.sample-action-btn.add-btn {
+  background: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+
+.sample-action-btn.add-btn:hover {
+  background: var(--success-dark, #16a34a);
+  border-color: var(--success-dark, #16a34a);
+  transform: translateY(-1px);
+}
+
+.sample-action-btn .icon {
+  width: 14px;
+  height: 14px;
 }
 </style>

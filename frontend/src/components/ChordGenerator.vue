@@ -302,7 +302,11 @@ const createVisualizationDemo = () => {
       effects: {
         reverb: 0,
         delay: 0,
-        distortion: 0
+        distortion: 0,
+        pitchShift: 0,
+        chorus: 0,
+        filter: 0,
+        bitcrush: 0
       }
     }
     

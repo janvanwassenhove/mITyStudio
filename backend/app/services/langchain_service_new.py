@@ -22,6 +22,7 @@ __all__ = [
     'analyze_song_structure',
     'get_available_instruments',
     'get_available_samples', 
+    'search_user_samples',
     'create_track',
     'add_clip_to_track',
     'generate_chord_progression',

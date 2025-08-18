@@ -122,6 +122,10 @@ class AIService:
         if context is None:
             context = {}
             
+        # Check if user is asking about samples specifically
+        if self._is_sample_question(message):
+            return self._handle_sample_question(message, provider, model, context)
+            
         try:
             logger = self._get_logger()
             logger.info(f"AI chat request - Provider: {provider}, Model: {model}")
@@ -955,3 +959,187 @@ IMPORTANT RULES FOR LYRICS:
             
         except Exception:
             return {}
+
+    def _is_sample_question(self, message: str) -> bool:
+        """Check if user is asking about available samples"""
+        message_lower = message.lower()
+        sample_keywords = ['samples', 'sample', 'audio files', 'loops', 'beats']
+        question_words = ['what', 'which', 'show', 'list', 'available', 'have', 'can i use', 'can use']
+        
+        # Check if message contains sample-related keywords and question words
+        has_sample_keyword = any(keyword in message_lower for keyword in sample_keywords)
+        has_question_word = any(word in message_lower for word in question_words)
+        
+        return has_sample_keyword and has_question_word
+
+    def _handle_sample_question(self, message: str, provider: str, model: str, context: Dict) -> Dict:
+        """Enhanced handler for questions about available samples using AI metadata"""
+        try:
+            # Import locally to avoid circular import
+            from app.api.sample_routes import get_user_samples_for_agents
+            
+            # Get enhanced user samples from the backend
+            user_samples_data = get_user_samples_for_agents()
+            
+            if user_samples_data and user_samples_data.get('all_samples'):
+                all_samples = user_samples_data['all_samples']
+                summary = user_samples_data.get('summary', {})
+                
+                # Analyze the user's question to provide targeted recommendations
+                message_lower = message.lower()
+                
+                # Initialize response content
+                sample_list = []
+                recommendations = []
+                
+                # Check for specific requests
+                if any(word in message_lower for word in ['vocal', 'voice', 'singing']):
+                    vocal_samples = [s for s in all_samples if s.get('track_type') in ['vocals', 'vocals_and_instrumentals']]
+                    if vocal_samples:
+                        sample_list.append("🎤 **Vocal Samples:**")
+                        for sample in vocal_samples[:5]:
+                            sample_list.append(self._format_enhanced_sample(sample))
+                        recommendations.append("Try layering vocal samples with instrumentals to create depth in your track.")
+                
+                elif any(word in message_lower for word in ['drum', 'beat', 'rhythm']):
+                    drum_samples = [s for s in all_samples if 'drums' in s.get('primary_category', '').lower() or 'drum' in ' '.join(s.get('instrument_tags', [])).lower()]
+                    if drum_samples:
+                        sample_list.append("🥁 **Drum & Percussion:**")
+                        for sample in drum_samples[:5]:
+                            sample_list.append(self._format_enhanced_sample(sample))
+                        recommendations.append("For strong rhythms, try combining kick and snare patterns with hi-hat loops.")
+                
+                elif any(word in message_lower for word in ['energetic', 'upbeat', 'high energy']):
+                    energetic_samples = [s for s in all_samples if s.get('energy_level', 0) > 0.7]
+                    if energetic_samples:
+                        sample_list.append("⚡ **High Energy Samples:**")
+                        for sample in energetic_samples[:5]:
+                            sample_list.append(self._format_enhanced_sample(sample))
+                        recommendations.append("High energy samples work great for drops, choruses, and dance sections.")
+                
+                elif any(word in message_lower for word in ['chill', 'relaxed', 'ambient']):
+                    chill_samples = [s for s in all_samples if s.get('vibe') in ['chill', 'smooth', 'dreamy'] or s.get('energy_level', 0) < 0.4]
+                    if chill_samples:
+                        sample_list.append("😌 **Chill & Ambient:**")
+                        for sample in chill_samples[:5]:
+                            sample_list.append(self._format_enhanced_sample(sample))
+                        recommendations.append("Chill samples are perfect for verses, intros, and atmospheric layers.")
+                
+                elif any(word in message_lower for word in ['bass', 'low end']):
+                    bass_samples = [s for s in all_samples if 'bass' in s.get('primary_category', '').lower() or 'bass' in ' '.join(s.get('instrument_tags', [])).lower()]
+                    if bass_samples:
+                        sample_list.append("🔊 **Bass Samples:**")
+                        for sample in bass_samples[:5]:
+                            sample_list.append(self._format_enhanced_sample(sample))
+                        recommendations.append("Strong bass lines form the foundation of most modern music genres.")
+                
+                # If no specific category found, show a overview
+                if not sample_list:
+                    # Group by categories
+                    categories = user_samples_data.get('by_category', {})
+                    total_samples = summary.get('total_samples', 0)
+                    
+                    sample_list.append(f"🎵 **Your Sample Library ({total_samples} samples):**\n")
+                    
+                    for category, samples in list(categories.items())[:4]:  # Show top 4 categories
+                        if samples:
+                            sample_list.append(f"**{category.title()} ({len(samples)} samples):**")
+                            for sample in samples[:3]:  # Top 3 per category
+                                sample_list.append(self._format_enhanced_sample(sample))
+                            if len(samples) > 3:
+                                sample_list.append(f"  • ... and {len(samples) - 3} more\n")
+                
+                # Add intelligent recommendations based on sample analysis
+                if summary.get('has_vocals', 0) > 0 and summary.get('instrumentals_only', 0) > 0:
+                    recommendations.append("You have both vocals and instrumentals - try combining them for rich, layered tracks!")
+                
+                if summary.get('avg_bpm', 0) > 0:
+                    avg_bpm = int(summary['avg_bpm'])
+                    if avg_bpm > 130:
+                        recommendations.append(f"Your samples average {avg_bpm} BPM - great for energetic dance and electronic music!")
+                    elif avg_bpm < 100:
+                        recommendations.append(f"Your samples average {avg_bpm} BPM - perfect for hip-hop, chill, and downtempo styles!")
+                    else:
+                        recommendations.append(f"Your samples average {avg_bpm} BPM - versatile for pop, rock, and contemporary styles!")
+                
+                # Check for genre diversity
+                genres = list(user_samples_data.get('by_genre', {}).keys())
+                if len(genres) > 3:
+                    recommendations.append(f"You have samples across {len(genres)} genres - try mixing styles for unique sounds!")
+                
+                # Build final response
+                content = "\n".join(sample_list)
+                
+                if recommendations:
+                    content += f"\n\n💡 **AI Recommendations:**\n• " + "\n• ".join(recommendations)
+                
+                content += "\n\n🎵 Click the play button next to any sample to preview it, or use the + button to add it to a new track!"
+                
+            else:
+                content = """I don't see any uploaded audio samples in your project yet. 
+
+To use samples in your music, you can:
+
+1. **Upload Audio Files**: Go to the Sample Library and upload your audio files
+2. **Automatic AI Tagging**: Once uploaded, I'll automatically analyze your samples for:
+   - Track type (vocals, instrumentals, or both)
+   - Vibe & mood (energetic, chill, dark, etc.)
+   - Instrument detection (drums, bass, guitar, etc.)
+   - Genre classification and key detection
+   - BPM and energy level analysis
+
+3. **Smart Recommendations**: I'll suggest the best samples based on the style you're creating
+
+Would you like to upload some samples so I can help you create music with them?"""
+
+            return {
+                'content': content,
+                'actions': [],
+                'timestamp': datetime.utcnow().isoformat(),
+                'provider': provider,
+                'model': model
+            }
+            
+        except Exception as e:
+            # Fallback response
+            return {
+                'content': "I'm having trouble accessing your sample library right now. Please try refreshing the page or check if you have any samples uploaded in the Sample Library section.",
+                'actions': [],
+                'timestamp': datetime.utcnow().isoformat(),
+                'provider': provider,
+                'model': model
+            }
+    
+    def _format_enhanced_sample(self, sample: Dict) -> str:
+        """Format a sample with enhanced AI metadata for display"""
+        name = sample.get('name', 'Unknown Sample')
+        duration = sample.get('duration', 0)
+        bpm = sample.get('bpm')
+        vibe = sample.get('vibe')
+        track_type = sample.get('track_type')
+        key = sample.get('key')
+        
+        # Format duration
+        minutes = int(duration // 60)
+        seconds = int(duration % 60)
+        duration_str = f"{minutes}:{seconds:02d}"
+        
+        # Build sample info
+        info_parts = [duration_str]
+        if bpm:
+            info_parts.append(f"{int(bpm)} BPM")
+        if key:
+            info_parts.append(key)
+        if vibe and vibe != 'unknown':
+            info_parts.append(vibe.replace('_', ' ').title())
+        
+        # Add track type indicator
+        type_emoji = ""
+        if track_type == 'vocals':
+            type_emoji = "🎤 "
+        elif track_type == 'instrumentals':
+            type_emoji = "🎵 "
+        elif track_type == 'vocals_and_instrumentals':
+            type_emoji = "🎤🎵 "
+        
+        return f"  • {type_emoji}**{name}** ({', '.join(info_parts)})"

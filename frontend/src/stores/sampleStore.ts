@@ -18,6 +18,28 @@ export interface LocalSample {
   key?: string
   createdAt: string
   waveform?: number[]
+  
+  // Enhanced AI analysis fields
+  track_type?: 'vocals' | 'instrumentals' | 'vocals_and_instrumentals' | 'unknown'
+  primary_category?: string
+  secondary_categories?: string[]
+  vibe?: 'energetic' | 'chill' | 'dark' | 'bright' | 'aggressive' | 'smooth' | 'dreamy' | 'groovy' | 'atmospheric' | 'minimal'
+  energy_level?: number // 0.0 to 1.0
+  valence?: number // 0.0 (negative) to 1.0 (positive)
+  danceability?: number // 0.0 to 1.0
+  instrument_tags?: string[]
+  genre_tags?: string[]
+  mood_tags?: string[]
+  style_tags?: string[]
+  all_tags?: string[]
+  ai_description?: string
+  time_signature?: string
+  technical_analysis?: {
+    spectral_centroid_mean?: number
+    spectral_rolloff_mean?: number
+    zero_crossing_rate?: number
+    yamnet_classifications?: Array<[string, number]>
+  }
 }
 
 export type SampleCategory = 
@@ -66,13 +88,33 @@ export const useSampleStore = defineStore('samples', () => {
       ? localSamples.value
       : localSamples.value.filter(s => s.category === selectedCategory.value)
 
-    // Apply search filter
+    // Apply search filter with enhanced AI tags
     if (searchQuery.value) {
       const query = searchQuery.value.toLowerCase()
-      samples = samples.filter(sample => 
-        sample.name.toLowerCase().includes(query) ||
-        sample.tags.some(tag => tag.toLowerCase().includes(query))
-      )
+      samples = samples.filter(sample => {
+        // Search in basic fields
+        if (sample.name.toLowerCase().includes(query) ||
+            sample.tags.some(tag => tag.toLowerCase().includes(query))) {
+          return true
+        }
+        
+        // Search in AI-generated metadata
+        const searchableFields = [
+          sample.track_type,
+          sample.vibe,
+          sample.ai_description,
+          sample.key,
+          ...(sample.all_tags || []),
+          ...(sample.instrument_tags || []),
+          ...(sample.genre_tags || []),
+          ...(sample.mood_tags || []),
+          ...(sample.style_tags || [])
+        ]
+        
+        return searchableFields.some(field => 
+          field && field.toString().toLowerCase().includes(query)
+        )
+      })
     }
 
     // Apply sorting
@@ -307,7 +349,37 @@ export const useSampleStore = defineStore('samples', () => {
     return [...new Set(tags)] // Remove duplicates
   }
 
-  // Load samples from files
+  // Enhanced AI analysis using backend service
+  const performEnhancedAnalysis = async (file: File): Promise<any> => {
+    try {
+      // Convert file to base64 for backend analysis
+      const arrayBuffer = await file.arrayBuffer()
+      const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+      
+      const response = await fetch('/api/samples/analyze', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audioData: base64Audio
+        })
+      })
+      
+      if (!response.ok) {
+        throw new Error(`Analysis failed: ${response.statusText}`)
+      }
+      
+      const result = await response.json()
+      return result
+      
+    } catch (error) {
+      console.warn('Enhanced analysis failed:', error)
+      throw error
+    }
+  }
+
+  // Load samples from files with enhanced AI analysis
   const loadSamples = async (files: FileList | File[]) => {
     if (!files.length) return
 
@@ -337,14 +409,20 @@ export const useSampleStore = defineStore('samples', () => {
         // Create object URL for immediate playback
         const url = URL.createObjectURL(file)
         
-        // Analyze audio file
-        const audioData = await analyzeAudioFile(file)
+        // Basic audio analysis (for immediate feedback)
+        const basicAudioData = await analyzeAudioFile(file)
         
-        // Categorize sample
-        const category = categorizeSample(file, audioData)
+        // Enhanced AI analysis (async, will update sample later)
+        let enhancedAnalysis: any = null
+        try {
+          enhancedAnalysis = await performEnhancedAnalysis(file)
+        } catch (error) {
+          console.warn(`Enhanced analysis failed for ${file.name}:`, error)
+        }
         
-        // Generate tags
-        const tags = generateTags(file, category, audioData)
+        // Use AI analysis results if available, otherwise fall back to basic categorization
+        const category = enhancedAnalysis?.analysis?.primary_category || categorizeSample(file, basicAudioData)
+        const tags = enhancedAnalysis?.analysis?.all_tags || generateTags(file, category, basicAudioData)
         
         const sample: LocalSample = {
           id: `local-${Date.now()}-${i}`,
@@ -352,15 +430,32 @@ export const useSampleStore = defineStore('samples', () => {
           file,
           fileId, // Store IndexedDB reference
           url,
-          duration: audioData.duration,
+          duration: enhancedAnalysis?.analysis?.duration || basicAudioData.duration,
           size: file.size,
           type: file.type || 'audio/unknown',
-          category,
+          category: category as SampleCategory,
           tags,
-          bpm: audioData.bpm,
-          key: audioData.key,
-          waveform: audioData.waveform,
-          createdAt: new Date().toISOString()
+          bpm: enhancedAnalysis?.analysis?.tempo || basicAudioData.bpm,
+          key: enhancedAnalysis?.analysis?.key || basicAudioData.key,
+          waveform: basicAudioData.waveform,
+          createdAt: new Date().toISOString(),
+          
+          // Enhanced AI analysis fields
+          track_type: enhancedAnalysis?.analysis?.track_type,
+          primary_category: enhancedAnalysis?.analysis?.primary_category || category,
+          secondary_categories: enhancedAnalysis?.analysis?.secondary_categories || [],
+          vibe: enhancedAnalysis?.analysis?.vibe,
+          energy_level: enhancedAnalysis?.analysis?.energy_level,
+          valence: enhancedAnalysis?.analysis?.valence,
+          danceability: enhancedAnalysis?.analysis?.danceability,
+          instrument_tags: enhancedAnalysis?.analysis?.instrument_tags || [],
+          genre_tags: enhancedAnalysis?.analysis?.genre_tags || [],
+          mood_tags: enhancedAnalysis?.analysis?.mood_tags || [],
+          style_tags: enhancedAnalysis?.analysis?.style_tags || [],
+          all_tags: enhancedAnalysis?.analysis?.all_tags || tags,
+          ai_description: enhancedAnalysis?.analysis?.ai_description,
+          time_signature: enhancedAnalysis?.analysis?.time_signature,
+          technical_analysis: enhancedAnalysis?.analysis?.technical_analysis
         }
         
         newSamples.push(sample)
@@ -577,6 +672,13 @@ export const useSampleStore = defineStore('samples', () => {
         
         localSamples.value = restoredSamples
         console.log(`Restored ${restoredSamples.length} samples from storage`)
+        
+        // Sync restored samples to backend for AI awareness
+        try {
+          await syncAllSamplesToBackend()
+        } catch (error) {
+          console.warn('Failed to sync restored samples to backend:', error)
+        }
       }
     } catch (e) {
       console.warn('Failed to load samples from storage:', e)

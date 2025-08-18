@@ -16,12 +16,20 @@
         </div>
       </div>
     </main>
+    
+    <!-- Centralized Countdown Overlay -->
+    <div v-if="isCountdownActive" class="countdown-overlay-global">
+      <div class="countdown-number">
+        {{ countdownValue === 0 ? 'GO!' : countdownValue }}
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useAudioStore } from './stores/audioStore'
+import { useCountdown } from './composables/useCountdown'
 import * as Tone from 'tone'
 import AppHeader from './components/AppHeader.vue'
 import TrackControls from './components/TrackControls.vue'
@@ -31,6 +39,7 @@ import RightPanelToggle from './components/RightPanelToggle.vue'
 import WelcomeDialog from './components/WelcomeDialog.vue'
 
 const audioStore = useAudioStore()
+const { countdownValue, isCountdownActive } = useCountdown()
 
 onMounted(() => {
   // Remove automatic initialization - let the welcome dialog handle it
@@ -84,7 +93,15 @@ onMounted(() => {
       notes: ['C4', 'E4', 'G4'],
       sampleDuration: 2,
       volume: 0.8,
-      effects: { reverb: 0, delay: 0, distortion: 0 }
+      effects: { 
+        reverb: 0, 
+        delay: 0, 
+        distortion: 0,
+        pitchShift: 0,
+        chorus: 0,
+        filter: 0,
+        bitcrush: 0
+      }
     }
     
     audioStore.addClip(trackId, clip)
@@ -172,6 +189,48 @@ onMounted(() => {
   }
 }
 
+/* Centralized Countdown Overlay */
+.countdown-overlay-global {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  backdrop-filter: blur(4px);
+}
+
+.countdown-number {
+  font-size: 8rem;
+  font-weight: 900;
+  color: #ffffff;
+  text-shadow: 
+    0 0 20px rgba(255, 255, 255, 0.8),
+    0 0 40px rgba(59, 130, 246, 0.6),
+    0 0 60px rgba(59, 130, 246, 0.4);
+  animation: countdown-pulse 1s ease-in-out;
+  user-select: none;
+}
+
+@keyframes countdown-pulse {
+  0% {
+    transform: scale(0.5);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
 @media (max-width: 768px) {
   .workspace {
     grid-template-columns: 1fr;
@@ -182,6 +241,10 @@ onMounted(() => {
   .right-panel {
     border: none;
     border-bottom: 1px solid var(--border);
+  }
+  
+  .countdown-number {
+    font-size: 6rem;
   }
 }
 </style>

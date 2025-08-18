@@ -18,6 +18,14 @@ langgraph-sdk>=0.2.0
 openai==1.51.2
 anthropic==0.34.2
 pydub==0.25.1
+
+# Audio analysis dependencies
+librosa==0.10.2
+tensorflow==2.17.1
+tensorflow-hub==0.16.1
+numpy==1.24.4
+scipy==1.13.1
+scikit-learn==1.5.2
 librosa==0.10.2
 soundfile==0.12.1
 scipy==1.13.1

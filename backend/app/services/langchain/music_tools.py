@@ -494,29 +494,27 @@ class MusicCompositionTools:
         
         return "\n".join(formatted) if formatted else "No voices available"
     
-    def format_samples_for_prompt(self, samples: Dict[str, Dict[str, List[str]]]) -> str:
+    def format_samples_for_prompt(self, samples: Dict[str, Dict[str, List[str]]] = None) -> str:
         """Format samples for LLM prompts, including user-uploaded sample metadata"""
+        
+        # Handle different input types - could be default samples or user samples
+        if samples is None:
+            samples = self.available_samples
+        
         formatted = []
         
-        # Add default samples first
-        for category, sample_groups in samples.items():
-            formatted.append(f"{category.title()} Samples:")
-            for group_name, sample_list in sample_groups.items():
-                formatted.append(f"  {group_name}: {', '.join(sample_list)}")
-        
-        # Add user-uploaded samples with rich metadata
-        try:
-            from app.api.sample_routes import get_user_samples_for_agents
-            user_samples = get_user_samples_for_agents()
-            if user_samples:
-                formatted.append("\nUser-Uploaded Samples:")
+        # Check if this looks like user samples (list of dicts) vs default samples (dict of lists)
+        if samples and isinstance(list(samples.values())[0], list):
+            # This appears to be user samples format: {category: [sample_objects]}
+            if samples:
+                formatted.append("User-Uploaded Samples:")
                 
-                for category, sample_list in user_samples.items():
+                for category, sample_list in samples.items():
                     if sample_list:
                         formatted.append(f"\n{category.title()} Category:")
                         
                         for sample in sample_list:
-                            sample_info = f"  • {sample['name']}"
+                            sample_info = f"  • {sample.get('name', 'Unnamed sample')}"
                             
                             # Add metadata details
                             details = []
@@ -527,7 +525,7 @@ class MusicCompositionTools:
                             if sample.get('duration'):
                                 details.append(f"{sample['duration']:.1f}s")
                             if sample.get('tags'):
-                                tags = [tag for tag in sample['tags'] if tag not in [category, sample['name'].lower()]]
+                                tags = [tag for tag in sample['tags'] if tag not in [category, sample.get('name', '').lower()]]
                                 if tags:
                                     details.append(f"Tags: {', '.join(tags[:3])}")  # Show first 3 tags
                             
@@ -535,12 +533,56 @@ class MusicCompositionTools:
                                 sample_info += f" ({'; '.join(details)})"
                             
                             formatted.append(sample_info)
+            else:
+                formatted.append("No user samples available")
+            
+            return "\n".join(formatted)
         
-        except Exception as e:
-            # If user samples can't be loaded, continue with defaults only
-            formatted.append(f"\nNote: User samples temporarily unavailable ({str(e)})")
-        
-        return "\n".join(formatted)
+        else:
+            # This is default samples format: {category: {instrument: [samples]}}
+            # Add default samples first
+            for category, sample_groups in samples.items():
+                formatted.append(f"{category.title()} Samples:")
+                for group_name, sample_list in sample_groups.items():
+                    formatted.append(f"  {group_name}: {', '.join(sample_list)}")
+            
+            # Add user-uploaded samples with rich metadata
+            try:
+                from app.api.sample_routes import get_user_samples_for_agents
+                user_samples = get_user_samples_for_agents()
+                if user_samples:
+                    formatted.append("\nUser-Uploaded Samples:")
+                    
+                    for category, sample_list in user_samples.items():
+                        if sample_list:
+                            formatted.append(f"\n{category.title()} Category:")
+                            
+                            for sample in sample_list:
+                                sample_info = f"  • {sample['name']}"
+                                
+                                # Add metadata details
+                                details = []
+                                if sample.get('bpm'):
+                                    details.append(f"{sample['bpm']} BPM")
+                                if sample.get('key'):
+                                    details.append(f"Key: {sample['key']}")
+                                if sample.get('duration'):
+                                    details.append(f"{sample['duration']:.1f}s")
+                                if sample.get('tags'):
+                                    tags = [tag for tag in sample['tags'] if tag not in [category, sample['name'].lower()]]
+                                    if tags:
+                                        details.append(f"Tags: {', '.join(tags[:3])}")  # Show first 3 tags
+                                
+                                if details:
+                                    sample_info += f" ({'; '.join(details)})"
+                                
+                                formatted.append(sample_info)
+            
+            except Exception as e:
+                # If user samples can't be loaded, continue with defaults only
+                formatted.append(f"\nNote: User samples temporarily unavailable ({str(e)})")
+            
+            return "\n".join(formatted)
     
     def get_all_available_samples(self) -> Dict[str, Any]:
         """Get combined samples data (default + user samples) for agent context"""

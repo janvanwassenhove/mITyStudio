@@ -41,6 +41,10 @@ export interface AudioClip {
     reverb: number
     delay: number
     distortion: number
+    pitchShift: number
+    chorus: number
+    filter: number
+    bitcrush: number
   }
   // Add waveform for sample clips
   waveform?: number[]
@@ -59,6 +63,7 @@ export interface Track {
   instrument: string
   category?: string // Add category field for sample-based instruments
   voiceId?: string // Voice identifier for vocal tracks
+  vocalStyle?: string // Optional vocal style (natural, choir, robot, echo)
   volume: number
   pan: number
   muted: boolean
@@ -68,6 +73,11 @@ export interface Track {
     reverb: number
     delay: number
     distortion: number
+    // Extended vocal effects
+    pitchShift: number    // -12 to +12 semitones (0 = no shift)
+    chorus: number        // 0 to 1 (chorus/doubling effect)
+    filter: number        // 0 to 1 (low-pass filter amount)
+    bitcrush: number      // 0 to 1 (bit crushing/lo-fi effect)
   }
   sampleUrl?: string
   isSample?: boolean
@@ -84,6 +94,17 @@ export interface SongStructure {
   createdAt: string
   updatedAt: string
 }
+
+// Helper function to create default effects object
+const createDefaultEffects = () => ({
+  reverb: 0,
+  delay: 0,
+  distortion: 0,
+  pitchShift: 0,
+  chorus: 0,
+  filter: 0,
+  bitcrush: 0
+})
 
 export const useAudioStore = defineStore('audio', () => {
   // State
@@ -169,10 +190,16 @@ export const useAudioStore = defineStore('audio', () => {
     const scale = scales[key as keyof typeof scales] || scales['C']
     const chordProgression = chords[key as keyof typeof chords] || chords['C']
 
+    // Sanitize duration to defend against invalid values (NaN, Infinity, negative)
+    const rawDuration = (clip && typeof clip.duration === 'number') ? clip.duration : 0
+    const duration = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 0
+    // Cap lengths to avoid creating enormous arrays from malformed input
+    const MAX_LENGTH = 1000
+
     switch (clip.instrument) {
       case 'piano':
       case 'electric-piano':
-        const numChords = Math.max(1, Math.floor(clip.duration / 2))
+        const numChords = Math.max(1, Math.min(MAX_LENGTH, Math.floor(duration / 2)))
         const notes: string[] = []
         for (let i = 0; i < numChords; i++) {
           const chord = chordProgression[i % chordProgression.length]
@@ -181,8 +208,8 @@ export const useAudioStore = defineStore('audio', () => {
         return notes
 
       case 'synth-lead':
-        const numNotes = Math.max(1, Math.floor(clip.duration * 2))
-        return Array.from({ length: numNotes }, () => 
+        const numNotes = Math.max(1, Math.min(MAX_LENGTH, Math.floor(duration * 2)))
+        return Array.from({ length: numNotes }, () =>
           scale[Math.floor(Math.random() * scale.length)]
         )
 
@@ -192,11 +219,27 @@ export const useAudioStore = defineStore('audio', () => {
 
       case 'synth':
       default:
-        const melodyLength = Math.max(1, Math.floor(clip.duration))
-        return Array.from({ length: melodyLength }, () => 
+        const melodyLength = Math.max(1, Math.min(MAX_LENGTH, Math.floor(duration)))
+        return Array.from({ length: melodyLength }, () =>
           scale[Math.floor(Math.random() * scale.length)]
         )
     }
+  }
+
+  // Helpers to sanitize times/durations coming from UI or recorded sources
+  const MAX_CLIP_DURATION = 60 * 60 // 1 hour max per clip
+  const MAX_SONG_DURATION = 60 * 60 * 4 // 4 hours cap for safety
+
+  function sanitizeDurationValue(value: any): number {
+    const n = typeof value === 'number' ? value : Number(value)
+    if (!Number.isFinite(n) || n <= 0) return 0
+    return Math.min(n, MAX_CLIP_DURATION)
+  }
+
+  function sanitizeStartTimeValue(value: any): number {
+    const n = typeof value === 'number' ? value : Number(value)
+    if (!Number.isFinite(n) || n < 0) return 0
+    return Math.min(n, MAX_SONG_DURATION)
   }
 
   // Simplified initialization with better error handling
@@ -337,7 +380,7 @@ export const useAudioStore = defineStore('audio', () => {
     
     // Find the track to get its current effect settings
     const track = songStructure.value.tracks.find(t => t.id === trackId)
-    const currentEffects = track?.effects || { reverb: 0, delay: 0, distortion: 0 }
+    const currentEffects = track?.effects || createDefaultEffects()
     
     console.log(`🎚️ getTrackEffectsBus for track ${trackId}:`, currentEffects)
     
@@ -922,6 +965,142 @@ Check your web server configuration to ensure it can serve audio files from: ${s
 
     console.log(`[scheduleClip] Scheduling clip for "${track.name}": start=${startTime}s, duration=${duration}s, instrument=${track.instrument}`)
 
+    // If this is a recorded lyrics/vocals clip that contains a sample URL, play it as a sample
+    if (clip.type === 'lyrics' && clip.sampleUrl) {
+      const volume = (clip.volume ?? 1) * (track.volume ?? 1) * (masterVolume.value ?? 1)
+      const player = new Tone.Player({
+        url: clip.sampleUrl,
+        autostart: false,
+        volume: Tone.gainToDb(Math.max(0.01, volume)),
+      })
+
+      try {
+        const effectsBus = getTrackEffectsBus(track.id)
+        player.connect(effectsBus.pitchShift) // Connect to first effect in chain for vocal effects
+        effectsBus.output.toDestination()
+      } catch (e) {
+        // fallback directly to destination
+        try { player.toDestination() } catch (err) { /* ignore */ }
+      }
+
+      samplePlayers.push(player)
+
+      const sampleOffset = Math.max(0, fromPosition - startTime)
+      const remainingDuration = clipEndTime - fromPosition
+
+      // Ensure buffer is loaded before starting playback. Use onload or load() if needed.
+      try {
+        if ((player as any).loaded) {
+          player.start('+0.01', sampleOffset, remainingDuration)
+        } else if (typeof (player as any).onload === 'function') {
+          const orig = (player as any).onload
+          ;(player as any).onload = () => {
+            try { orig && orig() } catch (e) {}
+            try { player.start('+0.01', sampleOffset, remainingDuration) } catch (e) { console.warn('Failed to start player after load', e) }
+          }
+          // trigger load if method exists
+          try { (player as any).load && (player as any).load() } catch (e) { /* ignore */ }
+        } else {
+          // Last-resort: try to start and rely on Tone to queue if possible
+          player.start('+0.01', sampleOffset, remainingDuration)
+        }
+      } catch (e) {
+        console.warn('Error starting lyrics player for clip', clip.id, e)
+      }
+
+      return
+    }
+
+    // If this is a finalized recorded clip (sample) with a direct sampleUrl (blob/object URL or hosted file),
+    // play it directly using Tone.Player and avoid the sample-instrument lookup path which expects
+    // preloaded instrument samples. This ensures recorded vocals (object URLs) are audible.
+    if (clip.type === 'sample' && clip.sampleUrl) {
+      const volume = (clip.volume ?? 1) * (track.volume ?? 1) * (masterVolume.value ?? 1)
+      const player = new Tone.Player({
+        url: clip.sampleUrl,
+        autostart: false,
+        volume: Tone.gainToDb(Math.max(0.01, volume))
+      })
+
+      try {
+        const effectsBus = getTrackEffectsBus(track.id)
+        player.connect(effectsBus.pitchShift) // Connect to first effect in chain for vocal effects
+        effectsBus.output.toDestination()
+      } catch (e) {
+        // fallback directly to destination
+        try { player.toDestination() } catch (err) { /* ignore */ }
+      }
+
+      samplePlayers.push(player)
+
+      const sampleOffset = Math.max(0, fromPosition - startTime)
+      const remainingDuration = clipEndTime - fromPosition
+
+      // Helper: wait for Tone.Player to load with timeout and fallback
+      const waitForPlayerLoad = async (p: any, url: string, timeout = 5000): Promise<boolean> => {
+        try {
+          if (p.loaded) return true
+          // If instance has a load method that returns a promise, use it
+          if (typeof p.load === 'function') {
+            // Some Tone.Player implementations accept a url parameter for load
+            const loadPromise = p.load.length > 0 ? p.load(url) : p.load()
+            // Wrap with timeout
+            await Promise.race([
+              loadPromise,
+              new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), timeout))
+            ])
+            return !!p.loaded
+          }
+
+          // Fallback: attach onload/onerror handlers
+          return await new Promise<boolean>((resolve) => {
+            let settled = false
+            const onload = () => { if (!settled) { settled = true; resolve(true) } }
+            const onerror = () => { if (!settled) { settled = true; resolve(false) } }
+            try {
+              p.onload = onload
+              p.onerror = onerror
+              // Trigger load if method exists
+              try { p.load && p.load() } catch (e) { /* ignore */ }
+            } catch (e) {
+              resolve(false)
+            }
+            setTimeout(() => { if (!settled) { settled = true; resolve(false) } }, timeout)
+          })
+        } catch (e) {
+          return false
+        }
+      }
+
+      try {
+        const loaded = await waitForPlayerLoad(player as any, clip.sampleUrl)
+        if (loaded) {
+          try {
+            player.start('+0.01', sampleOffset, remainingDuration)
+          } catch (e) {
+            console.warn('Failed to start player after load for clip', clip.id, e)
+          }
+        } else {
+          // If the Tone.Player failed to load the buffer, fallback to using HTMLAudioElement playback
+          console.warn(`Player failed to load buffer for clip ${clip.id}; falling back to HTMLAudioElement playback`)
+          try {
+            const htmlAudio = new Audio(clip.sampleUrl)
+            htmlAudio.currentTime = Math.max(0, sampleOffset)
+            // Normalize volume to 0..1
+            const normalizedVol = Math.max(0.01, (clip.volume ?? 1) * (track.volume ?? 1) * (masterVolume.value ?? 1))
+            try { htmlAudio.volume = Math.min(1, normalizedVol) } catch (e) { /* ignore */ }
+            htmlAudio.play().catch(err => console.warn('Fallback HTMLAudioElement play failed:', err))
+          } catch (err) {
+            console.warn('Fallback playback also failed for clip', clip.id, err)
+          }
+        }
+      } catch (e) {
+        console.warn('Error starting sample player for clip', clip.id, e)
+      }
+
+      return
+    }
+
     // Automatically determine if we should use samples or synth
     const category = getTrackCategory(track)
     const shouldUseSamples = clip.type === 'sample' || await hasSamplesForInstrument(category, track.instrument)
@@ -987,11 +1166,13 @@ Check your web server configuration to ensure it can serve audio files from: ${s
               
               if (player && player.loaded) {
                 // Apply combined track and clip effects for chord samples
-                const trackEffects = track.effects || { reverb: 0, delay: 0, distortion: 0 }
-                const clipEffects = clip.effects || { reverb: 0, delay: 0, distortion: 0 }
+                const trackEffects = track.effects || createDefaultEffects()
+                const clipEffects = clip.effects || createDefaultEffects()
                 
                 // Check if clip has additional effects beyond track effects
-                const hasClipEffects = clipEffects.reverb > 0 || clipEffects.delay > 0 || clipEffects.distortion > 0
+                const hasClipEffects = clipEffects.reverb > 0 || clipEffects.delay > 0 || clipEffects.distortion > 0 ||
+                                      clipEffects.pitchShift !== 0 || clipEffects.chorus > 0 || 
+                                      clipEffects.filter > 0 || clipEffects.bitcrush > 0
                 
                 try {
                   if (hasClipEffects) {
@@ -1020,7 +1201,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
                       })
                       
                       try {
-                        player.connect(combinedEffectsChain.distortion)
+                        player.connect(combinedEffectsChain.pitchShift) // Connect to first effect
                         combinedEffectsChain.output.toDestination()
                         console.log(`✅ Successfully connected to combined effects chain`)
                       } catch (connectError) {
@@ -1089,7 +1270,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
                       }
                       
                       try {
-                        player.connect(effectsBus.distortion)
+                        player.connect(effectsBus.pitchShift) // Connect to first effect
                         effectsBus.output.toDestination()
                         console.log(`✅ Successfully connected to track effects bus`)
                       } catch (connectError) {
@@ -1138,11 +1319,13 @@ Check your web server configuration to ensure it can serve audio files from: ${s
               const player = await getSamplePlayer(category, track.instrument, currentNote, sampleDuration)
               if (player && player.loaded) {
                 // Apply combined track and clip effects for note samples
-                const trackEffects = track.effects || { reverb: 0, delay: 0, distortion: 0 }
-                const clipEffects = clip.effects || { reverb: 0, delay: 0, distortion: 0 }
+                const trackEffects = track.effects || createDefaultEffects()
+                const clipEffects = clip.effects || createDefaultEffects()
                 
                 // Check if clip has additional effects beyond track effects
-                const hasClipEffects = clipEffects.reverb > 0 || clipEffects.delay > 0 || clipEffects.distortion > 0
+                const hasClipEffects = clipEffects.reverb > 0 || clipEffects.delay > 0 || clipEffects.distortion > 0 ||
+                                      clipEffects.pitchShift !== 0 || clipEffects.chorus > 0 || 
+                                      clipEffects.filter > 0 || clipEffects.bitcrush > 0
                 
                 if (hasClipEffects) {
                   // Create combined effects chain for this specific clip
@@ -1157,8 +1340,8 @@ Check your web server configuration to ensure it can serve audio files from: ${s
                   }
                   
                   // Verify effects chain is valid before connecting
-                  if (combinedEffectsChain && combinedEffectsChain.distortion && combinedEffectsChain.output) {
-                    player.connect(combinedEffectsChain.distortion)
+                  if (combinedEffectsChain && combinedEffectsChain.pitchShift && combinedEffectsChain.output) {
+                    player.connect(combinedEffectsChain.pitchShift) // Connect to first effect
                     combinedEffectsChain.output.toDestination()
                     console.log(`✅ Successfully connected to combined effects chain`)
                   } else {
@@ -1185,8 +1368,8 @@ Check your web server configuration to ensure it can serve audio files from: ${s
                   }
                   
                   // Verify effects bus is valid before connecting
-                  if (effectsBus && effectsBus.distortion && effectsBus.output) {
-                    player.connect(effectsBus.distortion)
+                  if (effectsBus && effectsBus.pitchShift && effectsBus.output) {
+                    player.connect(effectsBus.pitchShift) // Connect to first effect
                     effectsBus.output.toDestination()
                     console.log(`✅ Successfully connected to track effects bus`)
                   } else {
@@ -1198,7 +1381,35 @@ Check your web server configuration to ensure it can serve audio files from: ${s
                 }
                 
                 player.volume.value = Tone.gainToDb(Math.max(0.01, volume))
-                player.start(0, 0, sampleDuration)
+                try {
+                  if ((player as any).loaded) {
+                    player.start(0, 0, sampleDuration)
+                  } else if (typeof (player as any).load === 'function') {
+                    // Try loading the player and wait for it to be ready
+                    try {
+                      await (player as any).load()
+                      if ((player as any).loaded) {
+                        player.start(0, 0, sampleDuration)
+                      } else {
+                        console.warn('Player created but failed to load before start', { track: track.id, note: currentNote })
+                      }
+                    } catch (loadErr) {
+                      console.warn('Failed to load player before start:', loadErr)
+                    }
+                  } else if (typeof (player as any).onload === 'function') {
+                    const orig = (player as any).onload
+                    ;(player as any).onload = () => {
+                      try { orig && orig() } catch (e) {}
+                      try { player.start(0, 0, sampleDuration) } catch (e) { console.warn('Failed to start player after onload', e) }
+                    }
+                    try { (player as any).load && (player as any).load() } catch (e) { /* ignore */ }
+                  } else {
+                    // Last-resort start and catch
+                    player.start(0, 0, sampleDuration)
+                  }
+                } catch (e) {
+                  console.error('Error starting sample player:', e)
+                }
               } else {
                 console.warn(`Failed to get note player for ${track.instrument} ${currentNote} or player not loaded`)
               }
@@ -1233,7 +1444,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
         const effectsBus = getTrackEffectsBus(track.id)
         
         // Connect instrument through effects chain instead of directly to destination
-        instrument.connect(effectsBus.distortion)
+        instrument.connect(effectsBus.pitchShift) // Connect to first effect
         effectsBus.output.toDestination()
         
         // Store it for future use
@@ -1294,16 +1505,18 @@ Check your web server configuration to ensure it can serve audio files from: ${s
           const noteToPlay = Array.isArray(currentNote) ? currentNote[0] : currentNote
           
           // Apply combined track and clip effects
-          const trackEffects = track.effects || { reverb: 0, delay: 0, distortion: 0 }
-          const clipEffects = clip.effects || { reverb: 0, delay: 0, distortion: 0 }
+          const trackEffects = track.effects || createDefaultEffects()
+          const clipEffects = clip.effects || createDefaultEffects()
           
           // Check if clip has additional effects beyond track effects
-          const hasClipEffects = clipEffects.reverb > 0 || clipEffects.delay > 0 || clipEffects.distortion > 0
+          const hasClipEffects = clipEffects.reverb > 0 || clipEffects.delay > 0 || clipEffects.distortion > 0 ||
+                                clipEffects.pitchShift !== 0 || clipEffects.chorus > 0 || 
+                                clipEffects.filter > 0 || clipEffects.bitcrush > 0
           
           if (hasClipEffects) {
             // Create combined effects chain for this specific clip
             const combinedEffectsChain = createClipEffectsChain(trackEffects, clipEffects)
-            freshInstrument.connect(combinedEffectsChain.distortion)
+            freshInstrument.connect(combinedEffectsChain.pitchShift) // Connect to first effect
             combinedEffectsChain.output.toDestination()
             
             // Store effects chain for cleanup
@@ -1315,7 +1528,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
           } else {
             // Just use track effects bus
             const effectsBus = getTrackEffectsBus(track.id)
-            freshInstrument.connect(effectsBus.distortion)
+            freshInstrument.connect(effectsBus.pitchShift) // Connect to first effect
             effectsBus.output.toDestination()
           }
           
@@ -1511,15 +1724,14 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     })
     scheduledEvents.value = []
     
-    // Stop and clear all sample players
+    // Stop and clear all sample players - prefer dispose() which handles internal stop; avoid explicit stop() which
+    // can throw if called before start() for some Tone.Player implementations.
     samplePlayers.forEach(player => {
       try {
-        if (player.state === 'started') {
-          player.stop()
-        }
         player.dispose()
       } catch (error) {
-        console.warn('Error disposing sample player:', error)
+        // Swallow any dispose errors; players will be GC'd
+        console.warn('Error disposing sample player (ignored):', error)
       }
     })
     samplePlayers.length = 0
@@ -1691,7 +1903,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
       
       // Get or create effects bus for this track and connect sample player
       const effectsBus = getTrackEffectsBus(track.id)
-      player.connect(effectsBus.distortion)
+      player.connect(effectsBus.pitchShift) // Connect to first effect
       effectsBus.output.toDestination()
       
       samplePlayers.push(player)
@@ -1895,16 +2107,13 @@ Check your web server configuration to ensure it can serve audio files from: ${s
       name,
       instrument,
       category,
+  vocalStyle: instrument === 'vocals' ? 'natural' : undefined,
       volume: 0.8,
       pan: 0,
       muted: false,
       solo: false,
       clips: [],
-      effects: {
-        reverb: 0,
-        delay: 0,
-        distortion: 0
-      },
+      effects: createDefaultEffects(),
       sampleUrl,
       isSample: !!sampleUrl
     }
@@ -1967,12 +2176,26 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     if (track) {
       const clip = track.clips.find(c => c.id === clipId)
       if (clip) {
+        // sanitize incoming duration if present
+        if (updates.duration !== undefined) {
+          const d = sanitizeDurationValue(updates.duration)
+          if (d > 0 || clip.duration === 0) {
+            updates.duration = d
+          } else {
+            delete updates.duration
+          }
+        }
+
+        if (updates.startTime !== undefined) {
+          updates.startTime = sanitizeStartTimeValue(updates.startTime)
+        }
+
         Object.assign(clip, updates)
-        
+
         if (updates.instrument || updates.duration) {
           clip.notes = generateNotesForClip(clip, songStructure.value.key)
         }
-        
+
         updateSongStructure()
       }
     }
@@ -1985,8 +2208,12 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     let maxEndTime = 8 // Minimum 8 seconds
     songStructure.value.tracks.forEach(track => {
       track.clips.forEach(clip => {
-        const clipEndTime = clip.startTime + clip.duration
-        maxEndTime = Math.max(maxEndTime, clipEndTime)
+        const start = sanitizeStartTimeValue(clip.startTime)
+        const dur = sanitizeDurationValue(clip.duration)
+        const clipEndTime = start + dur
+        if (Number.isFinite(clipEndTime) && clipEndTime > 0) {
+          maxEndTime = Math.max(maxEndTime, clipEndTime)
+        }
       })
     })
     
@@ -2039,11 +2266,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
         muted: false,
         solo: false,
         clips: [],
-        effects: {
-          reverb: 0,
-          delay: 0,
-          distortion: 0
-        }
+        effects: createDefaultEffects()
       }
       songStructure.value.tracks.push(lyricsTrack)
       updateSongStructure()
@@ -2072,11 +2295,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
         muted: false,
         solo: false,
         clips: [],
-        effects: {
-          reverb: 0,
-          delay: 0,
-          distortion: 0
-        }
+        effects: createDefaultEffects()
       }
       songStructure.value.tracks.push(voiceTrack)
       updateSongStructure()
@@ -2093,7 +2312,11 @@ Check your web server configuration to ensure it can serve audio files from: ${s
       effects: {
         reverb: 0,
         delay: 0,
-        distortion: 0
+        distortion: 0,
+        pitchShift: 0,
+        chorus: 0,
+        filter: 0,
+        bitcrush: 0
       },
       // Use direct lyrics array for this voice
       lyrics: [
@@ -2405,9 +2628,9 @@ Check your web server configuration to ensure it can serve audio files from: ${s
         positionTrackingEventId = null
       }
     }
-    // Stop and dispose all sample players
+    // Dispose all sample players (avoid calling stop() because some players may never have started)
     samplePlayers.forEach(player => {
-      try { player.stop(); player.dispose(); } catch (e) { /* ignore */ }
+      try { player.dispose(); } catch (e) { /* ignore */ }
     })
     samplePlayers.length = 0
     
@@ -2499,7 +2722,11 @@ Check your web server configuration to ensure it can serve audio files from: ${s
           effects: {
             reverb: 0,
             delay: 0,
-            distortion: 0
+            distortion: 0,
+            pitchShift: 0,
+            chorus: 0,
+            filter: 0,
+            bitcrush: 0
           }
         }
         addClip(trackId, clip)
@@ -2590,7 +2817,11 @@ Check your web server configuration to ensure it can serve audio files from: ${s
           effects: {
             reverb: 0,
             delay: 0,
-            distortion: 0
+            distortion: 0,
+            pitchShift: 0,
+            chorus: 0,
+            filter: 0,
+            bitcrush: 0
           }
         }
         addClip(trackId, clip)
@@ -2919,6 +3150,7 @@ Check your web server configuration to ensure it can serve audio files from: ${s
     addTrack,
     removeTrack,
     updateTrack,
+    updateTrackEffects,
     selectTrack: (trackId: string | null) => { selectedTrackId.value = trackId },
     
     // Clip management

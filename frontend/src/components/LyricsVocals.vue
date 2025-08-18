@@ -50,7 +50,7 @@
               <label>Default Voice:</label>
               <select v-model="selectedVoice" class="voice-select" :disabled="isLoadingVoices">
                 <option value="">No default</option>
-                <option v-for="voice in availableVoices" :key="voice.id" :value="voice.id">
+                <option v-for="voice in [...availableVoices, ...rvcVoices]" :key="voice.id" :value="voice.id">
                   {{ voice.name }} ({{ voice.type === 'builtin' ? 'Built-in' : 'Custom' }})
                 </option>
               </select>
@@ -63,7 +63,7 @@
             
             <div v-else class="voice-grid">
               <div 
-                v-for="voice in availableVoices" 
+                v-for="voice in [...availableVoices, ...rvcVoices]" 
                 :key="voice.id"
                 class="voice-card"
                 :class="{ 'selected': selectedVoice === voice.id }"
@@ -659,7 +659,7 @@
             <label>Voice for this segment:</label>
             <select v-model="segmentForm.voiceId" class="form-select">
               <option value="">Use default voice</option>
-              <option v-for="voice in availableVoices" :key="voice.id" :value="voice.id">
+              <option v-for="voice in [...availableVoices, ...rvcVoices]" :key="voice.id" :value="voice.id">
                 {{ voice.name }} ({{ voice.type === 'builtin' ? 'Built-in' : 'Custom' }})
               </option>
             </select>
@@ -695,6 +695,7 @@
 import { ref, computed, watch } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
 import { VoiceService } from '../services/voiceService'
+import { RVCService } from '../services/rvcService'
 import { useMultiVoiceVisualization } from '../composables/useMultiVoiceVisualization'
 import { useVoiceManagement } from '../composables/useVoiceManagement'
 import { 
@@ -764,10 +765,23 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const availableVoices = ref<Array<{
   id: string
   name: string
-  type: 'builtin' | 'custom'
+  type: 'builtin' | 'custom' | 'rvc'
   trained: boolean
 }>>([])
 
+// RVC Voice data - loaded separately from RVC service
+const rvcVoices = ref<Array<{
+  id: string
+  name: string
+  type: 'rvc'
+  trained: boolean
+  status: string
+}>>([])
+
+// Combined voices computed property
+const allVoices = computed(() => {
+  return [...availableVoices.value, ...rvcVoices.value]
+})
 // Training voices state
 const trainingVoices = ref<Array<{
   id: string
@@ -1053,7 +1067,15 @@ const closeVoicePanel = () => {
 const testVoiceSpoken = async (voiceId: string) => {
   try {
     console.log('Testing spoken voice:', voiceId)
-    const audioBlob = await VoiceService.testVoiceSpoken(voiceId)
+    
+    let audioBlob: Blob
+    if (isRVCVoice(voiceId)) {
+      // For RVC voices, we'll use the singing test since there's no separate spoken test
+      audioBlob = await RVCService.getSingingTest(voiceId)
+    } else {
+      // Use regular voice service for built-in voices
+      audioBlob = await VoiceService.testVoiceSpoken(voiceId)
+    }
     
     // Create audio URL and play
     const audioUrl = URL.createObjectURL(audioBlob)
@@ -1072,12 +1094,19 @@ const testVoiceSinging = async (voiceId: string) => {
   try {
     console.log('Testing singing voice:', voiceId)
     
-    // Use the actual test text - backend will generate appropriate notes
-    const testText = "mitystudio forever in our hearts"
-    const testNotes = null  // Let backend generate notes based on syllables
-    const chordName = 'C'  // C major chord for harmony
-    
-    const audioBlob = await VoiceService.testVoiceSinging(voiceId, testText, testNotes, chordName)
+    let audioBlob: Blob
+    if (isRVCVoice(voiceId)) {
+      // Use RVC service for RVC voices - this should call the syllable-based synthesis
+      console.log('Using RVC service for singing test')
+      audioBlob = await RVCService.getSingingTest(voiceId)
+    } else {
+      // Use regular voice service for built-in voices
+      console.log('Using regular voice service for singing test')
+      const testText = "mitystudio forever in our hearts"
+      const testNotes = null  // Let backend generate notes based on syllables
+      const chordName = 'C'  // C major chord for harmony
+      audioBlob = await VoiceService.testVoiceSinging(voiceId, testText, testNotes, chordName)
+    }
     
     // Create audio URL and play
     const audioUrl = URL.createObjectURL(audioBlob)
@@ -1653,6 +1682,7 @@ const monitorTrainingProgress = async (jobId: string, voiceId: string) => {
 const loadAvailableVoices = async () => {
   isLoadingVoices.value = true
   try {
+    // Load regular voices
     const voices = await VoiceService.getAvailableVoices()
     
     // Ensure we have an array
@@ -1663,9 +1693,13 @@ const loadAvailableVoices = async () => {
     
     availableVoices.value = voices
     
+    // Load RVC voices
+    await loadRVCVoices()
+    
     // Set default voice if none selected or current selection is invalid
-    if (!selectedVoice.value || !voices.some(v => v.id === selectedVoice.value)) {
-      selectedVoice.value = voices.length > 0 ? voices[0].id : 'default'
+    const allAvailableVoices = [...availableVoices.value, ...rvcVoices.value]
+    if (!selectedVoice.value || !allAvailableVoices.some(v => v.id === selectedVoice.value)) {
+      selectedVoice.value = allAvailableVoices.length > 0 ? allAvailableVoices[0].id : 'default'
     }
   } catch (error) {
     console.error('Error loading voices:', error)
@@ -1683,13 +1717,40 @@ const loadAvailableVoices = async () => {
   }
 }
 
+// Load RVC voices from RVC service
+const loadRVCVoices = async () => {
+  try {
+    console.log('Loading RVC voices...')
+    const rvcVoicesList = await RVCService.getVoices()
+    
+    // Transform RVC voices to match our voice structure
+    rvcVoices.value = rvcVoicesList.map(voice => ({
+      id: voice.voice_id,
+      name: voice.voice_id, // Use voice_id as name if no explicit name field
+      type: 'rvc' as const,
+      trained: voice.status === 'ready',
+      status: voice.status
+    }))
+    
+    console.log('Loaded RVC voices:', rvcVoices.value)
+  } catch (error) {
+    console.error('Error loading RVC voices:', error)
+    rvcVoices.value = []
+  }
+}
+
 // Load voices when component mounts
 loadAvailableVoices()
 
 // Helper function to get voice name by ID
 const getVoiceName = (voiceId: string) => {
-  const voice = availableVoices.value.find(v => v.id === voiceId)
+  const voice = [...availableVoices.value, ...rvcVoices.value].find(v => v.id === voiceId)
   return voice ? voice.name : 'Unknown Voice'
+}
+
+// Helper function to check if a voice is RVC
+const isRVCVoice = (voiceId: string) => {
+  return rvcVoices.value.some(v => v.id === voiceId)
 }
 
 // Generate singing voice for a lyrics segment
@@ -1932,7 +1993,15 @@ const trainRVCVoiceFromRecording = async () => {
 const testRVCSinging = async (voiceId: string) => {
   try {
     console.log(`Testing RVC singing voice: ${voiceId}`)
-    await VoiceService.testVoiceSinging(voiceId, 'Test', 'C4', 'C')
+    const audioBlob = await RVCService.getSingingTest(voiceId)
+    
+    // Create audio URL and play
+    const audioUrl = URL.createObjectURL(audioBlob)
+    const audio = new Audio(audioUrl)
+    audio.play()
+    
+    // Clean up URL after playing
+    audio.onended = () => URL.revokeObjectURL(audioUrl)
   } catch (error) {
     console.error('Error testing RVC singing:', error)
     alert(`Error testing voice: ${error instanceof Error ? error.message : 'Unknown error'}`)

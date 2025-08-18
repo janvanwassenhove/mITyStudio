@@ -110,6 +110,7 @@ class LangChainService:
                 analyze_song_structure,
                 get_available_instruments,
                 get_available_samples,
+                search_user_samples,
                 create_track,
                 add_clip_to_track,
                 generate_chord_progression,
@@ -132,6 +133,18 @@ class LangChainService:
                 # Fallback prompt with detailed lyrics JSON structure specification
                 prompt = ChatPromptTemplate.from_messages([
                     ("system", """You are a music composition assistant. You help users create, modify, and enhance their musical compositions.
+
+IMPORTANT DISTINCTION:
+🎵 **SAMPLES** = Pre-recorded audio files (drum beats, vocal loops, bass lines, sound effects)
+   - Use `get_available_samples()` to see user-uploaded audio files
+   - These are ready-to-use audio content that can be mixed into songs
+
+🎹 **INSTRUMENTS** = Musical instruments that can generate notes and chords
+   - Use `get_available_instruments()` to see available instruments for composition  
+   - These generate musical content by playing different notes (C_major, A_minor, etc.)
+
+When users ask "which samples can I use", they want to see audio samples (drum beats, loops, etc.).
+When they need instruments for composition/arrangement, use the instruments function.
 
 CRITICAL: When generating lyrics and vocals, you MUST follow this exact JSON structure for lyrics tracks and clips:
 
@@ -198,6 +211,20 @@ AI INTEGRATION FEATURES:
 
 You have access to the following tools:
 {tools}
+
+🎵 SAMPLE AWARENESS INSTRUCTIONS:
+- PRIORITY: Always check for user-uploaded samples using get_available_samples or search_user_samples
+- User samples are custom content - prioritize incorporating them into suggestions and compositions
+- Use search_user_samples to find samples that match song criteria (BPM, key, style, tags)
+- When suggesting tracks or modifications, consider what user samples are available and how they can be utilized
+- Help users understand and leverage their sample library effectively
+- Suggest creative ways to integrate user samples into their music projects
+
+SAMPLE WORKFLOW:
+1. Check available samples with get_available_samples() to see both default and user-uploaded content
+2. For specific needs, use search_user_samples() with criteria like BPM, key, category, or tags
+3. Recommend incorporating user samples when creating or modifying tracks
+4. Explain how user samples can enhance their musical projects
 
 Use the tools to help users with their music composition needs. Always use tools when appropriate to provide accurate information about available instruments, create tracks, add clips, generate chord progressions, and manage song structure.
 
@@ -288,6 +315,13 @@ Thought: {agent_scratchpad}"""),
     def _build_enhanced_context(self, message: str, song_structure: Dict = None) -> str:
         """Build enhanced context that includes song structure analysis and guidance for the agent"""
         context_parts = [message]
+        
+        # Add sample vs instrument awareness guidance
+        context_parts.append(f"\n\n🎵 SAMPLE & INSTRUMENT AWARENESS:")
+        context_parts.append("- **SAMPLES**: Use get_available_samples() for pre-recorded audio (drum beats, loops, vocals)")
+        context_parts.append("- **INSTRUMENTS**: Use get_available_instruments() for generating music (piano, guitar, drums with notes/chords)")
+        context_parts.append("- When user asks 'which samples', they mean audio files, NOT instruments")
+        context_parts.append("- Use search_user_samples() to find specific audio samples by criteria")
         
         # Add JSON structure reminder for lyrics
         context_parts.append(f"\n\nIMPORTANT: When creating lyrics and vocals, ALWAYS use the exact JSON structure specified in the system prompt.")

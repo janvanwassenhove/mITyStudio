@@ -18,6 +18,16 @@
         </button>
         
         <button 
+          class="btn btn-secondary"
+          @click="reAnalyzeSamples"
+          :disabled="totalSamples === 0 || isReAnalyzing"
+          title="Re-analyze all existing samples with enhanced AI classification including track type, vibe detection, instrument tagging, and genre classification"
+        >
+          <RefreshCw class="icon" :class="{ 'spinning': isReAnalyzing }" />
+          {{ isReAnalyzing ? 'Re-analyzing...' : 'Re-analyze All' }}
+        </button>
+        
+        <button 
           class="btn btn-ghost"
           @click="clearAllSamples"
           :disabled="totalSamples === 0"
@@ -29,15 +39,16 @@
     </div>
 
     <!-- Loading Progress -->
-    <div v-if="isLoading" class="loading-section">
+    <div v-if="isLoading || isReAnalyzing" class="loading-section">
       <div class="loading-bar">
         <div 
           class="loading-progress" 
-          :style="{ width: `${loadingProgress}%` }"
+          :style="{ width: `${isLoading ? loadingProgress : reAnalysisProgress}%` }"
         ></div>
       </div>
       <p class="loading-text">
-        Analyzing samples... {{ Math.round(loadingProgress) }}%
+        <span v-if="isLoading">Analyzing samples... {{ Math.round(loadingProgress) }}%</span>
+        <span v-else-if="isReAnalyzing">Re-analyzing samples with AI... {{ Math.round(reAnalysisProgress) }}%</span>
       </p>
     </div>
 
@@ -315,7 +326,7 @@ import { useAudioStore } from '../stores/audioStore'
 import {
   FileAudio, Upload, Trash2, Music, HardDrive, FolderOpen,
   Search, X, ArrowUpDown, Play, Pause, MoreVertical,
-  Plus, Edit, Copy, Drum, Guitar, Piano, Mic, Zap
+  Plus, Edit, Copy, Drum, Guitar, Piano, Mic, Zap, RefreshCw
 } from 'lucide-vue-next'
 import { drawWaveform } from '../utils/waveform'
 import { storeToRefs } from 'pinia'
@@ -332,7 +343,8 @@ const {
 // Destructure methods directly (they don't need reactivity)
 const {
   formatFileSize, formatDuration, loadSamples, removeSample,
-  updateSampleCategory, updateSampleTags, clearAllSamples
+  updateSampleCategory, updateSampleTags, clearAllSamples,
+  restoreSampleFile, syncAllSamplesToBackend
 } = sampleStore
 
 // Fix: Use refs for selectedCategory and searchQuery
@@ -346,6 +358,8 @@ const isPlayingSample = ref(false)
 const playingSampleId = ref<string | null>(null)
 const currentAudio = ref<HTMLAudioElement | null>(null)
 const waveformCanvases = ref<Record<string, HTMLCanvasElement>>({})
+const isReAnalyzing = ref(false)
+const reAnalysisProgress = ref(0)
 
 // Context menu
 const contextMenu = ref({
@@ -380,6 +394,115 @@ const musicalKeys = [
 // Methods
 const triggerFileInput = () => {
   fileInput.value?.click()
+}
+
+const reAnalyzeSamples = async () => {
+  if (isReAnalyzing.value || totalSamples.value === 0) return
+  
+  isReAnalyzing.value = true
+  reAnalysisProgress.value = 0
+  
+  try {
+    const samplesToAnalyze = localSamples.value.slice() // Create a copy
+    const totalCount = samplesToAnalyze.length
+    
+    for (let i = 0; i < samplesToAnalyze.length; i++) {
+      const sample = samplesToAnalyze[i]
+      
+      try {
+        // First, restore the file from IndexedDB
+        const file = await restoreSampleFile(sample.id)
+        if (!file) {
+          console.warn(`Could not restore file for sample ${sample.name}`)
+          continue
+        }
+        
+        // Perform enhanced analysis
+        const arrayBuffer = await file.arrayBuffer()
+        const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)))
+        
+        const response = await fetch('/api/samples/analyze', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            audioData: base64Audio
+          })
+        })
+        
+        if (response.ok) {
+          const result = await response.json()
+          const analysis = result.analysis
+          
+          // Update the sample with enhanced metadata
+          const sampleIndex = localSamples.value.findIndex(s => s.id === sample.id)
+          if (sampleIndex !== -1) {
+            const updatedSample = {
+              ...localSamples.value[sampleIndex],
+              // Update with AI analysis results
+              duration: analysis.duration || sample.duration,
+              bpm: analysis.tempo || sample.bpm,
+              key: analysis.key || sample.key,
+              category: (analysis.primary_category || sample.category) as SampleCategory,
+              tags: analysis.all_tags || sample.tags,
+              
+              // Enhanced AI analysis fields
+              track_type: analysis.track_type,
+              primary_category: analysis.primary_category || sample.category,
+              secondary_categories: analysis.secondary_categories || [],
+              vibe: analysis.vibe,
+              energy_level: analysis.energy_level,
+              valence: analysis.valence,
+              danceability: analysis.danceability,
+              instrument_tags: analysis.instrument_tags || [],
+              genre_tags: analysis.genre_tags || [],
+              mood_tags: analysis.mood_tags || [],
+              style_tags: analysis.style_tags || [],
+              all_tags: analysis.all_tags || sample.tags,
+              ai_description: analysis.ai_description,
+              time_signature: analysis.time_signature,
+              technical_analysis: analysis.technical_analysis
+            }
+            
+            localSamples.value[sampleIndex] = updatedSample
+          }
+        } else {
+          console.warn(`Analysis failed for ${sample.name}: ${response.statusText}`)
+        }
+        
+      } catch (error) {
+        console.warn(`Failed to re-analyze ${sample.name}:`, error)
+      }
+      
+      reAnalysisProgress.value = ((i + 1) / totalCount) * 100
+    }
+    
+    // Sync updated metadata with backend
+    await syncAllSamplesToBackend()
+    
+    // Show success message
+    const enhancedSamples = samplesToAnalyze.filter(s => {
+      const updatedSample = localSamples.value.find(ls => ls.id === s.id)
+      return updatedSample?.ai_description || updatedSample?.track_type || updatedSample?.vibe
+    })
+    
+    alert(`✅ Re-analysis complete!\n\n` +
+          `• ${totalCount} samples processed\n` +
+          `• ${enhancedSamples.length} samples enhanced with AI metadata\n` +
+          `• Added track types, vibes, instrument tags, and genre classifications\n\n` +
+          `Your samples now have richer metadata for better AI recommendations!`)
+    
+    console.log(`Successfully re-analyzed ${totalCount} samples, enhanced ${enhancedSamples.length} with AI metadata`)
+    
+  } catch (error) {
+    console.error('Re-analysis failed:', error)
+    alert('❌ Re-analysis failed. Please check your internet connection and try again.\n\n' +
+          'The audio analysis requires connection to the backend server.')
+  } finally {
+    isReAnalyzing.value = false
+    reAnalysisProgress.value = 0
+  }
 }
 
 const handleFileSelect = async (event: Event) => {
@@ -507,7 +630,15 @@ const addToTrack = () => {
         instrument: 'sample',
         sampleUrl: contextMenu.value.sample.url,
         volume: 0.8,
-        effects: { reverb: 0, delay: 0, distortion: 0 },
+        effects: { 
+          reverb: 0, 
+          delay: 0, 
+          distortion: 0,
+          pitchShift: 0,
+          chorus: 0,
+          filter: 0,
+          bitcrush: 0
+        },
         waveform: contextMenu.value.sample.waveform // Pass waveform for timeline visualization
       })
     }
@@ -1246,5 +1377,19 @@ onMounted(() => {
     flex-direction: column;
     gap: 0.5rem;
   }
+}
+
+/* Spinning animation for re-analyze button */
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.icon.spinning {
+  animation: spin 1s linear infinite;
 }
 </style>

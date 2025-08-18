@@ -37,8 +37,22 @@
               @contextmenu.prevent="showContextMenu(clip.id, track.id, $event)"
             >
               <div class="clip-content">
-                <!-- Chord Sample Clips -->
-                <div v-if="clip.type === 'sample' && clip.sampleUrl && isChordSample(clip)" class="chord-clip">
+                <!-- If a clip provides a waveform (samples, recordings, vocals), render the waveform canvas first so
+                     vocal recordings and live-updated clips show waveform and grow as data arrives. Fallback to chord
+                     visualization only when no waveform exists. -->
+                <div v-if="clip.waveform && clip.waveform.length" class="sample-clip">
+                  <span class="clip-name">{{ clip.instrument }}</span>
+                  <div class="clip-waveform">
+                    <canvas
+                      :ref="el => setClipWaveformCanvas(el, clip)"
+                      class="waveform-canvas"
+                      :height="20"
+                    ></canvas>
+                  </div>
+                </div>
+
+                <!-- Chord Sample Clips (fallback when no waveform is available) -->
+                <div v-else-if="clip.type === 'sample' && clip.sampleUrl && isChordSample(clip)" class="chord-clip">
                   <div class="chord-info">
                     <span class="chord-name">{{ getChordDisplayName(clip) }}</span>
                     <div class="chord-meta">
@@ -48,18 +62,6 @@
                   </div>
                   <div class="chord-visual">
                     <div class="chord-duration-bar" :style="getChordBarStyle(clip)"></div>
-                  </div>
-                </div>
-                
-                <!-- Regular Sample Clips with Waveform -->
-                <div v-else-if="clip.type === 'sample' && clip.waveform && clip.waveform.length" class="sample-clip">
-                  <span class="clip-name">{{ clip.instrument }}</span>
-                  <div class="clip-waveform">
-                    <canvas
-                      :ref="el => setClipWaveformCanvas(el, clip)"
-                      class="waveform-canvas"
-                      :height="20"
-                    ></canvas>
                   </div>
                 </div>
                 
@@ -210,30 +212,91 @@ const syncTimelineScroll = () => {
   }, 2000) as any
 }
 
-// Store canvas refs for each sample clip
+// Store canvas refs for each clip (we register canvas even when waveform is not yet available so
+// recordings that start with an empty waveform can be drawn live once data arrives).
 const clipWaveformCanvases = ref<Record<string, HTMLCanvasElement | null>>({})
 
 function setClipWaveformCanvas(el: Element | ComponentPublicInstance | null, clip: AudioClip) {
-  // Handle the case where el might be a component instance
   const canvas = el instanceof Element ? el : null
-  
-  if (canvas && canvas instanceof HTMLCanvasElement && clip.waveform) {
+
+  if (canvas && canvas instanceof HTMLCanvasElement) {
     clipWaveformCanvases.value[clip.id] = canvas
-    // Set canvas width and height to match the clip's rendered size
-    const width = clip.duration * beatWidth.value * 4
-    canvas.width = Math.max(40, Math.round(width)) // minimum width for visibility
-    // Find the parent .audio-clip element to get its height
+    
+    // Defensive check: ensure canvas is still in DOM before manipulating
+    if (!canvas.parentElement) {
+      return
+    }
+    
+    // Size the canvas to the clip's rendered size (width depends on duration & zoom)
+    const width = Math.max(40, Math.round((clip.duration || 1) * beatWidth.value * 4))
+    canvas.width = width
     const parentClip = canvas.closest('.audio-clip') as HTMLElement | null
     if (parentClip) {
       canvas.height = parentClip.offsetHeight
     } else {
-      canvas.height = 20 // fallback
+      canvas.height = 20
     }
-    drawWaveform(canvas, clip.waveform)
+
+    // If waveform data already exists, draw it now. If not, clear the canvas to a subtle background
+    if (clip.waveform && clip.waveform.length) {
+      drawWaveform(canvas, clip.waveform)
+    } else {
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.clearRect(0, 0, canvas.width, canvas.height)
+        ctx.fillStyle = 'rgba(255,255,255,0.02)'
+        ctx.fillRect(0, 0, canvas.width, canvas.height)
+      }
+    }
   } else if (!canvas) {
-    clipWaveformCanvases.value[clip.id] = null
+    // Clean up ref if canvas is removed
+    delete clipWaveformCanvases.value[clip.id]
   }
 }
+
+// Watch for waveform changes across clips and redraw their canvases when data arrives or changes
+watch(
+  () => audioStore.songStructure.tracks.map(t => t.clips.map(c => ({ id: c.id, waveform: c.waveform, duration: c.duration }))),
+  async () => {
+    await nextTick()
+    audioStore.songStructure.tracks.forEach(track => {
+      track.clips.forEach(clip => {
+        const canvas = clipWaveformCanvases.value[clip.id]
+        if (!canvas) return
+
+        // Coerce duration to finite number, skip clip if clearly invalid
+        const dur = Number.isFinite(clip.duration) ? clip.duration : 0
+        const safeDur = Math.max(0.01, Math.min(dur, 3600)) // between 10ms and 1 hour
+        const width = Math.max(40, Math.round(safeDur * beatWidth.value * 4))
+        canvas.width = width
+        const parentClip = canvas.closest('.audio-clip') as HTMLElement | null
+        canvas.height = parentClip ? parentClip.offsetHeight : 20
+
+        if (Array.isArray(clip.waveform) && clip.waveform.length) {
+          try {
+            drawWaveform(canvas, clip.waveform)
+          } catch (e) {
+            // Defensive: if drawWaveform fails, clear to placeholder
+            const ctx = canvas.getContext('2d')
+            if (ctx) {
+              ctx.clearRect(0, 0, canvas.width, canvas.height)
+              ctx.fillStyle = 'rgba(255,255,255,0.02)'
+              ctx.fillRect(0, 0, canvas.width, canvas.height)
+            }
+          }
+        } else {
+          const ctx = canvas.getContext('2d')
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height)
+            ctx.fillStyle = 'rgba(255,255,255,0.02)'
+            ctx.fillRect(0, 0, canvas.width, canvas.height)
+          }
+        }
+      })
+    })
+  },
+  { deep: true }
+)
 
 // Timeline calculations
 const beatWidth = computed(() => 60 * audioStore.zoom) // pixels per beat
@@ -259,8 +322,7 @@ const playheadPosition = computed(() => {
 const autoScrollToPlayhead = () => {
   if (!timelineContent.value || isDragging.value || isResizing.value) return
   
-  // Don't auto-scroll if user recently scrolled manually
-  if (userScrollTimeout.value) return
+  // Always auto-scroll to keep playhead visible (unless user is actively dragging/resizing)
   
   const container = timelineContent.value
   const scrollLeft = container.scrollLeft
@@ -282,7 +344,16 @@ const autoScrollToPlayhead = () => {
       left: newScrollLeft,
       behavior: 'smooth'
     })
-    
+    // Also sync the header (ruler) so both tracks and ruler follow the playhead
+    if (timelineHeader.value) {
+      try {
+        timelineHeader.value.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
+      } catch (e) {
+        // Fallback for browsers that don't support smooth option on element.scrollTo
+        timelineHeader.value.scrollLeft = newScrollLeft
+      }
+    }
+
     isAutoScrolling.value = true
     // Reset auto-scrolling flag after animation
     setTimeout(() => {
@@ -318,8 +389,10 @@ watch(
 )
 
 const getClipStyle = (clip: AudioClip) => {
-  const left = clip.startTime * beatWidth.value * 4 // Convert beats to pixels
-  const width = clip.duration * beatWidth.value * 4
+  const start = Number.isFinite(clip.startTime) ? clip.startTime : 0
+  const dur = Number.isFinite(clip.duration) ? clip.duration : 0
+  const left = start * beatWidth.value * 4 // Convert beats to pixels
+  const width = Math.max(1, dur * beatWidth.value * 4)
   return {
     left: `${left}px`,
     width: `${width}px`
@@ -353,7 +426,11 @@ const addClipToTrack = (trackId: string, event: MouseEvent) => {
       effects: {
         reverb: 0,
         delay: 0,
-        distortion: 0
+        distortion: 0,
+        pitchShift: 0,
+        chorus: 0,
+        filter: 0,
+        bitcrush: 0
       }
     } as const
     
@@ -372,7 +449,11 @@ const addClipToTrack = (trackId: string, event: MouseEvent) => {
     effects: {
       reverb: 0,
       delay: 0,
-      distortion: 0
+      distortion: 0,
+      pitchShift: 0,
+      chorus: 0,
+      filter: 0,
+      bitcrush: 0
     }
   } as const
   
@@ -588,14 +669,17 @@ const seekToPosition = (event: MouseEvent) => {
   const timePosition = clickX / (beatWidth.value * 4) // Convert pixels to seconds
   
   // Update the current time directly
-  audioStore.currentTime = Math.max(0, timePosition)
-  
-  // If playing, we might want to restart playback from this position
+  const newTime = Math.max(0, timePosition)
+  audioStore.currentTime = newTime
+
+  // If audio is currently playing, pause (clears scheduled events and stores position)
+  // then resume playback from the newly set time. Using pause+play avoids reset done by stop().
   if (audioStore.isPlaying) {
-    audioStore.stop()
+    audioStore.pause()
+    // Small delay to ensure scheduled events are cleared before rescheduling
     setTimeout(() => {
       audioStore.play()
-    }, 100)
+    }, 50)
   }
   
   // Auto-scroll to the new position if it's outside the visible area

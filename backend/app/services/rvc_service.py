@@ -22,10 +22,12 @@ class RVCService:
     def __init__(self, models_dir: str = None, test_clips_dir: str = None):
         # Set up directories
         self.models_dir = Path(models_dir or 'backend/app/data/models')
+        self.voices_dir = Path('app/data/voices')  # Use relative path from backend directory
         self.test_clips_dir = Path(test_clips_dir or 'backend/app/data/test_clips')
         
         # Create directories if they don't exist
         self.models_dir.mkdir(parents=True, exist_ok=True)
+        self.voices_dir.mkdir(parents=True, exist_ok=True)
         self.test_clips_dir.mkdir(parents=True, exist_ok=True)
         
         # Sample rate for RVC models
@@ -249,38 +251,52 @@ class RVCService:
         """
         voices = []
         
-        # Find all .pth model files
-        for model_file in self.models_dir.glob("*.pth"):
-            voice_id = model_file.stem
-            metadata_file = model_file.with_suffix('.json')
-            
-            voice_info = {
-                'voice_id': voice_id,
-                'source': 'upload',  # Default
-                'status': 'ready'
-            }
-            
-            # Load metadata if available
-            if metadata_file.exists():
-                try:
-                    with open(metadata_file, 'r') as f:
-                        metadata = json.load(f)
-                    
-                    voice_info.update({
-                        'model_type': metadata.get('model_type', 'rvc'),
-                        'training_files_count': len(metadata.get('training_files', [])),
-                        'voice_characteristics': metadata.get('voice_characteristics', {}),
-                        'sample_rate': metadata.get('sample_rate', self.sample_rate)
-                    })
-                    
-                    # Determine source based on metadata
-                    if metadata.get('source') == 'recording':
-                        voice_info['source'] = 'record'
-                    
-                except Exception as e:
-                    logger.warning(f"Could not load metadata for {voice_id}: {e}")
-            
-            voices.append(voice_info)
+        logger.info(f"Scanning voices directory: {self.voices_dir}")
+        
+        # Find all voice directories in the voices folder
+        for voice_dir in self.voices_dir.iterdir():
+            if voice_dir.is_dir():
+                actual_voice_id = voice_dir.name  # This is the directory name like "voice-1754942996"
+                logger.info(f"Found voice directory: {actual_voice_id}")
+                
+                info_file = voice_dir / 'info.json'
+                
+                voice_info = {
+                    'voice_id': actual_voice_id,  # Use the actual directory name for lookups
+                    'source': 'upload',  # Default
+                    'status': 'ready'
+                }
+                
+                # Load metadata if available
+                if info_file.exists():
+                    try:
+                        with open(info_file, 'r') as f:
+                            metadata = json.load(f)
+                        
+                        # Use voice_name for display, but keep actual voice_id for lookups
+                        display_name = metadata.get('voice_name', actual_voice_id)
+                        logger.info(f"Voice {actual_voice_id} has display name: {display_name}")
+                        
+                        voice_info.update({
+                            'voice_id': actual_voice_id,  # Keep the actual directory name for API calls
+                            'voice_name': display_name,   # Add display name
+                            'model_type': metadata.get('model_type', 'rvc'),
+                            'training_files_count': len(metadata.get('training_files', [])),
+                            'voice_characteristics': metadata.get('voice_characteristics', {}),
+                            'sample_rate': metadata.get('sample_rate', self.sample_rate)
+                        })
+                        
+                        # Determine source based on metadata
+                        if metadata.get('source') == 'recording':
+                            voice_info['source'] = 'record'
+                        
+                    except Exception as e:
+                        logger.warning(f"Could not load metadata for {actual_voice_id}: {e}")
+                else:
+                    logger.info(f"No info.json found for {actual_voice_id}, using defaults")
+                
+                logger.info(f"Adding voice to list: {voice_info}")
+                voices.append(voice_info)
         
         logger.info(f"Found {len(voices)} trained voices")
         return voices
@@ -305,10 +321,17 @@ class RVCService:
         # Output file path
         output_path = self.test_clips_dir / f"{voice_id}_sing.wav"
         
-        # Check if model exists
-        model_path = self.models_dir / f"{voice_id}.pth"
+        # Check if voice directory exists
+        voice_dir = self.voices_dir / voice_id
+        if not voice_dir.exists():
+            raise ValueError(f"Voice not found: {voice_id}")
+        
+        # Check for model file (could be .pth or .ckpt)
+        model_path = voice_dir / "model.ckpt"
         if not model_path.exists():
-            raise ValueError(f"Voice model not found: {voice_id}")
+            model_path = voice_dir / "model.pth"
+            if not model_path.exists():
+                raise ValueError(f"Voice model file not found for: {voice_id}")
         
         # Load voice characteristics
         voice_characteristics = self._load_voice_characteristics(voice_id)
@@ -327,7 +350,8 @@ class RVCService:
     
     def _load_voice_characteristics(self, voice_id: str) -> Dict[str, Any]:
         """Load voice characteristics from metadata"""
-        metadata_path = self.models_dir / f"{voice_id}.json"
+        # Look for info.json in the voice directory
+        info_path = self.voices_dir / voice_id / "info.json"
         
         default_characteristics = {
             'fundamental_freq': 200.0,
@@ -337,9 +361,9 @@ class RVCService:
             'pitch_range': [80, 400]
         }
         
-        if metadata_path.exists():
+        if info_path.exists():
             try:
-                with open(metadata_path, 'r') as f:
+                with open(info_path, 'r') as f:
                     metadata = json.load(f)
                 return metadata.get('voice_characteristics', default_characteristics)
             except Exception as e:
@@ -361,7 +385,7 @@ class RVCService:
         Returns:
             Path to the generated singing audio file
         """
-        logger.info(f"Generating singing audio for voice {voice_id}: '{text}' with notes {notes}")
+        logger.info(f"🎵 RVC: generate_singing_audio called for voice {voice_id}: '{text}' with notes {notes}")
         
         # Validate inputs
         if not voice_id or not text:
@@ -373,11 +397,12 @@ class RVCService:
         # Check if model exists
         model_path = self.models_dir / f"{voice_id}.pth"
         if not model_path.exists():
-            logger.warning(f"Voice model not found: {voice_id}, falling back to test singing")
+            logger.warning(f"🎵 Voice model not found: {voice_id}, falling back to test singing")
             return self.synthesize_test_singing(voice_id)
         
         # Load voice characteristics
         voice_characteristics = self._load_voice_characteristics(voice_id)
+        logger.info(f"🎵 Voice characteristics loaded: {voice_characteristics}")
         
         # Create output file
         import tempfile
@@ -392,7 +417,7 @@ class RVCService:
                     return result
             
             # Fallback to enhanced simulation with voice characteristics
-            logger.info(f"Using enhanced simulation for voice {voice_id}")
+            logger.info(f"🎵 Using enhanced simulation with syllable-based synthesis for voice {voice_id}")
             return self._generate_enhanced_singing_simulation(text, voice_id, notes, duration, output_path, voice_characteristics)
             
         except Exception as e:
@@ -605,17 +630,27 @@ class RVCService:
             voice_warmth = max(0.0, min(1.0, characteristics.get('voice_warmth', 0.7)))
             voice_texture = max(0.0, min(1.0, characteristics.get('voice_texture', 0.5)))
             
+            # Extract syllables from text for singing synthesis
+            syllables = self._extract_syllables_for_singing(text)
+            logger.info(f"Extracted syllables for singing: {syllables}")
+            
             audio = np.zeros_like(t)
             
-            # Distribute notes across the duration with validation
-            if len(note_freqs) == 0:
-                return audio
-                
-            note_duration = len(t) / len(note_freqs)
+            # Use syllable count for better note distribution
+            note_count = max(len(syllables), len(note_freqs))
+            if len(note_freqs) < note_count:
+                # Extend notes by repeating the pattern
+                extended_notes = []
+                for i in range(note_count):
+                    extended_notes.append(note_freqs[i % len(note_freqs)])
+                note_freqs = extended_notes
             
-            for i, freq in enumerate(note_freqs):
-                start_idx = max(0, int(i * note_duration))
-                end_idx = min(len(t), int((i + 1) * note_duration))
+            # Distribute syllables/notes across the duration
+            segment_duration = len(t) / note_count
+            
+            for i in range(note_count):
+                start_idx = max(0, int(i * segment_duration))
+                end_idx = min(len(t), int((i + 1) * segment_duration))
                 
                 if start_idx >= end_idx or start_idx >= len(t):
                     continue
@@ -624,8 +659,12 @@ class RVCService:
                 if len(note_t) == 0:
                     continue
                 
-                # Generate singing voice for this note
-                note_audio = self._generate_note_audio(note_t, freq, fundamental_freq, voice_warmth, voice_texture)
+                # Get syllable and frequency for this segment
+                freq = note_freqs[i] if i < len(note_freqs) else note_freqs[-1]
+                syllable = syllables[i] if i < len(syllables) else syllables[-1] if syllables else "ah"
+                
+                # Generate singing voice for this syllable with musical note
+                note_audio = self._generate_singing_syllable(note_t, freq, syllable, fundamental_freq, voice_warmth, voice_texture)
                 
                 # Validate note audio
                 if len(note_audio) != len(note_t):
@@ -649,9 +688,74 @@ class RVCService:
             # Return a simple fallback tone
             return 0.1 * np.sin(2 * np.pi * 440 * t) if len(t) > 0 else np.zeros(1000)
     
-    def _generate_note_audio(self, t: np.ndarray, target_freq: float, 
-                            fundamental_freq: float, voice_warmth: float, voice_texture: float) -> np.ndarray:
-        """Generate natural human singing voice audio for a single note"""
+    def _extract_syllables_for_singing(self, text: str) -> List[str]:
+        """Extract syllables from text for singing synthesis"""
+        try:
+            # Simple syllable extraction based on vowel patterns
+            # This is a basic implementation - can be improved with proper phonetic libraries
+            text = text.lower().strip()
+            words = text.split()
+            syllables = []
+            
+            vowels = 'aeiou'
+            
+            for word in words:
+                word_syllables = []
+                current_syllable = ""
+                
+                i = 0
+                while i < len(word):
+                    char = word[i]
+                    current_syllable += char
+                    
+                    # If we hit a vowel, we potentially have a syllable
+                    if char in vowels:
+                        # Look ahead to see if there's another vowel or consonant cluster
+                        if i + 1 < len(word):
+                            next_char = word[i + 1]
+                            # If next char is consonant, continue building syllable
+                            if next_char not in vowels:
+                                # Add consonant(s) after vowel
+                                j = i + 1
+                                while j < len(word) and word[j] not in vowels:
+                                    current_syllable += word[j]
+                                    j += 1
+                                i = j - 1
+                        
+                        # We have a complete syllable
+                        if current_syllable:
+                            word_syllables.append(current_syllable)
+                            current_syllable = ""
+                    
+                    i += 1
+                
+                # Add any remaining characters
+                if current_syllable:
+                    if word_syllables:
+                        word_syllables[-1] += current_syllable
+                    else:
+                        word_syllables.append(current_syllable)
+                
+                syllables.extend(word_syllables)
+            
+            # If no syllables extracted, create basic ones from text
+            if not syllables:
+                # Fallback: create syllables by splitting on common patterns
+                import re
+                syllable_pattern = re.findall(r'[bcdfghjklmnpqrstvwxyz]*[aeiou]+[bcdfghjklmnpqrstvwxyz]*', text.replace(' ', ''))
+                syllables = syllable_pattern if syllable_pattern else [text]
+            
+            logger.info(f"Extracted syllables from '{text}': {syllables}")
+            return syllables
+            
+        except Exception as e:
+            logger.warning(f"Error extracting syllables: {e}")
+            # Fallback to simple word splitting
+            return text.split() if text else ["ah"]
+
+    def _generate_singing_syllable(self, t: np.ndarray, target_freq: float, syllable: str,
+                                  fundamental_freq: float, voice_warmth: float, voice_texture: float) -> np.ndarray:
+        """Generate natural human singing voice audio for a specific syllable"""
         
         # Use target frequency more directly for accurate pitch
         # Blend only slightly with voice fundamental for natural voice range
@@ -673,8 +777,7 @@ class RVCService:
         # Strong fundamental for clear human voice
         audio += 0.8 * np.sin(2 * np.pi * final_freq * t)
         
-        # Natural human voice harmonic series (much different from trumpet)
-        # Human voices have weaker odd harmonics and specific formant patterns
+        # Natural human voice harmonic series
         harmonic_strengths = [0.25, 0.12, 0.08, 0.04, 0.02]  # Natural voice harmonic decay
         for i, harmonic in enumerate(range(2, 7)):
             if i < len(harmonic_strengths):
@@ -683,8 +786,8 @@ class RVCService:
                 detune = 1.0 + (np.random.random() - 0.5) * 0.001
                 audio += amplitude * np.sin(2 * np.pi * final_freq * harmonic * detune * t)
         
-        # Add comprehensive vocal formants (critical for human voice)
-        self._add_comprehensive_vocal_formants(audio, final_freq, t, voice_warmth)
+        # Add syllable-specific vocal formants (critical for singing text)
+        self._add_syllable_formants(audio, final_freq, t, syllable, voice_warmth)
         
         # Apply vocal tract resonance
         audio = self._apply_vocal_tract_resonance(audio, final_freq)
@@ -698,13 +801,104 @@ class RVCService:
             try:
                 from scipy import signal
                 # Low-pass filter for natural breath noise
-                b, a = signal.butter(1, 0.1)  # Gentler filter
-                breath_noise = signal.filtfilt(b, a, breath_noise)
-                audio += breath_noise * 0.3  # Mix very quietly
-            except:
-                pass
+                nyquist = self.sample_rate / 2
+                cutoff = 2000 / nyquist  # 2kHz cutoff
+                b, a = signal.butter(2, cutoff, btype='low')
+                filtered_noise = signal.filtfilt(b, a, breath_noise)
+                audio += filtered_noise * 0.05  # Very subtle breath texture
+                
+            except ImportError:
+                # Fallback without scipy
+                audio += breath_noise * 0.02
         
         return audio
+
+    def _add_syllable_formants(self, audio: np.ndarray, freq: float, t: np.ndarray, syllable: str, warmth: float):
+        """Add syllable-specific vocal formants for natural singing"""
+        try:
+            # Map syllables to appropriate vowel formants for singing
+            formant_map = self._get_syllable_formants(syllable)
+            
+            formant_freqs = formant_map['freqs']
+            formant_amps = formant_map['amps']
+            formant_widths = formant_map['widths']
+            
+            for f_freq, f_amp, f_width in zip(formant_freqs, formant_amps, formant_widths):
+                if f_freq < self.sample_rate / 3:  # Safe aliasing margin
+                    # Create formant resonance with natural bandwidth
+                    # Primary formant component
+                    formant_base = f_amp * warmth * np.sin(2 * np.pi * f_freq * t)
+                    
+                    # Add formant bandwidth (natural resonance spread)
+                    formant_low = f_amp * warmth * 0.3 * np.sin(2 * np.pi * (f_freq - f_width/2) * t)
+                    formant_high = f_amp * warmth * 0.3 * np.sin(2 * np.pi * (f_freq + f_width/2) * t)
+                    
+                    # Modulate with fundamental for natural vocal tract interaction
+                    interaction = 1.0 + 0.05 * np.sin(2 * np.pi * freq * t)
+                    
+                    # Combine formant components
+                    total_formant = (formant_base + formant_low + formant_high) * interaction
+                    
+                    # Mix more subtly to avoid overwhelming the fundamental
+                    audio += total_formant * 0.2
+                    
+        except Exception as e:
+            logger.warning(f"Error adding syllable formants for '{syllable}': {e}")
+            # Fallback to basic /a/ formants
+            self._add_comprehensive_vocal_formants(audio, freq, t, warmth)
+
+    def _get_syllable_formants(self, syllable: str) -> Dict[str, List[float]]:
+        """Get appropriate formant frequencies for a syllable"""
+        try:
+            # Extract primary vowel sound from syllable
+            vowels = 'aeiou'
+            primary_vowel = 'a'  # Default
+            
+            # Find the main vowel in the syllable
+            for char in syllable.lower():
+                if char in vowels:
+                    primary_vowel = char
+                    break
+            
+            # Formant frequencies for different vowels (F1, F2, F3, F4)
+            vowel_formants = {
+                'a': {  # /a/ as in "father" - most common in singing
+                    'freqs': [700, 1220, 2600, 3400],
+                    'amps': [0.4, 0.3, 0.15, 0.08],
+                    'widths': [50, 80, 120, 150]
+                },
+                'e': {  # /e/ as in "bed"
+                    'freqs': [530, 1840, 2480, 3500],
+                    'amps': [0.35, 0.4, 0.15, 0.08],
+                    'widths': [60, 90, 110, 140]
+                },
+                'i': {  # /i/ as in "beet"
+                    'freqs': [270, 2290, 3010, 3500],
+                    'amps': [0.3, 0.45, 0.2, 0.1],
+                    'widths': [40, 100, 120, 150]
+                },
+                'o': {  # /o/ as in "boat"
+                    'freqs': [570, 840, 2410, 3200],
+                    'amps': [0.4, 0.35, 0.15, 0.08],
+                    'widths': [70, 80, 110, 140]
+                },
+                'u': {  # /u/ as in "boot"
+                    'freqs': [440, 1020, 2240, 3200],
+                    'amps': [0.45, 0.3, 0.15, 0.08],
+                    'widths': [60, 70, 100, 130]
+                }
+            }
+            
+            return vowel_formants.get(primary_vowel, vowel_formants['a'])
+            
+        except Exception as e:
+            logger.warning(f"Error getting formants for syllable '{syllable}': {e}")
+            # Return default /a/ formants
+            return {
+                'freqs': [700, 1220, 2600, 3400],
+                'amps': [0.4, 0.3, 0.15, 0.08],
+                'widths': [50, 80, 120, 150]
+            }
 
     def _add_comprehensive_vocal_formants(self, audio: np.ndarray, freq: float, t: np.ndarray, warmth: float):
         """Add comprehensive vocal formants for natural human singing voice"""
@@ -1417,14 +1611,14 @@ class RVCService:
         samples = []
         
         # Load metadata to get training files
-        metadata_path = self.models_dir / f"{voice_id}.json"
-        if not metadata_path.exists():
+        info_path = self.voices_dir / voice_id / "info.json"
+        if not info_path.exists():
             logger.warning(f"No metadata found for voice {voice_id}")
             return samples
         
         try:
             import json
-            with open(metadata_path, 'r') as f:
+            with open(info_path, 'r') as f:
                 metadata = json.load(f)
             
             training_files = metadata.get('training_files', [])
@@ -1863,11 +2057,10 @@ class RVCService:
         try:
             import numpy as np
             import soundfile as sf
-            from app.services.audio_generator import AudioGenerator
             
-            # Extract syllables to match with notes
-            audio_gen = AudioGenerator()
-            syllables = audio_gen._extract_syllables(text)
+            # Use our improved syllable extraction method
+            syllables = self._extract_syllables_for_singing(text)
+            logger.info(f"Enhanced simulation using syllables: {syllables}")
             
             # Ensure we have enough notes for syllables
             if len(notes) < len(syllables):
@@ -1891,11 +2084,11 @@ class RVCService:
             note_freqs = self._notes_to_frequencies(notes)
             
             # Use voice characteristics for personalization
-            voice_warmth = characteristics.get('voice_warmth', 0.5)
-            voice_texture = characteristics.get('voice_texture', 0.3)
-            fundamental_freq = characteristics.get('fundamental_frequency', 200.0)
+            voice_warmth = characteristics.get('voice_warmth', 0.7)
+            voice_texture = characteristics.get('voice_texture', 0.5)
+            fundamental_freq = characteristics.get('fundamental_freq', 200.0)
             
-            # Create singing audio with syllable-based timing
+            # Create singing audio using our improved syllable-based synthesis
             audio = np.zeros_like(t)
             syllable_duration = duration / len(syllables)
             
@@ -1910,9 +2103,9 @@ class RVCService:
                 if start_idx < len(t) and end_idx <= len(t):
                     syllable_t = t[start_idx:end_idx]
                     if len(syllable_t) > 0:
-                        # Generate singing voice for this syllable/note
-                        syllable_audio = self._generate_syllable_singing(
-                            syllable_t, freq, fundamental_freq, voice_warmth, voice_texture, syllable
+                        # Use our improved syllable singing synthesis
+                        syllable_audio = self._generate_singing_syllable(
+                            syllable_t, freq, syllable, fundamental_freq, voice_warmth, voice_texture
                         )
                         
                         # Apply ADSR envelope for natural phrasing
@@ -1938,87 +2131,6 @@ class RVCService:
             logger.error(f"Error in enhanced singing simulation: {e}")
             # Fallback to basic test singing
             return self.synthesize_test_singing(voice_id)
-    
-    def _generate_syllable_singing(self, t: np.ndarray, target_freq: float, 
-                                 fundamental_freq: float, voice_warmth: float, 
-                                 voice_texture: float, syllable: str) -> np.ndarray:
-        """Generate singing audio for a specific syllable with human voice characteristics"""
-        
-        if len(t) == 0:
-            return np.zeros(1)
-        
-        # Use the target frequency more directly for accurate pitch
-        singing_freq = target_freq * 0.95 + fundamental_freq * 0.05
-        
-        # Natural vibrato for singing
-        vibrato_rate = 5.5  # Hz
-        vibrato_depth = 0.012  # 1.2% frequency modulation
-        vibrato = 1.0 + vibrato_depth * np.sin(2 * np.pi * vibrato_rate * t)
-        
-        final_freq = singing_freq * vibrato
-        
-        # Create rich harmonic series for human singing voice
-        audio = np.zeros_like(t)
-        
-        # Strong fundamental
-        audio += 0.9 * np.sin(2 * np.pi * final_freq * t)
-        
-        # Human voice harmonics with natural decay
-        harmonic_amplitudes = [0.3, 0.15, 0.08, 0.04, 0.02]
-        for i, amplitude in enumerate(harmonic_amplitudes):
-            harmonic_num = i + 2
-            harmonic_freq = final_freq * harmonic_num
-            # Slight detuning for organic sound
-            detune = 1.0 + (np.random.random() - 0.5) * 0.002
-            audio += amplitude * voice_warmth * np.sin(2 * np.pi * harmonic_freq * detune * t)
-        
-        # Add vowel-like formants based on syllable
-        audio = self._add_syllable_formants(audio, final_freq, t, syllable, voice_warmth)
-        
-        # Light breathiness for natural singing
-        if voice_texture > 0.1:
-            breath = np.random.normal(0, voice_texture * 0.005, len(t))
-            audio += breath
-        
-        return audio
-    
-    def _add_syllable_formants(self, audio: np.ndarray, freq: float, t: np.ndarray, 
-                             syllable: str, warmth: float) -> np.ndarray:
-        """Add formants based on syllable vowel content for realistic voice"""
-        
-        # Simple vowel detection and formant mapping
-        vowel_formants = {
-            'a': [(800, 1200), (1300, 150)],   # 'ah' sound
-            'e': [(500, 100), (1900, 200)],    # 'eh' sound  
-            'i': [(300, 80), (2300, 180)],     # 'ee' sound
-            'o': [(500, 100), (900, 120)],     # 'oh' sound
-            'u': [(300, 80), (700, 100)]       # 'oo' sound
-        }
-        
-        # Detect dominant vowel in syllable
-        dominant_vowel = 'a'  # default
-        for vowel in vowel_formants.keys():
-            if vowel in syllable.lower():
-                dominant_vowel = vowel
-                break
-        
-        # Apply formants
-        formants = vowel_formants.get(dominant_vowel, vowel_formants['a'])
-        
-        try:
-            for f_freq, f_width in formants:
-                # Create subtle formant resonance
-                formant_amp = 0.1 * warmth
-                formant_component = formant_amp * np.sin(2 * np.pi * f_freq * t)
-                
-                # Modulate with fundamental for natural interaction
-                modulation = 1.0 + 0.03 * np.sin(2 * np.pi * freq * t)
-                audio += formant_component * modulation
-                
-        except Exception:
-            pass  # Continue without formants if error
-        
-        return audio
     
     def _apply_voice_characteristics(self, audio: np.ndarray, characteristics: Dict[str, Any]) -> np.ndarray:
         """Apply learned voice characteristics to the audio"""

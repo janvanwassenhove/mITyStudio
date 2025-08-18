@@ -197,31 +197,279 @@ def get_available_instruments() -> str:
 
 
 @tool
-def get_available_samples(category: str = "", instrument: str = "") -> str:
+def get_available_samples(category: str = "", tags: List[str] = None) -> str:
     """
-    Get available samples for instruments, optionally filtered by category or instrument.
+    Get available AUDIO SAMPLES (drum beats, loops, vocal clips, etc.), 
+    NOT musical instruments. This function specifically shows user-uploaded sample files.
     
     Args:
-        category: Filter by instrument category (e.g., 'drums', 'strings')
+        category: Filter by sample category (e.g., 'drums', 'vocals', 'bass')
+        tags: Filter by sample tags (e.g., ['rock', 'energetic'])
+    
+    Returns:
+        Formatted string with available audio samples (NOT instruments)
+    """
+    try:
+        from app.api.sample_routes import get_user_samples_for_agents
+        
+        # Get user-uploaded samples (these are actual audio files like .wav, .mp3)
+        user_samples = get_user_samples_for_agents()
+        
+        # IMPORTANT: This function returns AUDIO SAMPLES, not instruments!
+        # If you see instrument names like "trumpet, piano" instead of sample files,
+        # then the wrong function is being called!
+        
+        if not user_samples:
+            return """🎵 **AUDIO SAMPLES** (Updated Function - v2.0)
+
+I can see from your interface that you have audio samples uploaded in your Sample Library (like drum loops, bass lines, etc.), but I don't currently have access to their metadata from the backend.
+
+**Your uploaded audio files include:**
+- Audio loops and beats (visible in your Sample Library UI)
+- Various categories: Loops, Bass, Melodic, Vocals, Uncategorized
+- Different BPM and key signatures
+- Files like: "02_MH_Full_Drums_Loop_C#_123", "06-Bass-120BPM - Dm", etc.
+
+**The Issue**: Your samples are stored in the frontend but their metadata hasn't been synced to the backend yet.
+
+**Immediate Solution**: 
+Tell me about specific samples you want to use, and I'll help with:
+- Arrangement suggestions  
+- Key and BPM matching
+- Mixing recommendations
+- Complementary instrument suggestions
+
+**Example**: "I want to use my 120 BPM drum loop and the bass line in Dm"
+
+❗ **Note**: If you see instrument names like "trumpet, trombone, piano" instead of your actual sample files, that means a different (wrong) function is being called. This function is specifically for AUDIO SAMPLES, not instruments."""
+        
+        if not user_samples:
+            return """I can see from your interface that you have samples uploaded in your Sample Library, but I don't currently have access to their metadata from the backend.
+
+**Your uploaded samples include:**
+- Audio loops and beats (like the ones visible in your Sample Library)
+- Various categories: Loops, Bass, Melodic, Vocals, etc.
+- Different BPM and key signatures
+
+**To help me access your samples for AI recommendations:**
+
+1. **For now**: You can tell me about specific samples you'd like to use
+   - Example: "I have a 120 BPM drum loop in C# and a bass line in Dm"
+   - I can then suggest how to incorporate them into songs
+
+2. **For full integration**: The frontend needs to sync sample metadata to the backend
+   - This would allow me to see all your sample details automatically
+   - Including BPM, keys, categories, and tags for smart recommendations
+
+**Current workaround:** 
+- Describe the samples you want to use
+- I can help with arrangement and mixing suggestions
+- I can recommend complementary instruments and keys
+
+Would you like to tell me about specific samples you'd like to work with?"""
+        
+        # Build human-readable response
+        response = []
+        response.append("Here are the audio samples available in your sample library:")
+        response.append("")
+        
+        # Apply filters
+        filtered_samples = user_samples
+        if category:
+            category_lower = category.lower()
+            filtered_samples = {cat: samples for cat, samples in user_samples.items() 
+                              if cat.lower() == category_lower}
+        
+        if not filtered_samples:
+            response.append(f"No samples found in category '{category}'.")
+            response.append(f"Available categories: {', '.join(user_samples.keys())}")
+            return "\n".join(response)
+        
+        total_samples = 0
+        for cat, samples in filtered_samples.items():
+            if not samples:
+                continue
+                
+            response.append(f"**{cat.title()} Samples:**")
+            for sample in samples:
+                # Apply tag filter if provided
+                if tags:
+                    sample_tags = sample.get('tags', [])
+                    if not any(tag.lower() in [t.lower() for t in sample_tags] for tag in tags):
+                        continue
+                
+                name = sample.get('name', 'Unknown')
+                bpm = f" (BPM: {sample['bpm']})" if sample.get('bpm') else ""
+                key = f" (Key: {sample['key']})" if sample.get('key') else ""
+                duration = f" ({sample['duration']:.1f}s)" if sample.get('duration') else ""
+                tags_str = f" [Tags: {', '.join(sample.get('tags', []))}]" if sample.get('tags') else ""
+                
+                response.append(f"  - {name}{bpm}{key}{duration}{tags_str}")
+                total_samples += 1
+            
+            response.append("")
+        
+        if total_samples == 0:
+            if tags:
+                response.append(f"No samples found with tags: {', '.join(tags)}")
+            else:
+                response.append("No samples match your criteria.")
+        else:
+            response.append(f"**Total: {total_samples} audio samples available**")
+            response.append("")
+            response.append("💡 *These are pre-recorded audio files that can be mixed into your songs.*")
+            response.append("*For generating new musical content, use instruments instead.*")
+        
+        return "\n".join(response)
+        
+    except Exception as e:
+        return f"Error getting samples: {str(e)}"
+
+
+@tool
+def get_available_instruments(category: str = "", instrument: str = "") -> str:
+    """
+    Get available musical instruments that can generate chords and notes for compositions.
+    These are NOT audio samples - they are instruments that can play different chords/notes.
+    
+    Args:
+        category: Filter by instrument category (e.g., 'percussion', 'strings', 'brass')
         instrument: Filter by specific instrument name
     
     Returns:
-        JSON string with available samples
+        Formatted string with available instruments and their capabilities
     """
     try:
         music_tools = MusicCompositionTools()
-        samples = music_tools.available_samples
+        available_instruments = music_tools.available_samples  # This actually contains instruments
         
+        if not available_instruments:
+            return "No instruments are currently available for music generation."
+        
+        # Build human-readable response
+        response = []
+        response.append("Here are the musical instruments available for generating compositions:")
+        response.append("")
+        
+        # Apply category filter if provided
         if category:
-            samples = {cat: insts for cat, insts in samples.items() if cat.lower() == category.lower()}
+            category_lower = category.lower()
+            available_instruments = {cat: insts for cat, insts in available_instruments.items() 
+                                   if cat.lower() == category_lower}
         
-        if instrument:
-            for cat, insts in samples.items():
-                samples[cat] = {inst: samps for inst, samps in insts.items() if instrument.lower() in inst.lower()}
+        if not available_instruments:
+            return f"No instruments found in category '{category}'."
         
-        return json.dumps(samples, indent=2)
+        total_instruments = 0
+        for cat, instruments in available_instruments.items():
+            response.append(f"**{cat.title()} Instruments:**")
+            
+            for inst_name, chord_list in instruments.items():
+                # Apply instrument filter if provided
+                if instrument and instrument.lower() not in inst_name.lower():
+                    continue
+                    
+                display_name = inst_name.replace('_', ' ').title()
+                if isinstance(chord_list, list) and len(chord_list) > 0:
+                    chord_count = len(chord_list)
+                    # Show some example chords/notes
+                    example_chords = ", ".join(chord_list[:5])
+                    if chord_count > 5:
+                        example_chords += f", ... ({chord_count} total)"
+                    response.append(f"  - {display_name}: {example_chords}")
+                else:
+                    response.append(f"  - {display_name}")
+                
+                total_instruments += 1
+            
+            response.append("")
+        
+        response.append(f"**Total: {total_instruments} instruments available for composition**")
+        response.append("")
+        response.append("💡 *These instruments can generate musical content by playing different chords and notes.*")
+        response.append("*For pre-recorded audio files (loops, beats), use 'get available samples' instead.*")
+        
+        return "\n".join(response)
+        
     except Exception as e:
-        return f"Error getting samples: {str(e)}"
+        return f"Error getting instruments: {str(e)}"
+
+
+@tool
+def search_user_samples(bpm: int = None, key: str = "", category: str = "", tags: List[str] = None, duration_min: float = None, duration_max: float = None) -> str:
+    """
+    Search user-uploaded samples by musical criteria.
+    
+    Args:
+        bpm: Filter by BPM (finds samples with similar tempo)
+        key: Filter by musical key (e.g., 'C', 'G', 'Am')
+        category: Filter by sample category
+        tags: Filter by tags (e.g., ['rock', 'guitar', 'energetic'])
+        duration_min: Minimum duration in seconds
+        duration_max: Maximum duration in seconds
+    
+    Returns:
+        JSON string with matching user samples and metadata
+    """
+    try:
+        music_tools = MusicCompositionTools()
+        all_samples_data = music_tools.get_all_available_samples()
+        user_samples = all_samples_data.get('user_samples', {})
+        
+        if not user_samples:
+            return json.dumps({"message": "No user samples available", "samples": []}, indent=2)
+        
+        matching_samples = []
+        
+        for category_name, samples_list in user_samples.items():
+            if category and category.lower() != category_name.lower():
+                continue
+                
+            for sample in samples_list:
+                # Apply filters
+                if bpm and sample.get('bpm'):
+                    sample_bpm = sample.get('bpm')
+                    # Allow 10% tolerance for BPM matching
+                    if abs(sample_bpm - bpm) > (bpm * 0.1):
+                        continue
+                
+                if key and sample.get('key'):
+                    if key.lower() != sample.get('key', '').lower():
+                        continue
+                
+                if tags and sample.get('tags'):
+                    sample_tags = [tag.lower() for tag in sample.get('tags', [])]
+                    if not any(tag.lower() in sample_tags for tag in tags):
+                        continue
+                
+                if duration_min and sample.get('duration'):
+                    if sample.get('duration') < duration_min:
+                        continue
+                
+                if duration_max and sample.get('duration'):
+                    if sample.get('duration') > duration_max:
+                        continue
+                
+                # Add category for context
+                sample_with_category = sample.copy()
+                sample_with_category['category'] = category_name
+                matching_samples.append(sample_with_category)
+        
+        result = {
+            "matching_samples": matching_samples,
+            "count": len(matching_samples),
+            "search_criteria": {
+                "bpm": bpm,
+                "key": key,
+                "category": category,
+                "tags": tags,
+                "duration_range": [duration_min, duration_max] if duration_min or duration_max else None
+            }
+        }
+        
+        return json.dumps(result, indent=2)
+    except Exception as e:
+        return f"Error searching user samples: {str(e)}"
 
 
 @tool

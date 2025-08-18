@@ -281,7 +281,7 @@ class VoiceService:
                                      chord_name: str = None, start_time: float = 0.0,
                                      duration: float = None) -> str:
         """Synthesize with custom voice model using RVC"""
-        logger.info(f"RVC synthesis: voice={voice_id}, text='{text}', notes={notes}, chord={chord_name}")
+        logger.info(f"🎤 RVC synthesis: voice={voice_id}, text='{text}', notes={notes}, chord={chord_name}")
         
         try:
             # Check if this is an RVC trained voice
@@ -290,6 +290,7 @@ class VoiceService:
             
             # Get list of available RVC voices
             rvc_voices = rvc_service.list_singing_voices()
+            logger.info(f"🎤 Available RVC voices: {[v.get('voice_id') for v in rvc_voices]}")
             
             # Check if this voice exists in RVC
             rvc_voice = None
@@ -299,7 +300,7 @@ class VoiceService:
                     break
             
             if rvc_voice and rvc_voice.get('status') == 'ready':
-                logger.info(f"Using RVC synthesis for trained voice: {voice_id}")
+                logger.info(f"🎤 Using RVC synthesis for trained voice: {voice_id}")
                 
                 # Use the proper RVC synthesis method with custom parameters
                 import tempfile
@@ -314,34 +315,35 @@ class VoiceService:
                 notes_list = notes if isinstance(notes, list) else [notes] if notes else ['C4']
                 duration = duration or 4.0
                 
-                # Use the internal RVC synthesis method
-                audio_path = rvc_service._synthesize_with_rvc(
-                    voice_id=voice_id,
+                logger.info(f"🎤 Calling RVC generate_singing_audio with syllable-based synthesis...")
+                
+                # Use the RVC service's main singing generation method
+                audio_path = rvc_service.generate_singing_audio(
                     text=text,
+                    voice_id=voice_id,
                     notes=notes_list,
-                    duration=duration,
-                    output_path=output_path,
-                    characteristics=voice_characteristics
+                    duration=duration
                 )
                 
                 if audio_path and os.path.exists(audio_path):
-                    logger.info(f"RVC synthesis successful: {audio_path}")
+                    logger.info(f"🎤 ✅ RVC synthesis successful: {audio_path}")
                     return audio_path
                 else:
-                    logger.warning(f"RVC synthesis failed for {voice_id}, falling back to test singing")
+                    logger.warning(f"🎤 RVC synthesis failed for {voice_id}, falling back to test singing")
                     # Fallback to test singing if custom synthesis fails
                     test_audio = rvc_service.synthesize_test_singing(voice_id)
                     if test_audio and os.path.exists(test_audio):
                         return test_audio
                         
             else:
-                logger.info(f"Voice {voice_id} not found in RVC or not ready, using musical fallback")
+                logger.info(f"🎤 Voice {voice_id} not found in RVC or not ready, using musical fallback")
                 
         except Exception as e:
-            logger.error(f"Error in RVC synthesis for {voice_id}: {e}")
-            logger.info("Falling back to musical audio generation")
+            logger.error(f"🎤 Error in RVC synthesis for {voice_id}: {e}")
+            logger.info("🎤 Falling back to musical audio generation")
         
         # Final fallback to musical audio generation
+        logger.info(f"🎤 Using fallback musical audio generation for {voice_id}")
         return self.audio_generator.generate_musical_audio(text, voice_id, notes, chord_name, duration)
     
     def _combine_voice_fragments(self, fragment_audio_files: List[dict], total_duration: float) -> Optional[str]:

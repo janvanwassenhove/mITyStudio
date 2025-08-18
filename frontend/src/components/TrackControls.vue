@@ -11,7 +11,7 @@
         {{ $t('tracks.addTrack') }}
       </button>
     </div>
-    
+
     <div class="tracks-list">
       <div v-if="tracks.length === 0" class="empty-state">
         <Music class="empty-icon" />
@@ -20,7 +20,7 @@
           {{ $t('tracks.addFirst') }}
         </button>
       </div>
-      
+
       <template v-else>
         <div style="display: flex; flex-direction: column;">
           <div
@@ -52,7 +52,15 @@
                     @click.stop
                     @blur="updateTrackName(track.id, getInputValue($event))"
                   />
-                  <span class="track-instrument">{{ getInstrumentDisplayName(track.instrument) }}</span>
+                  <div style="display:flex;align-items:center;gap:0.5rem;">
+                    <span class="track-instrument">{{ getTrackInstrumentLabel(track) }}</span>
+                  </div>
+                </div>
+                <div v-if="isVocalTrack(track) && selectedTrack === track.id" class="vocal-header-group" style="display:flex;align-items:center;gap:0.5rem;margin-left:8px;">
+                  <!-- Header waveform/thumbnail removed: waveform should only appear in clip lane timeline to avoid duplication -->
+                  <div v-if="micPermissionDenied" class="mic-warning" title="Microphone access is denied. Enable microphone in your browser settings to record.">
+                    <span style="color: #ffb4; font-size:0.8rem; margin-left:6px;">Microphone access denied</span>
+                  </div>
                 </div>
               </div>
               
@@ -67,6 +75,17 @@
                   <Volume2 v-else class="icon" />
                 </button>
                 
+                <button
+                  v-if="isVocalTrack(track)"
+                  class="btn-icon"
+                  :class="{ 'recording': isRecording[track.id] }"
+                  @click.stop="toggleTrackRecording(track.id)"
+                  :title="isRecording[track.id] ? 'Stop Recording' : (micPermissionDenied ? 'Microphone access denied' : 'Record')"
+                  :disabled="micPermissionDenied && !isRecording[track.id]"
+                >
+                  <Mic class="icon" />
+                </button>
+
                 <button 
                   class="btn-icon"
                   :class="{ 'active': track.solo }"
@@ -116,10 +135,44 @@
                 />
                 <span class="pan-value">{{ getPanLabel(track.pan) }}</span>
               </div>
+
+              <div v-if="isVocalTrack(track)" class="record-control" @click.stop>
+                <div class="recording-status-section" v-if="isRecording[track.id] || micPermissionDenied">
+                  <div v-if="isRecording[track.id]" class="recording-active">
+                    <div class="recording-indicator">
+                      <div class="record-led on"></div>
+                      <span class="record-timer">Recording: {{ formatElapsed(recordingElapsedMap[track.id]) }}</span>
+                    </div>
+                  </div>
+                  
+                  <div v-if="micPermissionDenied" class="permission-warning">
+                    <span>Microphone access denied. Enable in browser settings to record.</span>
+                  </div>
+                </div>
+              </div>
             </div>
             
             <div v-if="selectedTrack === track.id" :key="`effects-${track.id}`" class="effects-section" @click.stop>
               <h4>Effects</h4>
+              
+              <!-- Voice Type Selector for Vocal Tracks -->
+              <div v-if="isVocalTrack(track)" class="effect-control voice-type-control">
+                <label>Voice Type</label>
+                <select
+                  :key="`voice-type-${track.id}`"
+                  :value="track.vocalStyle || 'natural'"
+                  @change="updateTrackVoiceType(track.id, ($event.target as HTMLSelectElement).value)"
+                  class="voice-type-selector"
+                >
+                  <option value="natural">Natural</option>
+                  <option value="choir">Choir</option>
+                  <option value="robot">Robot</option>
+                  <option value="echo">Echo</option>
+                  <option value="squirrel">Squirrel</option>
+                  <option value="alien">Alien</option>
+                  <option value="telephone">Telephone</option>
+                </select>
+              </div>
               
               <div class="effect-control">
                 <label>Reverb</label>
@@ -165,6 +218,67 @@
                 />
                 <span>{{ Math.round(track.effects.distortion * 100) }}%</span>
               </div>
+              
+              <!-- Extended Vocal Effects (visible for all tracks but optimized for vocals) -->
+              <div class="effect-control">
+                <label>Pitch Shift</label>
+                <input 
+                  :key="`pitchShift-${track.id}`"
+                  type="range" 
+                  min="-12" 
+                  max="12" 
+                  step="1"
+                  :value="track.effects.pitchShift || 0"
+                  @input="updateTrackEffect(track.id, 'pitchShift', getInputValue($event))"
+                  class="slider"
+                />
+                <span>{{ (track.effects.pitchShift || 0) > 0 ? '+' : '' }}{{ track.effects.pitchShift || 0 }} semi</span>
+              </div>
+              
+              <div class="effect-control">
+                <label>Chorus</label>
+                <input 
+                  :key="`chorus-${track.id}`"
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.01"
+                  :value="track.effects.chorus || 0"
+                  @input="updateTrackEffect(track.id, 'chorus', getInputValue($event))"
+                  class="slider"
+                />
+                <span>{{ Math.round((track.effects.chorus || 0) * 100) }}%</span>
+              </div>
+              
+              <div class="effect-control">
+                <label>Filter</label>
+                <input 
+                  :key="`filter-${track.id}`"
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.01"
+                  :value="track.effects.filter || 0"
+                  @input="updateTrackEffect(track.id, 'filter', getInputValue($event))"
+                  class="slider"
+                />
+                <span>{{ Math.round((track.effects.filter || 0) * 100) }}%</span>
+              </div>
+              
+              <div class="effect-control">
+                <label>Bit Crush</label>
+                <input 
+                  :key="`bitcrush-${track.id}`"
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.01"
+                  :value="track.effects.bitcrush || 0"
+                  @input="updateTrackEffect(track.id, 'bitcrush', getInputValue($event))"
+                  class="slider"
+                />
+                <span>{{ Math.round((track.effects.bitcrush || 0) * 100) }}%</span>
+              </div>
             </div>
           </div>
         </div>
@@ -197,6 +311,14 @@
             >
               <FileAudio class="icon" />
               Samples
+            </button>
+            <button
+              class="tab-btn"
+              :class="{ 'active': activeTab === 'vocals' }"
+              @click="() => { activeTab = 'vocals'; selectedInstrumentValue = 'vocals' }"
+            >
+              <Mic class="icon" />
+              Vocals
             </button>
           </div>
           
@@ -316,6 +438,28 @@
                 </div>
               </div>
             </div>
+            
+            <div v-if="activeTab === 'vocals'" class="vocals-section" style="padding:1rem;">
+              <h4>Select vocal processing style</h4>
+              <div style="display:flex;gap:0.75rem;margin-top:1rem;flex-wrap:wrap;">
+                <div
+                  v-for="style in vocalStyles"
+                  :key="style"
+                  class="instrument-card"
+                  :class="{ 'selected': selectedVocalStyle === style }"
+                  @click="() => { selectedVocalStyle = style; selectedInstrumentValue = 'vocals' }"
+                  style="min-width:160px;"
+                >
+                  <div class="instrument-header">
+                    <div class="instrument-icon"><Mic class="icon" /></div>
+                    <div class="instrument-info">
+                      <h4 class="instrument-name">{{ style.charAt(0).toUpperCase() + style.slice(1) }}</h4>
+                      <p class="instrument-description">{{ getVoiceTypeDescription(style) }}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
         
@@ -339,6 +483,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useAudioStore } from '../stores/audioStore'
+import { useCountdown } from '../composables/useCountdown'
 import { useSampleStore } from '../stores/sampleStore'
 import { getSampleInstruments, getAllSampleInstruments } from '../utils/api'
 import { 
@@ -348,12 +493,15 @@ import {
 } from 'lucide-vue-next'
 
 const audioStore = useAudioStore()
+const { startCountdown } = useCountdown()
 const sampleStore = useSampleStore()
 const selectedTrack = ref<string | null>(null)
 const showInstrumentSelector = ref(false)
 const selectedTrackForInstrument = ref<string | null>(null)
-const activeTab = ref<'instruments' | 'samples'>('instruments')
+const activeTab = ref<'instruments' | 'samples' | 'vocals'>('instruments')
 const selectedInstrumentValue = ref<string>('')
+const vocalStyles = ['natural', 'choir', 'robot', 'echo', 'squirrel', 'alien', 'telephone']
+const selectedVocalStyle = ref<string>('natural')
 const isPreviewPlaying = ref(false)
 const previewingSample = ref<string | null>(null)
 const currentPreviewAudio = ref<HTMLAudioElement | null>(null)
@@ -577,6 +725,41 @@ const getInstrumentDisplayName = (instrument: string) => {
   return instrument.charAt(0).toUpperCase() + instrument.slice(1)
 }
 
+const getTrackInstrumentLabel = (track: any): string => {
+  const baseName = getInstrumentDisplayName(track.instrument)
+  
+  // For vocal tracks, append the voice type if available
+  if (isVocalTrack(track) && track.vocalStyle) {
+    const vocalType = track.vocalStyle.charAt(0).toUpperCase() + track.vocalStyle.slice(1)
+    return `${baseName} (${vocalType})`
+  }
+  
+  return baseName
+}
+
+const getVoiceTypeDescription = (voiceType: string): string => {
+  const descriptions = {
+    natural: 'Clean, unprocessed vocal',
+    choir: 'Spacious reverb with chorus',
+    robot: 'Distorted robotic vocoder',
+    echo: 'Heavy delay and reverb',
+    squirrel: 'High-pitched chipmunk effect',
+    alien: 'Otherworldly sci-fi voice',
+    telephone: 'Lo-fi compressed phone sound'
+  }
+  
+  return descriptions[voiceType as keyof typeof descriptions] || 'Voice effect'
+}
+
+// Helper to decide whether a track is a vocal track (support 'vocals', 'voice', or category 'vocals')
+const isVocalTrack = (track: any): boolean => {
+  if (!track) return false
+  const inst = (track.instrument || '').toString().toLowerCase()
+  if (inst === 'vocals' || inst === 'voice' || inst.includes('vocal')) return true
+  if (track.category && track.category.toString().toLowerCase() === 'vocals') return true
+  return false
+}
+
 // Debug logging utility
 function debugLog(...args: any[]) {
   if (process.env.NODE_ENV !== 'production') {
@@ -591,6 +774,27 @@ const formatDuration = (duration: number): string => {
   const minutes = Math.floor(duration / 60)
   const seconds = Math.floor(duration % 60)
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
+}
+
+// Build a downsampled waveform preview from accumulated RMS samples
+function buildPreviewWaveform(samples: number[], length: number) {
+  if (!samples || samples.length === 0) return []
+  const out: number[] = []
+  const step = Math.max(1, Math.floor(samples.length / length))
+  for (let i = 0; i < samples.length; i += step) {
+    // average over the step window
+    let sum = 0
+    let count = 0
+    for (let j = i; j < i + step && j < samples.length; j++) {
+      sum += samples[j]
+      count++
+    }
+    out.push(count ? sum / count : 0)
+    if (out.length >= length) break
+  }
+  // if too short, pad with zeros
+  while (out.length < length) out.push(0)
+  return out
 }
 
 const addNewTrack = () => {
@@ -624,7 +828,15 @@ const applySelection = () => {
       }
     }
     
-    const trackId = audioStore.addTrack(`New ${instrumentName}`, selectedInstrumentValue.value, undefined, instrumentCategory)
+    let trackId: string | null = null
+    if (selectedInstrumentValue.value === 'vocals') {
+      trackId = audioStore.addTrack(`New ${instrumentName}`, 'vocals', undefined, 'vocals')
+      if (trackId) {
+        audioStore.updateTrack(trackId, { vocalStyle: selectedVocalStyle.value })
+      }
+    } else {
+      trackId = audioStore.addTrack(`New ${instrumentName}`, selectedInstrumentValue.value, undefined, instrumentCategory)
+    }
     debugLog('Added new track', { trackId, instrument: selectedInstrumentValue.value, category: instrumentCategory })
     if (trackId) {
       selectedTrack.value = trackId
@@ -644,10 +856,14 @@ const applySelection = () => {
     }
   }
   
-  audioStore.updateTrack(selectedTrackForInstrument.value, {
-    instrument: selectedInstrumentValue.value,
-    category: instrumentCategory
-  })
+  if (selectedInstrumentValue.value === 'vocals') {
+    audioStore.updateTrack(selectedTrackForInstrument.value, { instrument: 'vocals', category: 'vocals', vocalStyle: selectedVocalStyle.value })
+  } else {
+    audioStore.updateTrack(selectedTrackForInstrument.value, {
+      instrument: selectedInstrumentValue.value,
+      category: instrumentCategory
+    })
+  }
   closeInstrumentSelector()
 }
 
@@ -812,6 +1028,23 @@ onMounted(() => {
       }
     })
   })
+
+  // Non-blocking check for microphone permission; keeps UI in sync if denied
+  try {
+    const perms = (navigator as any).permissions
+    if (perms && typeof perms.query === 'function') {
+      perms.query({ name: 'microphone' }).then((res: any) => {
+        micPermissionDenied.value = res.state === 'denied'
+        res.onchange = () => {
+          micPermissionDenied.value = res.state === 'denied'
+        }
+      }).catch(() => {
+        // ignore permission API failures (some browsers may not support it)
+      })
+    }
+  } catch (e) {
+    // ignore
+  }
 })
 
 watch(sampleCategories, (newCats) => {
@@ -860,6 +1093,121 @@ const updateTrackEffect = (trackId: string, effect: string, value: string) => {
   }
 }
 
+const updateTrackVoiceType = (trackId: string, voiceType: string) => {
+  const track = tracks.value.find(t => t.id === trackId)
+  if (track && isVocalTrack(track)) {
+    // Apply voice effect preset with all extended effects
+    const effectsPreset = getVoiceEffectPreset(voiceType)
+    
+    // Update both the vocal style and the effects
+    audioStore.updateTrack(trackId, { 
+      vocalStyle: voiceType,
+      effects: {
+        reverb: effectsPreset.reverb,
+        delay: effectsPreset.delay,
+        distortion: effectsPreset.distortion,
+        pitchShift: effectsPreset.pitchShift,
+        chorus: effectsPreset.chorus,
+        filter: effectsPreset.filter,
+        bitcrush: effectsPreset.bitcrush
+      }
+    })
+    
+    // Also update the effects bus directly to ensure immediate application
+    audioStore.updateTrackEffects(trackId, {
+      reverb: effectsPreset.reverb,
+      delay: effectsPreset.delay,
+      distortion: effectsPreset.distortion,
+      pitchShift: effectsPreset.pitchShift,
+      chorus: effectsPreset.chorus,
+      filter: effectsPreset.filter,
+      bitcrush: effectsPreset.bitcrush
+    })
+    
+    // Visual feedback - briefly show that effects are being applied
+    console.log(`🎤 Applied ${voiceType} voice preset:`, effectsPreset)
+    
+    // Debug: Check if pitch shift is actually being set
+    console.log(`🔊 Voice Effect Debug:`, {
+      voiceType,
+      pitchShift: effectsPreset.pitchShift,
+      pitchShiftCents: effectsPreset.pitchShift * 100,
+      allEffects: effectsPreset
+    })
+  }
+}
+
+// Voice effect presets based on GarageBand vocal effects with extended effects
+const getVoiceEffectPreset = (voiceType: string) => {
+  const presets = {
+    natural: {
+      reverb: 0.02,      // Very minimal reverb for natural sound
+      delay: 0,          // No delay
+      distortion: 0,     // No distortion
+      pitchShift: 0,     // No pitch change
+      chorus: 0,         // No chorus
+      filter: 0,         // No filtering
+      bitcrush: 0        // No bit crushing
+    },
+    choir: {
+      reverb: 0.45,      // High reverb for spacious choir sound
+      delay: 0.18,       // Light delay for chorus effect  
+      distortion: 0,     // No distortion
+      pitchShift: 0,     // No pitch change
+      chorus: 0.4,       // Medium chorus for layered effect
+      filter: 0,         // No filtering
+      bitcrush: 0        // No bit crushing
+    },
+    robot: {
+      reverb: 0.15,      // Light reverb for space
+      delay: 0.08,       // Minimal delay for texture
+      distortion: 0.85,  // Very high distortion for robotic sound
+      pitchShift: -4,    // Pitch down for deeper robot voice
+      chorus: 0.4,       // Medium chorus for thickness
+      filter: 0.7,       // Heavy filtering for robotic tone
+      bitcrush: 0.8      // Very high bit crushing for digital artifacts
+    },
+    echo: {
+      reverb: 0.35,      // Medium-high reverb
+      delay: 0.6,        // High delay for strong echo effect
+      distortion: 0,     // No distortion
+      pitchShift: 0,     // No pitch change
+      chorus: 0.1,       // Light chorus
+      filter: 0.1,       // Light filtering for atmosphere
+      bitcrush: 0        // No bit crushing
+    },
+    squirrel: {
+      reverb: 0.08,      // Minimal reverb
+      delay: 0.15,       // Light delay for texture
+      distortion: 0.25,  // Light distortion to enhance high frequencies
+      pitchShift: 12,    // Very high pitch shift (+1 octave) for strong chipmunk effect
+      chorus: 0.35,      // Medium chorus for fullness
+      filter: 0,         // No additional filtering (let high frequencies through)
+      bitcrush: 0.1      // Very light bit crushing for character
+    },
+    alien: {
+      reverb: 0.28,      // Medium reverb for otherworldly feel
+      delay: 0.25,       // Medium delay with rhythm
+      distortion: 0.5,   // Medium-high distortion for alien effect
+      pitchShift: -8,    // Much lower pitch for deep alien voice
+      chorus: 0.3,       // Medium chorus
+      filter: 0.4,       // Medium filtering for alien tone
+      bitcrush: 0.3      // Medium bit crushing for sci-fi artifacts
+    },
+    telephone: {
+      reverb: 0,         // No reverb for lo-fi sound
+      delay: 0,          // No delay
+      distortion: 0.25,  // Light distortion for compressed/filtered sound
+      pitchShift: 0,     // No pitch change
+      chorus: 0,         // No chorus
+      filter: 0.7,       // High filtering for telephone bandwidth
+      bitcrush: 0.5      // Medium bit crushing for lo-fi compression
+    }
+  }
+  
+  return presets[voiceType as keyof typeof presets] || presets.natural
+}
+
 const toggleMute = (trackId: string) => {
   const track = tracks.value.find(t => t.id === trackId)
   if (track) {
@@ -904,6 +1252,373 @@ const toggleCategory = (name: string) => {
 
 const toggleSampleCategory = (name: string) => {
   expandedSampleCategory.value = expandedSampleCategory.value === name ? null : name
+}
+
+// Recording state for vocal track recording
+const isRecording = ref<Record<string, boolean>>({})
+// When microphone permission is explicitly denied, we disable record controls and show a hint
+const micPermissionDenied = ref(false)
+const mediaRecorderMap = new Map<string, MediaRecorder>()
+// Keep the raw MediaStream so we can always stop tracks even if MediaRecorder doesn't expose it
+const recordingStreamMap = new Map<string, MediaStream>()
+const recordingChunksMap = new Map<string, BlobPart[]>()
+const recordingStartTimeMap = new Map<string, number>()
+// Track the clip id created when starting a recording so we can update it on stop
+const recordingClipIdMap = new Map<string, string>()
+// For live waveform drawing during recording (we only accumulate samples; waveform renders in timeline clip)
+const analyserMap = new Map<string, AnalyserNode>()
+const audioContextMap = new Map<string, AudioContext>()
+const recordingAnimationFrame = new Map<string, number>()
+const recordingSampleBuffer = new Map<string, number[]>()
+// Elapsed timer per recording
+const recordingElapsedMap = ref<Record<string, number>>({})
+const recordingTimerInterval = new Map<string, number>()
+// Interval ids used to periodically update the placeholder clip while recording
+const recordingPlaceholderUpdateInterval = new Map<string, number>()
+// No header thumbnail canvases; waveform thumbnails are rendered in timeline clip
+
+const toggleTrackRecording = async (trackId: string) => {
+  if (isRecording.value[trackId]) {
+    await stopRecordingForTrack(trackId)
+    return
+  }
+
+  // If we already know permission is denied, avoid attempting to start and keep UI disabled
+  if (micPermissionDenied.value) {
+    // Keep this lightweight; UI shows tooltip and disabled state. Log for debugging.
+    console.warn('Microphone permission denied; cannot start recording for', trackId)
+    return
+  }
+
+  await startRecordingForTrack(trackId)
+}
+
+const startRecordingForTrack = async (trackId: string) => {
+  try {
+    // Wait for centralized countdown with beeps
+    await startCountdown(4)
+
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  // store the stream so stop can always terminate tracks
+  recordingStreamMap.set(trackId, stream)
+    const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    audioContextMap.set(trackId, audioCtx)
+    const source = audioCtx.createMediaStreamSource(stream)
+    const analyser = audioCtx.createAnalyser()
+    analyser.fftSize = 2048
+    source.connect(analyser)
+    analyserMap.set(trackId, analyser)
+
+    // start accumulating samples for waveform preview; the timeline will draw the waveform from these samples
+    recordingSampleBuffer.set(trackId, [])
+    const drawLoop = () => {
+      const a = analyserMap.get(trackId)
+      if (!a) return
+      const bufferLength = a.fftSize
+      const dataArray = new Uint8Array(bufferLength)
+      a.getByteTimeDomainData(dataArray)
+      let rms = 0
+      for (let i = 0; i < bufferLength; i++) {
+        const v = (dataArray[i] - 128) / 128.0
+        rms += v * v
+      }
+      rms = Math.sqrt(rms / bufferLength)
+      // accumulate sample for waveform preview
+      const buf = recordingSampleBuffer.get(trackId) || []
+      buf.push(rms)
+      recordingSampleBuffer.set(trackId, buf)
+
+      const id = requestAnimationFrame(drawLoop)
+      recordingAnimationFrame.set(trackId, id)
+    }
+    drawLoop()
+
+  const recorder = new MediaRecorder(stream)
+    mediaRecorderMap.set(trackId, recorder)
+    recordingChunksMap.set(trackId, [])
+    recordingStartTimeMap.set(trackId, audioStore.currentTime || 0)
+
+    // Create a placeholder clip at the playhead so UI/timeline shows a clip while recording
+    try {
+      const placeholderClip: any = {
+        startTime: recordingStartTimeMap.get(trackId) || 0,
+        duration: 0.001,
+        type: 'lyrics',
+        instrument: 'vocals',
+        sampleUrl: '',
+        volume: 0.8,
+        effects: { reverb: 0, delay: 0, distortion: 0 },
+        waveform: []
+      }
+      const createdId = audioStore.addClip(trackId, placeholderClip)
+      if (createdId) {
+        recordingClipIdMap.set(trackId, createdId)
+        // Periodically update the placeholder clip so the timeline shows a live waveform and growing duration
+        const updateInterval = window.setInterval(() => {
+          try {
+            const clipId = recordingClipIdMap.get(trackId)
+            if (!clipId) return
+            const samples = recordingSampleBuffer.get(trackId) || []
+            const preview = buildPreviewWaveform(samples, 128)
+            const elapsed = recordingElapsedMap.value[trackId] || 0
+            audioStore.updateClip(trackId, clipId, {
+              waveform: preview,
+              duration: Math.max(0.001, +(elapsed).toFixed(3))
+            })
+          } catch (e) {
+            // ignore transient update errors
+          }
+        }, 500)
+        recordingPlaceholderUpdateInterval.set(trackId, updateInterval as unknown as number)
+      }
+    } catch (e) {
+      console.warn('Could not create placeholder clip at recording start', e)
+    }
+
+    // Start elapsed timer
+    recordingElapsedMap.value = { ...recordingElapsedMap.value, [trackId]: 0 }
+    const intervalId = window.setInterval(() => {
+      const cur = recordingElapsedMap.value[trackId] || 0
+      recordingElapsedMap.value = { ...recordingElapsedMap.value, [trackId]: +(cur + 0.1).toFixed(1) }
+    }, 100)
+    recordingTimerInterval.set(trackId, intervalId)
+
+    recorder.ondataavailable = (e) => {
+      if (!recordingChunksMap.has(trackId)) return
+      recordingChunksMap.get(trackId)!.push(e.data)
+    }
+
+  recorder.onstop = async () => {
+      const chunks = recordingChunksMap.get(trackId) || []
+      const blob = new Blob(chunks, { type: 'audio/webm' })
+      const url = URL.createObjectURL(blob)
+
+      // Measure duration
+      const audio = new Audio(url)
+      await new Promise<void>((resolve) => {
+        audio.onloadedmetadata = () => resolve()
+        audio.onerror = () => resolve()
+      })
+      const duration = isNaN(audio.duration) ? 0 : audio.duration
+      const startTime = recordingStartTimeMap.get(trackId) || audioStore.currentTime || 0
+
+      // Build waveform summary from recorded samples
+      const waveformSamples = recordingSampleBuffer.get(trackId) || []
+      // Update the placeholder clip created at recording start
+      const existingClipId = recordingClipIdMap.get(trackId)
+      if (existingClipId) {
+        audioStore.updateClip(trackId, existingClipId, {
+          startTime,
+          duration,
+          type: 'sample',
+          sampleUrl: url,
+          sampleDuration: duration,
+          waveform: waveformSamples,
+          volume: 0.8,
+          effects: { 
+            reverb: 0, 
+            delay: 0, 
+            distortion: 0,
+            pitchShift: 0,
+            chorus: 0,
+            filter: 0,
+            bitcrush: 0
+          }
+        })
+      } else {
+        // Fallback: add clip if placeholder wasn't created
+        const clip: any = {
+          startTime,
+          duration,
+          type: 'sample',
+          instrument: 'vocals',
+          sampleUrl: url,
+          sampleDuration: duration,
+          volume: 0.8,
+          effects: { reverb: 0, delay: 0, distortion: 0 },
+          waveform: waveformSamples
+        }
+        audioStore.addClip(trackId, clip)
+      }
+      recordingClipIdMap.delete(trackId)
+
+  // cleanup
+      recordingChunksMap.delete(trackId)
+      recordingStartTimeMap.delete(trackId)
+      mediaRecorderMap.delete(trackId)
+      // stop analyser animation and audio context
+      const afId = recordingAnimationFrame.get(trackId)
+      if (afId) cancelAnimationFrame(afId)
+      recordingAnimationFrame.delete(trackId)
+      const audioCtx = audioContextMap.get(trackId)
+      if (audioCtx) {
+        try { audioCtx.close() } catch (e) { /* ignore */ }
+        audioContextMap.delete(trackId)
+      }
+      analyserMap.delete(trackId)
+  // clear placeholder update interval if present
+  const placeholderInterval = recordingPlaceholderUpdateInterval.get(trackId)
+  if (placeholderInterval) clearInterval(placeholderInterval)
+  recordingPlaceholderUpdateInterval.delete(trackId)
+      // stop elapsed timer
+      const interval = recordingTimerInterval.get(trackId)
+      if (interval) clearInterval(interval)
+      recordingTimerInterval.delete(trackId)
+
+      // Thumbnail drawing removed: waveform and thumbnails are rendered in the timeline clip only
+
+
+// thumbnail helper removed; header canvases removed — waveform rendered in timeline clip
+      recordingSampleBuffer.delete(trackId)
+      recordingElapsedMap.value = { ...recordingElapsedMap.value, [trackId]: 0 }
+      isRecording.value = { ...isRecording.value, [trackId]: false }
+    }
+
+    recorder.start()
+    isRecording.value = { ...isRecording.value, [trackId]: true }
+  } catch (error) {
+    console.warn('Failed to start recording:', error)
+  }
+}
+
+// header canvas helpers removed
+
+function formatElapsed(seconds: number | undefined) {
+  if (!seconds || isNaN(seconds)) return '0.0s'
+  return `${seconds.toFixed(1)}s`
+}
+
+// removed duplicate setThumbnailCanvasRef
+
+// No header canvas refs or assignment helpers — header canvases removed so waveform drawn only in timeline clip
+
+const stopRecordingForTrack = async (trackId: string) => {
+  const recorder = mediaRecorderMap.get(trackId)
+  const stream = recordingStreamMap.get(trackId)
+
+  // Always try to stop the MediaRecorder if it exists and is active
+  try {
+    if (recorder && recorder.state !== 'inactive') {
+  console.log('[record] stopping recorder for', trackId)
+  recorder.stop()
+    }
+  } catch (e) {
+    console.warn('Error stopping MediaRecorder for', trackId, e)
+  }
+
+  // Always stop any live MediaStream tracks so microphone is released
+  try {
+    if (stream) {
+      stream.getTracks().forEach(t => t.stop())
+    } else {
+      // Fallback: some browsers don't expose stream on recorder; attempt to read it
+      const maybeStream = (recorder as any)?.stream as MediaStream | undefined
+      if (maybeStream) maybeStream.getTracks().forEach(t => t.stop())
+    }
+  } catch (e) {
+    console.warn('Error stopping media tracks for', trackId, e)
+  }
+
+  // If recorder was missing or didn't trigger onstop for some reason, perform cleanup to reset UI and free resources.
+  // Setup a fallback: if recorder.onstop isn't invoked within 2s, force cleanup
+  let onstopTriggered = false
+  const origOnstop = recorder ? (recorder as any).onstop : null
+  if (recorder) {
+    (recorder as any).onstop = async function (ev: any) {
+      onstopTriggered = true
+      try { if (origOnstop) await origOnstop.call(this, ev) } catch (e) { /* ignore */ }
+    }
+  }
+
+  const fallbackTimer = window.setTimeout(() => {
+    if (!onstopTriggered) {
+      console.warn('[record] fallback cleanup triggered for', trackId)
+      // run cleanup path below as if recorder was missing
+      runForcedCleanup(trackId)
+    }
+  }, 2000)
+
+  if (!recorder) {
+    // Cancel animation frame
+    const afId = recordingAnimationFrame.get(trackId)
+    if (afId) cancelAnimationFrame(afId)
+    recordingAnimationFrame.delete(trackId)
+
+    // Close audio context
+    const audioCtx = audioContextMap.get(trackId)
+    if (audioCtx) {
+      try { audioCtx.close() } catch (e) { /* ignore */ }
+      audioContextMap.delete(trackId)
+    }
+    analyserMap.delete(trackId)
+
+    // Clear placeholder update interval
+    const placeholderInterval = recordingPlaceholderUpdateInterval.get(trackId)
+    if (placeholderInterval) clearInterval(placeholderInterval)
+    recordingPlaceholderUpdateInterval.delete(trackId)
+
+    // Stop elapsed timer
+    const interval = recordingTimerInterval.get(trackId)
+    if (interval) clearInterval(interval)
+    recordingTimerInterval.delete(trackId)
+
+    // Remove any accumulated buffers
+    recordingSampleBuffer.delete(trackId)
+
+    // If a placeholder clip exists, remove it (we couldn't finalize a recording)
+    const placeholderClipId = recordingClipIdMap.get(trackId)
+    if (placeholderClipId) {
+      try { audioStore.removeClip(trackId, placeholderClipId) } catch (e) { /* ignore */ }
+      recordingClipIdMap.delete(trackId)
+    }
+
+    // Clear maps for chunks/startTime/stream
+    recordingChunksMap.delete(trackId)
+    recordingStartTimeMap.delete(trackId)
+    recordingStreamMap.delete(trackId)
+
+    // Ensure UI reflects stopped state
+    recordingElapsedMap.value = { ...recordingElapsedMap.value, [trackId]: 0 }
+    isRecording.value = { ...isRecording.value, [trackId]: false }
+    if (fallbackTimer) clearTimeout(fallbackTimer)
+  }
+
+  // helper to force cleanup if onstop never fires
+  function runForcedCleanup(trackId: string) {
+    try {
+      const afId = recordingAnimationFrame.get(trackId)
+      if (afId) cancelAnimationFrame(afId)
+      recordingAnimationFrame.delete(trackId)
+
+      const audioCtx = audioContextMap.get(trackId)
+      if (audioCtx) { try { audioCtx.close() } catch (e) {} audioContextMap.delete(trackId) }
+      analyserMap.delete(trackId)
+
+      const placeholderInterval = recordingPlaceholderUpdateInterval.get(trackId)
+      if (placeholderInterval) clearInterval(placeholderInterval)
+      recordingPlaceholderUpdateInterval.delete(trackId)
+
+      const interval = recordingTimerInterval.get(trackId)
+      if (interval) clearInterval(interval)
+      recordingTimerInterval.delete(trackId)
+
+      recordingSampleBuffer.delete(trackId)
+      const placeholderClipId = recordingClipIdMap.get(trackId)
+      if (placeholderClipId) {
+        try { audioStore.removeClip(trackId, placeholderClipId) } catch (e) { /* ignore */ }
+        recordingClipIdMap.delete(trackId)
+      }
+
+      recordingChunksMap.delete(trackId)
+      recordingStartTimeMap.delete(trackId)
+      recordingStreamMap.delete(trackId)
+
+      recordingElapsedMap.value = { ...recordingElapsedMap.value, [trackId]: 0 }
+      isRecording.value = { ...isRecording.value, [trackId]: false }
+    } catch (e) {
+      console.error('[record] forced cleanup error for', trackId, e)
+    }
+  }
 }
 </script>
 
@@ -985,6 +1700,7 @@ const toggleSampleCategory = (name: string) => {
   display: flex;
   flex-direction: column;
   justify-content: stretch;
+  overflow: hidden;
 }
 
 .track-item:hover {
@@ -1012,6 +1728,8 @@ const toggleSampleCategory = (name: string) => {
   box-sizing: border-box;
   margin: 0;
   gap: 0.5rem;
+  overflow: hidden;
+  width: 100%;
 }
 
 .track-info {
@@ -1020,6 +1738,8 @@ const toggleSampleCategory = (name: string) => {
   gap: 0.75rem;
   flex: 1;
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .track-icon-btn {
@@ -1098,6 +1818,8 @@ const toggleSampleCategory = (name: string) => {
   align-items: center;
   justify-content: flex-end;
   margin: 0;
+  flex-shrink: 0;
+  min-width: fit-content;
 }
 
 .btn-icon {
@@ -1124,6 +1846,17 @@ const toggleSampleCategory = (name: string) => {
   color: white;
 }
 
+.btn-icon.recording {
+  background: var(--error);
+  color: white;
+  animation: pulse-recording 2s infinite;
+}
+
+@keyframes pulse-recording {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
 .btn-icon.delete-btn:hover {
   background: var(--error);
   color: white;
@@ -1132,6 +1865,53 @@ const toggleSampleCategory = (name: string) => {
 .btn-icon .icon {
   width: 14px;
   height: 14px;
+}
+
+.btn-danger {
+  background: var(--error);
+  color: white;
+  border: none;
+  padding: 8px 12px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.record-large {
+  font-weight: 600;
+}
+
+.record-small {
+  width: 22px;
+  height: 22px;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.vocal-header-group {
+  align-items: center;
+  gap: 0.5rem;
+  display: flex;
+}
+
+.mic-warning {
+  margin-left: 6px;
+  display: flex;
+  align-items: center;
+}
+
+/* disabled appearance for record buttons */
+.btn[disabled],
+.btn-icon[disabled] {
+  cursor: not-allowed;
+  opacity: 0.5;
+  filter: grayscale(0.6);
+}
+
+.btn[disabled]:hover, .btn-icon[disabled]:hover {
+  background: transparent;
 }
 
 .track-controls-section {
@@ -1227,6 +2007,41 @@ const toggleSampleCategory = (name: string) => {
   color: var(--text-secondary);
   min-width: 35px;
   text-align: right;
+}
+
+.voice-type-control {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.voice-type-selector {
+  background: var(--background);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  color: var(--text);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6,9 12,15 18,9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 0.7rem center;
+  background-size: 1em;
+  padding-right: 2.5rem;
+}
+
+.voice-type-selector:hover {
+  border-color: var(--primary);
+}
+
+.voice-type-selector:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb, 59, 130, 246), 0.1);
 }
 
 /* Modal Styles */
@@ -1763,6 +2578,44 @@ const toggleSampleCategory = (name: string) => {
 }
 
 /* Modal Footer Styles */
+/* Recording section styles */
+.recording-status-section {
+  margin-top: 0.75rem;
+  padding: 0.75rem;
+  background: var(--surface-secondary, var(--surface));
+  border-radius: 6px;
+  border: 1px solid var(--border);
+}
+
+.recording-active {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.recording-indicator {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text);
+  font-weight: 500;
+}
+
+.record-timer {
+  color: var(--error);
+}
+
+.permission-warning {
+  padding: 0.5rem;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 4px;
+  font-size: 0.8rem;
+  color: var(--warning, #ffc107);
+  text-align: center;
+}
+
 .modal-footer {
   padding: 1.5rem;
   border-top: 1px solid var(--border);
