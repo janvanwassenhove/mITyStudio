@@ -10,7 +10,7 @@
     "lint": "flake8 app/ tests/",
     "format": "black app/ tests/",
     "type-check": "mypy app/",
-    "install": "pip install -r requirements.txt",
+    "install-deps": "pip install -r requirements.txt",
     "migrate": "flask db upgrade",
     "reset-db": "flask db downgrade && flask db upgrade",
     "shell": "flask shell"

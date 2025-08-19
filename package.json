@@ -5,7 +5,6 @@
   "private": true,
   "workspaces": [
     "frontend",
-    "backend",
     "electron"
   ],
   "scripts": {
@@ -18,7 +17,6 @@
     "build:electron": "cd electron && npm run build",
     "start:electron": "cd electron && npm start",
     "docs": "cd frontend && npm run docs",
-    "install:all": "npm install && cd frontend && npm install && cd ../backend && pip install -r requirements.txt && cd ../electron && npm install",
     "clean": "rm -rf frontend/node_modules backend/__pycache__ backend/venv electron/node_modules node_modules",
     "test": "npm run test:frontend && npm run test:backend",
     "test:frontend": "cd frontend && npm run test",

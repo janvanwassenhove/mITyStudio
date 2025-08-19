@@ -307,6 +307,33 @@
       </div>
     </div>
 
+    <!-- Info Dialog -->
+    <div v-if="infoDialog.show" class="modal-overlay" @click="closeInfoDialog">
+      <div class="modal-content info-dialog" @click.stop>
+        <div class="modal-header">
+          <h3>
+            <CheckCircle v-if="infoDialog.type === 'success'" class="icon success-icon" />
+            <AlertCircle v-else-if="infoDialog.type === 'error'" class="icon error-icon" />
+            <Info v-else class="icon info-icon" />
+            {{ infoDialog.title }}
+          </h3>
+          <button class="btn-icon" @click="closeInfoDialog">
+            <X class="icon" />
+          </button>
+        </div>
+        
+        <div class="modal-body">
+          <div class="info-message" v-html="infoDialog.message"></div>
+        </div>
+        
+        <div class="modal-footer">
+          <button class="btn btn-primary" @click="closeInfoDialog">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Hidden file input -->
     <input
       ref="fileInput"
@@ -326,7 +353,8 @@ import { useAudioStore } from '../stores/audioStore'
 import {
   FileAudio, Upload, Trash2, Music, HardDrive, FolderOpen,
   Search, X, ArrowUpDown, Play, Pause, MoreVertical,
-  Plus, Edit, Copy, Drum, Guitar, Piano, Mic, Zap, RefreshCw
+  Plus, Edit, Copy, Drum, Guitar, Piano, Mic, Zap, RefreshCw,
+  CheckCircle, AlertCircle, Info
 } from 'lucide-vue-next'
 import { drawWaveform } from '../utils/waveform'
 import { storeToRefs } from 'pinia'
@@ -374,6 +402,14 @@ const editModal = ref({
   show: false,
   sample: {} as any,
   tagsString: ''
+})
+
+// Info dialog
+const infoDialog = ref({
+  show: false,
+  title: '',
+  message: '',
+  type: 'info' // 'info', 'success', 'error'
 })
 
 // Animation
@@ -487,18 +523,45 @@ const reAnalyzeSamples = async () => {
       return updatedSample?.ai_description || updatedSample?.track_type || updatedSample?.vibe
     })
     
-    alert(`✅ Re-analysis complete!\n\n` +
-          `• ${totalCount} samples processed\n` +
-          `• ${enhancedSamples.length} samples enhanced with AI metadata\n` +
-          `• Added track types, vibes, instrument tags, and genre classifications\n\n` +
-          `Your samples now have richer metadata for better AI recommendations!`)
+    showInfoDialog(
+      'Re-analysis Complete!',
+      `<div class="success-message">
+        <p><strong>${totalCount} samples processed</strong></p>
+        <p><strong>${enhancedSamples.length} samples enhanced</strong> with AI metadata</p>
+        <br>
+        <p><strong>Enhancements added:</strong></p>
+        <ul>
+          <li>Track types and vibes</li>
+          <li>Instrument tags</li>
+          <li>Genre classifications</li>
+          <li>Mood and style tags</li>
+        </ul>
+        <br>
+        <p>Your samples now have richer metadata for better AI recommendations!</p>
+      </div>`,
+      'success'
+    )
     
     console.log(`Successfully re-analyzed ${totalCount} samples, enhanced ${enhancedSamples.length} with AI metadata`)
     
   } catch (error) {
     console.error('Re-analysis failed:', error)
-    alert('❌ Re-analysis failed. Please check your internet connection and try again.\n\n' +
-          'The audio analysis requires connection to the backend server.')
+    showInfoDialog(
+      'Re-analysis Failed',
+      `<div class="error-message">
+        <p><strong>Unable to complete re-analysis</strong></p>
+        <br>
+        <p>Please check:</p>
+        <ul>
+          <li>Your internet connection</li>
+          <li>Backend server is running</li>
+          <li>AI service configuration</li>
+        </ul>
+        <br>
+        <p>The audio analysis requires connection to the backend server.</p>
+      </div>`,
+      'error'
+    )
   } finally {
     isReAnalyzing.value = false
     reAnalysisProgress.value = 0
@@ -696,6 +759,19 @@ const saveEditModal = () => {
   }
   
   closeEditModal()
+}
+
+const showInfoDialog = (title: string, message: string, type: 'info' | 'success' | 'error' = 'info') => {
+  infoDialog.value = {
+    show: true,
+    title,
+    message,
+    type
+  }
+}
+
+const closeInfoDialog = () => {
+  infoDialog.value.show = false
 }
 
 const clearFilters = () => {
@@ -1391,5 +1467,55 @@ onMounted(() => {
 
 .icon.spinning {
   animation: spin 1s linear infinite;
+}
+
+/* Info Dialog */
+.info-dialog {
+  max-width: 520px;
+}
+
+.info-dialog .modal-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 1.25rem;
+}
+
+.success-icon {
+  color: #10b981;
+}
+
+.error-icon {
+  color: #ef4444;
+}
+
+.info-icon {
+  color: #3b82f6;
+}
+
+.info-message {
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.info-message p {
+  margin: 0 0 0.5rem 0;
+}
+
+.info-message ul {
+  margin: 0.5rem 0;
+  padding-left: 1.5rem;
+}
+
+.info-message li {
+  margin-bottom: 0.25rem;
+}
+
+.success-message strong {
+  color: #10b981;
+}
+
+.error-message strong {
+  color: #ef4444;
 }
 </style>
