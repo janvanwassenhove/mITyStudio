@@ -140,6 +140,96 @@
       @click="hideContextMenu"
     ></div>
     
+    <!-- Master Lyric Lane -->
+    <div class="master-lyric-lane" v-if="vocalTracks.length > 0">
+      <div class="lyric-lane-header">
+        <div class="lane-label">
+          <span class="lane-title">Master Lyrics</span>
+          <div class="vocal-track-toggles">
+            <button 
+              class="toggle-all-btn"
+              :class="{ 'active': allTracksVisible }"
+              @click="toggleAllTracks"
+              title="Toggle All Vocals"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                <path d="M2 17l10 5 10-5"/>
+                <path d="M2 12l10 5 10-5"/>
+              </svg>
+              All
+            </button>
+            <div class="track-toggle-divider"></div>
+            <button 
+              v-for="track in vocalTracks" 
+              :key="track.id"
+              class="track-toggle-btn"
+              :class="{ 
+                'active': vocalTracksVisibility[track.id],
+                'speaker-lead': getTrackSpeakerType(track) === 'lead',
+                'speaker-harmony': getTrackSpeakerType(track) === 'harmony',
+                'speaker-choir': getTrackSpeakerType(track) === 'choir'
+              }"
+              @click="toggleTrackVisibility(track.id)"
+              :title="`Toggle ${track.name} (${track.voiceId || 'Unknown Voice'})`"
+            >
+              <svg v-if="getTrackSpeakerType(track) === 'lead'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
+              </svg>
+              <svg v-else-if="getTrackSpeakerType(track) === 'harmony'" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M8 12h8"/>
+                <path d="M12 8v8"/>
+              </svg>
+              <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"/>
+                <circle cx="12" cy="12" r="8"/>
+                <circle cx="12" cy="12" r="13"/>
+              </svg>
+              {{ getTrackShortName(track) }}
+            </button>
+          </div>
+        </div>
+      </div>
+      <div class="lyric-lane-content" ref="lyricLaneContent" @scroll="syncLyricLaneScroll">
+        <div class="lyric-tracks-stacked">
+          <div 
+            v-for="track in vocalTracks"
+            :key="track.id"
+            v-show="vocalTracksVisibility[track.id]"
+            class="lyric-track-row"
+            :class="`speaker-${getTrackSpeakerType(track)}`"
+          >
+            <div class="lyric-words-container">
+              <div 
+                v-for="(word, index) in masterLyricsByTrack[track.id] || []"
+                :key="`${word.trackId}-${word.clipId}-${index}`"
+                class="lyric-word-chip"
+                :class="[
+                  `speaker-${word.speakerType}`,
+                  { 
+                    'active': isWordActive(word),
+                    'karaoke-highlight': isWordActive(word) && audioStore.isPlaying
+                  }
+                ]"
+                :style="getLyricChipStyle(word)"
+                @click="seekToWord(word)"
+              >
+                <div class="word-text">{{ word.text }}</div>
+                <div v-if="isWordActive(word) && audioStore.isPlaying" class="karaoke-sweep" :style="getKaraokeSweepStyle(word)"></div>
+              </div>
+            </div>
+            <div class="lyric-track-label">
+              <span class="track-name">{{ getTrackShortName(track) }}</span>
+              <span class="track-voice">{{ track.voiceId || 'Default' }}</span>
+            </div>
+          </div>
+        </div>
+        <!-- Playhead in lyric lane -->
+        <div class="lyric-lane-playhead" :style="{ left: `${playheadPosition}px` }"></div>
+      </div>
+    </div>
+    
     <div class="timeline-footer">
       <div class="timeline-controls">
         <button class="btn btn-ghost" @click="zoomOut">
@@ -154,6 +244,10 @@
           <span v-else>🔈</span>
           Metronome
         </button>
+        <!-- Development helper for testing master lyric lane -->
+        <button class="btn btn-secondary" @click="addTestVocals" style="margin-left: 1rem;">
+          📝 Add Test Vocals
+        </button>
       </div>
     </div>
   </div>
@@ -161,15 +255,36 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick, type ComponentPublicInstance } from 'vue'
-import { useAudioStore, type AudioClip } from '../stores/audioStore'
+import { useAudioStore, type AudioClip, type LyricFragment } from '../stores/audioStore'
 import { useSampleStore } from '../stores/sampleStore'
 import { ZoomIn, ZoomOut, Trash2, Copy, Scissors } from 'lucide-vue-next'
 import { drawWaveform } from '../utils/waveform'
 import { extractChordFromSampleUrl } from '../utils/chordVisualization'
 
+// Master Lyric Lane Interface
+interface MasterLyricWord {
+  text: string
+  startTime: number
+  duration: number
+  endTime: number
+  trackId: string
+  clipId: string
+  voiceId: string
+  speakerType: 'lead' | 'harmony' | 'choir'
+  originalLyric: LyricFragment
+  syllables?: any[]
+}
+
 const audioStore = useAudioStore()
 const sampleStore = useSampleStore()
 const timelineContent = ref<HTMLElement>()
+const lyricLaneContent = ref<HTMLElement>()
+
+// Master Lyric Lane State
+const selectedVocalTrack = ref<string>('all')
+const masterLyrics = ref<MasterLyricWord[]>([])
+const vocalTracksVisibility = ref<Record<string, boolean>>({})
+const masterLyricsByTrack = ref<Record<string, MasterLyricWord[]>>({})
 
 const selectedClipId = computed(() => audioStore.selectedClipId)
 const isDragging = ref(false)
@@ -196,10 +311,29 @@ const timelineHeader = ref<HTMLElement>()
 
 // Sync timeline ruler scroll with content scroll
 const syncTimelineScroll = () => {
-  if (!timelineContent.value || !timelineHeader.value) return
+  if (!timelineContent.value || !timelineHeader.value || isResetting.value) return
+  
+  // During playback, prevent manual scrolling from interfering with auto-scroll
+  if (audioStore.isPlaying) {
+    // Delay manual scroll sync to allow auto-scroll to take priority
+    setTimeout(() => {
+      if (timelineHeader.value && timelineContent.value) {
+        timelineHeader.value.scrollLeft = timelineContent.value.scrollLeft
+      }
+      if (lyricLaneContent.value && timelineContent.value) {
+        lyricLaneContent.value.scrollLeft = timelineContent.value.scrollLeft
+      }
+    }, 16) // ~1 frame delay
+    return
+  }
   
   // Sync the ruler scroll with content scroll
   timelineHeader.value.scrollLeft = timelineContent.value.scrollLeft
+  
+  // Also sync the master lyric lane to stay aligned with timeline content
+  if (lyricLaneContent.value) {
+    lyricLaneContent.value.scrollLeft = timelineContent.value.scrollLeft
+  }
   
   // Temporarily disable auto-scroll when user manually scrolls
   if (userScrollTimeout.value) {
@@ -319,58 +453,174 @@ const playheadPosition = computed(() => {
 })
 
 // Auto-scroll functionality
+const isResetting = ref(false)
+
+const resetToStart = () => {
+  if (!timelineContent.value) return
+  
+  console.log('🔄 Resetting timeline to start position')
+  isResetting.value = true
+  
+  // Use immediate scrolling instead of smooth for more reliable reset
+  timelineContent.value.scrollLeft = 0
+  
+  // Scroll header/ruler to beginning
+  if (timelineHeader.value) {
+    timelineHeader.value.scrollLeft = 0
+  }
+  
+  // Scroll master lyric lane to beginning
+  if (lyricLaneContent.value) {
+    lyricLaneContent.value.scrollLeft = 0
+  }
+  
+  // Reset the flag after a short delay
+  setTimeout(() => {
+    isResetting.value = false
+  }, 100)
+  
+  console.log('✅ Timeline reset to start completed')
+}
+
 const autoScrollToPlayhead = () => {
   if (!timelineContent.value || isDragging.value || isResizing.value) return
-  
-  // Always auto-scroll to keep playhead visible (unless user is actively dragging/resizing)
   
   const container = timelineContent.value
   const scrollLeft = container.scrollLeft
   const containerWidth = container.clientWidth
   const playheadPos = playheadPosition.value
   
-  // Define scroll margins (how much space to keep around the playhead)
-  const scrollMargin = containerWidth * 0.1 // 10% of container width
-  const leftBoundary = scrollLeft + scrollMargin
-  const rightBoundary = scrollLeft + containerWidth - scrollMargin
-  
-  // Check if playhead is outside the visible area (with margins)
-  if (playheadPos < leftBoundary || playheadPos > rightBoundary) {
-    // Calculate new scroll position to center the playhead
-    const newScrollLeft = Math.max(0, playheadPos - containerWidth / 2)
+  // During playback, be more aggressive about keeping playhead centered
+  if (audioStore.isPlaying) {
+    // Keep playhead in the center third of the screen during playback
+    const centerThird = containerWidth / 3
+    const leftBoundary = scrollLeft + centerThird
+    const rightBoundary = scrollLeft + containerWidth - centerThird
     
-    // Smooth scroll to new position
-    container.scrollTo({
-      left: newScrollLeft,
-      behavior: 'smooth'
-    })
-    // Also sync the header (ruler) so both tracks and ruler follow the playhead
-    if (timelineHeader.value) {
-      try {
-        timelineHeader.value.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
-      } catch (e) {
-        // Fallback for browsers that don't support smooth option on element.scrollTo
+    // Check if playhead is outside the center area during playback
+    if (playheadPos < leftBoundary || playheadPos > rightBoundary) {
+      // Center the playhead during playback
+      const newScrollLeft = Math.max(0, playheadPos - containerWidth / 2)
+      
+      // Use immediate scroll during playback for smooth following
+      container.scrollLeft = newScrollLeft
+      
+      // Sync other elements immediately
+      if (timelineHeader.value) {
         timelineHeader.value.scrollLeft = newScrollLeft
       }
+      
+      if (lyricLaneContent.value) {
+        lyricLaneContent.value.scrollLeft = newScrollLeft
+      }
     }
-
-    isAutoScrolling.value = true
-    // Reset auto-scrolling flag after animation
-    setTimeout(() => {
-      isAutoScrolling.value = false
-    }, 300)
+  } else {
+    // When not playing, use the original larger margins
+    const scrollMargin = containerWidth * 0.1 // 10% of container width
+    const leftBoundary = scrollLeft + scrollMargin
+    const rightBoundary = scrollLeft + containerWidth - scrollMargin
+    
+    // Special case: if playhead is at the very beginning (0), always scroll to start
+    if (playheadPos === 0) {
+      // Scroll to the beginning
+      container.scrollTo({
+        left: 0,
+        behavior: 'smooth'
+      })
+      
+      // Also sync the header (ruler)
+      if (timelineHeader.value) {
+        try {
+          timelineHeader.value.scrollTo({ left: 0, behavior: 'smooth' })
+        } catch (e) {
+          timelineHeader.value.scrollLeft = 0
+        }
+      }
+      
+      // Also sync the master lyric lane
+      if (lyricLaneContent.value) {
+        try {
+          lyricLaneContent.value.scrollTo({ left: 0, behavior: 'smooth' })
+        } catch (e) {
+          lyricLaneContent.value.scrollLeft = 0
+        }
+      }
+    } else if (playheadPos < leftBoundary || playheadPos > rightBoundary) {
+      // Check if playhead is outside the visible area (with margins)
+      // Calculate new scroll position to center the playhead
+      const newScrollLeft = Math.max(0, playheadPos - containerWidth / 2)
+      
+      // Smooth scroll to new position when not playing
+      container.scrollTo({
+        left: newScrollLeft,
+        behavior: 'smooth'
+      })
+      
+      // Also sync the header (ruler) so both tracks and ruler follow the playhead
+      if (timelineHeader.value) {
+        try {
+          timelineHeader.value.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
+        } catch (e) {
+          // Fallback for browsers that don't support smooth option on element.scrollTo
+          timelineHeader.value.scrollLeft = newScrollLeft
+        }
+      }
+      
+      // Also sync the master lyric lane to follow the playhead
+      if (lyricLaneContent.value) {
+        try {
+          lyricLaneContent.value.scrollTo({ left: newScrollLeft, behavior: 'smooth' })
+        } catch (e) {
+          // Fallback for browsers that don't support smooth option on element.scrollTo
+          lyricLaneContent.value.scrollLeft = newScrollLeft
+        }
+      }
+    }
   }
+
+  isAutoScrolling.value = true
+  // Reset auto-scrolling flag after animation
+  setTimeout(() => {
+    isAutoScrolling.value = false
+  }, 300)
 }
 
 // Watch for playhead position changes during playback
 watch(
   () => audioStore.currentTime,
   (newTime, oldTime) => {
-    // Only auto-scroll if the time is actually progressing (playing)
-    // and the change is significant enough (avoid micro-movements)
-    if (audioStore.isPlaying && newTime > oldTime && Math.abs(newTime - oldTime) > 0.05) {
+    console.log(`⏱️ CurrentTime changed: ${oldTime} → ${newTime}, isPlaying: ${audioStore.isPlaying}`)
+    
+    // During playback, continuously update scroll to follow playhead
+    if (audioStore.isPlaying && newTime > oldTime) {
       lastPlayheadPosition.value = playheadPosition.value
       autoScrollToPlayhead()
+    } else if (!audioStore.isPlaying && newTime === 0 && oldTime > 0) {
+      // When stopped and reset to 0, use dedicated reset function
+      console.log('🛑 Detected stop - resetting to start')
+      nextTick(() => {
+        resetToStart()
+      })
+    } else if (!audioStore.isPlaying && Math.abs(newTime - oldTime) > 0.05) {
+      // When not playing, auto-scroll for significant jumps (seeking)
+      lastPlayheadPosition.value = playheadPosition.value
+      autoScrollToPlayhead()
+    }
+  }
+)
+
+// Watch for when audio stops to reset scroll position
+watch(
+  () => audioStore.isPlaying,
+  (isPlaying, wasPlaying) => {
+    console.log(`🎵 IsPlaying changed: ${wasPlaying} → ${isPlaying}, currentTime: ${audioStore.currentTime}`)
+    
+    // When audio stops, reset scroll to beginning if currentTime is 0
+    if (wasPlaying && !isPlaying && audioStore.currentTime === 0) {
+      console.log('🛑 Audio stopped and reset - triggering reset to start')
+      nextTick(() => {
+        resetToStart()
+      })
     }
   }
 )
@@ -837,6 +1087,439 @@ watch([
   })
 }, { immediate: true })
 
+// Master Lyrics Lane Functionality
+const vocalTracks = computed(() => {
+  return audioStore.songStructure.tracks.filter(track => 
+    track.category === 'vocal' || track.instrument === 'vocals' || 
+    track.clips.some(clip => clip.type === 'lyrics')
+  )
+})
+
+const updateMasterLyrics = () => {
+  const lyrics: MasterLyricWord[] = []
+  const tracksToProcess = selectedVocalTrack.value === 'all' 
+    ? vocalTracks.value
+    : selectedVocalTrack.value === 'lead'
+    ? vocalTracks.value.filter(track => 
+        track.name.toLowerCase().includes('lead') || 
+        track.name.toLowerCase().includes('main')
+      ).slice(0, 1) // Take only the first lead track
+    : vocalTracks.value.filter(track => track.id === selectedVocalTrack.value)
+
+  tracksToProcess.forEach(track => {
+    track.clips.forEach(clip => {
+      if (clip.type !== 'lyrics') return
+
+      // Determine speaker type based on track name and voice
+      let speakerType: 'lead' | 'harmony' | 'choir' = 'lead'
+      const trackNameLower = track.name.toLowerCase()
+      if (trackNameLower.includes('harmony') || trackNameLower.includes('backing')) {
+        speakerType = 'harmony'
+      } else if (trackNameLower.includes('choir') || trackNameLower.includes('chorus')) {
+        speakerType = 'choir'
+      }
+
+      // Process both new structure (voices array) and legacy structure (lyrics array)
+      const lyricSources = []
+      if (clip.voices && clip.voices.length > 0) {
+        clip.voices.forEach(voice => lyricSources.push(...voice.lyrics))
+      }
+      if (clip.lyrics && clip.lyrics.length > 0) {
+        lyricSources.push(...clip.lyrics)
+      }
+
+      lyricSources.forEach((lyric) => {
+        const words = lyric.text.split(/\s+/).filter(word => word.length > 0)
+        const wordDuration = lyric.duration || (lyric.durations ? lyric.durations.reduce((a, b) => a + b, 0) : 1)
+        const avgWordDuration = wordDuration / words.length
+
+        words.forEach((word, wordIndex) => {
+          const wordStartTime = clip.startTime + lyric.start + (wordIndex * avgWordDuration)
+          const wordEndTime = wordStartTime + avgWordDuration
+          
+          lyrics.push({
+            text: word,
+            startTime: wordStartTime,
+            duration: avgWordDuration,
+            endTime: wordEndTime,
+            trackId: track.id,
+            clipId: clip.id,
+            voiceId: clip.voiceId || track.voiceId || 'unknown',
+            speakerType,
+            originalLyric: lyric
+          })
+        })
+      })
+    })
+  })
+
+  // Sort by start time
+  lyrics.sort((a, b) => a.startTime - b.startTime)
+  masterLyrics.value = lyrics
+  
+  // Update the per-track lyrics
+  updateMasterLyricsByTrack()
+}
+
+// New function to organize lyrics by track for stacked display
+const updateMasterLyricsByTrack = () => {
+  const lyricsByTrack: Record<string, MasterLyricWord[]> = {}
+  
+  vocalTracks.value.forEach(track => {
+    lyricsByTrack[track.id] = []
+    
+    // Initialize visibility if not set
+    if (vocalTracksVisibility.value[track.id] === undefined) {
+      vocalTracksVisibility.value[track.id] = true
+    }
+    
+    track.clips.forEach(clip => {
+      if (clip.type !== 'lyrics') return
+
+      // Determine speaker type based on track name and voice
+      let speakerType: 'lead' | 'harmony' | 'choir' = 'lead'
+      const trackNameLower = track.name.toLowerCase()
+      if (trackNameLower.includes('harmony') || trackNameLower.includes('backing')) {
+        speakerType = 'harmony'
+      } else if (trackNameLower.includes('choir') || trackNameLower.includes('chorus')) {
+        speakerType = 'choir'
+      }
+
+      // Process both new structure (voices array) and legacy structure (lyrics array)
+      const lyricSources = []
+      if (clip.voices && clip.voices.length > 0) {
+        clip.voices.forEach(voice => lyricSources.push(...voice.lyrics))
+      }
+      if (clip.lyrics && clip.lyrics.length > 0) {
+        lyricSources.push(...clip.lyrics)
+      }
+
+      lyricSources.forEach((lyric) => {
+        const words = lyric.text.split(/\s+/).filter(word => word.length > 0)
+        const wordDuration = lyric.duration || (lyric.durations ? lyric.durations.reduce((a, b) => a + b, 0) : 1)
+        const avgWordDuration = wordDuration / words.length
+
+        words.forEach((word, wordIndex) => {
+          const wordStartTime = clip.startTime + lyric.start + (wordIndex * avgWordDuration)
+          const wordEndTime = wordStartTime + avgWordDuration
+          
+          lyricsByTrack[track.id].push({
+            text: word,
+            startTime: wordStartTime,
+            endTime: wordEndTime,
+            duration: avgWordDuration,
+            trackId: track.id,
+            clipId: clip.id,
+            voiceId: track.voiceId || 'default',
+            speakerType,
+            originalLyric: lyric,
+            syllables: lyric.syllables || []
+          })
+        })
+      })
+    })
+    
+    // Sort each track's lyrics by start time
+    lyricsByTrack[track.id].sort((a, b) => a.startTime - b.startTime)
+  })
+  
+  masterLyricsByTrack.value = lyricsByTrack
+}
+
+// Helper functions for UI
+const getTrackSpeakerType = (track: any): 'lead' | 'harmony' | 'choir' => {
+  const trackNameLower = track.name.toLowerCase()
+  if (trackNameLower.includes('harmony') || trackNameLower.includes('backing')) {
+    return 'harmony'
+  } else if (trackNameLower.includes('choir') || trackNameLower.includes('chorus')) {
+    return 'choir'
+  }
+  return 'lead'
+}
+
+const getTrackShortName = (track: any): string => {
+  return track.name.length > 8 ? track.name.substring(0, 8) + '...' : track.name
+}
+
+// Track visibility toggle functions
+const toggleTrackVisibility = (trackId: string) => {
+  vocalTracksVisibility.value[trackId] = !vocalTracksVisibility.value[trackId]
+}
+
+const toggleAllTracks = () => {
+  const allVisible = allTracksVisible.value
+  vocalTracks.value.forEach(track => {
+    vocalTracksVisibility.value[track.id] = !allVisible
+  })
+}
+
+const allTracksVisible = computed(() => {
+  return vocalTracks.value.every(track => vocalTracksVisibility.value[track.id])
+})
+
+const getLyricChipStyle = (word: MasterLyricWord) => {
+  const left = word.startTime * beatWidth.value * 4  // Same calculation as clips and playhead
+  const width = Math.max(30, word.duration * beatWidth.value * 4)
+  
+  return {
+    position: 'absolute' as const,
+    left: `${left}px`,
+    width: `${width}px`,
+    height: '28px',
+    zIndex: 1
+  }
+}
+
+const isWordActive = (word: MasterLyricWord) => {
+  const currentTime = audioStore.currentTime
+  return currentTime >= word.startTime && currentTime < word.endTime
+}
+
+const getKaraokeSweepStyle = (word: MasterLyricWord) => {
+  const currentTime = audioStore.currentTime
+  const progress = Math.min(1, Math.max(0, (currentTime - word.startTime) / word.duration))
+  
+  return {
+    width: `${progress * 100}%`,
+    transition: audioStore.isPlaying ? 'width 0.1s ease-out' : 'none'
+  }
+}
+
+const seekToWord = (word: MasterLyricWord) => {
+  // Update the current time directly
+  audioStore.currentTime = word.startTime
+
+  // If audio is currently playing, pause then resume from the new position
+  if (audioStore.isPlaying) {
+    audioStore.pause()
+    // Small delay to ensure scheduled events are cleared before rescheduling
+    setTimeout(() => {
+      audioStore.play()
+    }, 50)
+  }
+  
+  // Auto-scroll to the new position
+  setTimeout(() => {
+    autoScrollToPlayhead()
+  }, 50)
+}
+
+const syncLyricLaneScroll = () => {
+  if (!lyricLaneContent.value || !timelineContent.value || isResetting.value) return
+  
+  // Sync timeline content scroll with lyric lane scroll
+  timelineContent.value.scrollLeft = lyricLaneContent.value.scrollLeft
+  
+  // Also sync with timeline header
+  if (timelineHeader.value) {
+    timelineHeader.value.scrollLeft = lyricLaneContent.value.scrollLeft
+  }
+  
+  // Temporarily disable auto-scroll when user manually scrolls the lyric lane
+  if (userScrollTimeout.value) {
+    clearTimeout(userScrollTimeout.value)
+  }
+  
+  // Re-enable auto-scroll after user stops scrolling for 2 seconds
+  userScrollTimeout.value = setTimeout(() => {
+    // Auto-scroll is now re-enabled
+  }, 2000) as any
+}
+
+// Development helper to add test vocal tracks for testing master lyric lane
+const addTestVocals = () => {
+  // Create test lead vocal track
+  const leadTrack = {
+    id: "track-test-lead-vocals",
+    name: "Test Lead Vocals",
+    instrument: "vocals",
+    category: "vocal",
+    voiceId: "soprano01",
+    volume: 0.8,
+    pan: 0,
+    muted: false,
+    solo: false,
+    clips: [{
+      id: "clip-test-lead-1",
+      trackId: "track-test-lead-vocals",
+      startTime: 0,
+      duration: 8,
+      type: "lyrics" as const,
+      instrument: "vocals",
+      voiceId: "soprano01",
+      volume: 0.8,
+      sectionId: "verse1",
+      sectionSpans: ["verse1"],
+      effects: {
+        reverb: 0.2,
+        delay: 0.1,
+        distortion: 0,
+        pitchShift: 0,
+        chorus: 0,
+        filter: 0,
+        bitcrush: 0
+      },
+      voices: [{
+        voice_id: "soprano01",
+        lyrics: [
+          {
+            text: "Walking through the digital world",
+            notes: ["C4", "D4", "E4", "F4", "G4"],
+            start: 0,
+            durations: [0.5, 0.5, 0.5, 0.5, 1.0],
+            syllables: [
+              { t: "Walk", noteIdx: [0], dur: 0.5 },
+              { t: "ing", noteIdx: [1], dur: 0.5 },
+              { t: "through", noteIdx: [2], dur: 0.5 },
+              { t: "the", noteIdx: [3], dur: 0.25 },
+              { t: "dig", noteIdx: [3], dur: 0.25 },
+              { t: "it", noteIdx: [4], dur: 0.5 },
+              { t: "al", noteIdx: [4], dur: 0.5 }
+            ],
+            phonemes: ["w", "ɔ", "k", "ɪ", "ŋ", "θ", "r", "u", "ð", "ə", "d", "ɪ", "dʒ", "ɪ", "t", "ə", "l"]
+          },
+          {
+            text: "Code and music come alive",
+            notes: ["A4", "G4", "F4", "E4", "D4"],
+            start: 3.5,
+            durations: [0.6, 0.6, 0.6, 0.6, 1.0],
+            syllables: [
+              { t: "Code", noteIdx: [0], dur: 0.6 },
+              { t: "and", noteIdx: [1], dur: 0.6 },
+              { t: "mu", noteIdx: [2], dur: 0.3 },
+              { t: "sic", noteIdx: [2], dur: 0.3 },
+              { t: "come", noteIdx: [3], dur: 0.6 },
+              { t: "a", noteIdx: [4], dur: 0.5 },
+              { t: "live", noteIdx: [4], dur: 0.5 }
+            ],
+            phonemes: ["k", "oʊ", "d", "æ", "n", "d", "m", "ju", "z", "ɪ", "k", "k", "ʌ", "m", "ə", "l", "aɪ", "v"]
+          }
+        ]
+      }]
+    }],
+    effects: {
+      reverb: 0.2,
+      delay: 0.1,
+      distortion: 0,
+      pitchShift: 0,
+      chorus: 0,
+      filter: 0,
+      bitcrush: 0
+    }
+  }
+
+  // Create harmony vocal track
+  const harmonyTrack = {
+    id: "track-test-harmony-vocals", 
+    name: "Test Harmony Vocals",
+    instrument: "vocals",
+    category: "vocal",
+    voiceId: "alto01",
+    volume: 0.6,
+    pan: -0.3,
+    muted: false,
+    solo: false,
+    clips: [{
+      id: "clip-test-harmony-1",
+      trackId: "track-test-harmony-vocals",
+      startTime: 1,
+      duration: 6,
+      type: "lyrics" as const,
+      instrument: "vocals",
+      voiceId: "alto01",
+      volume: 0.6,
+      sectionId: "verse1",
+      sectionSpans: ["verse1"],
+      effects: {
+        reverb: 0.3,
+        delay: 0.2,
+        distortion: 0,
+        pitchShift: 0,
+        chorus: 0,
+        filter: 0,
+        bitcrush: 0
+      },
+      voices: [{
+        voice_id: "alto01",
+        lyrics: [
+          {
+            text: "Digital world echoes",
+            notes: ["E4", "F4", "G4"],
+            start: 0.5,
+            durations: [0.8, 0.8, 1.4],
+            syllables: [
+              { t: "Dig", noteIdx: [0], dur: 0.4 },
+              { t: "it", noteIdx: [0], dur: 0.4 },
+              { t: "al", noteIdx: [1], dur: 0.4 },
+              { t: "world", noteIdx: [1], dur: 0.4 },
+              { t: "ech", noteIdx: [2], dur: 0.7 },
+              { t: "oes", noteIdx: [2], dur: 0.7 }
+            ],
+            phonemes: ["d", "ɪ", "dʒ", "ɪ", "t", "ə", "l", "w", "ɜr", "l", "d", "ɛ", "k", "oʊ", "z"]
+          },
+          {
+            text: "Music flows",
+            notes: ["C5", "B4"],
+            start: 4,
+            durations: [1.0, 1.0],
+            syllables: [
+              { t: "Mu", noteIdx: [0], dur: 0.5 },
+              { t: "sic", noteIdx: [0], dur: 0.5 },
+              { t: "flows", noteIdx: [1], dur: 1.0, melisma: true }
+            ],
+            phonemes: ["m", "ju", "z", "ɪ", "k", "f", "l", "oʊ", "z"]
+          }
+        ]
+      }]
+    }],
+    effects: {
+      reverb: 0.3,
+      delay: 0.2,
+      distortion: 0,
+      pitchShift: 0,
+      chorus: 0,
+      filter: 0,
+      bitcrush: 0
+    }
+  }
+
+  // Add tracks to audio store directly
+  audioStore.songStructure.tracks.push(leadTrack)
+  audioStore.songStructure.tracks.push(harmonyTrack)
+  
+  // Update song duration to accommodate the vocals
+  if (audioStore.songStructure.duration < 16) {
+    audioStore.songStructure.duration = 16
+  }
+  
+  // Trigger master lyrics update
+  nextTick(() => {
+    updateMasterLyrics()
+  })
+}
+
+// Watch for song structure changes and update master lyrics
+watch(
+  () => [audioStore.songStructure.tracks, selectedVocalTrack.value],
+  () => updateMasterLyrics(),
+  { deep: true, immediate: true }
+)
+
+// Watch timeline scroll to sync lyric lane
+watch(
+  () => timelineContent.value?.scrollLeft,
+  (newScrollLeft) => {
+    if (lyricLaneContent.value && newScrollLeft !== undefined) {
+      lyricLaneContent.value.scrollLeft = newScrollLeft
+    }
+  }
+)
+
+// Update CSS custom property for timeline width
+watch(timelineWidth, (newWidth) => {
+  document.documentElement.style.setProperty('--timeline-width', `${newWidth}px`)
+}, { immediate: true })
+
 onMounted(() => {
   document.addEventListener('click', handleGlobalClick)
   document.addEventListener('keydown', handleGlobalKeydown)
@@ -858,6 +1541,296 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* Master Lyric Lane Styles */
+.master-lyric-lane {
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+}
+
+.lyric-lane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+  background: rgba(158, 127, 255, 0.05);
+  border-bottom: 1px solid var(--border);
+  min-height: 32px;
+}
+
+.lane-label {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.lane-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text);
+  min-width: 100px;
+}
+
+.vocal-track-toggles {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.toggle-all-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.toggle-all-btn:hover {
+  background: var(--hover);
+}
+
+.toggle-all-btn.active {
+  background: var(--accent);
+  color: white;
+}
+
+.track-toggle-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 0.25rem;
+}
+
+.track-toggle-btn {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.25rem 0.375rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 60px;
+}
+
+.track-toggle-btn:hover {
+  background: var(--hover);
+}
+
+.track-toggle-btn.active {
+  border-color: var(--accent);
+  background: rgba(158, 127, 255, 0.1);
+}
+
+.track-toggle-btn.speaker-lead.active {
+  background: rgba(147, 51, 234, 0.1);
+  border-color: rgb(147, 51, 234);
+  color: rgb(147, 51, 234);
+}
+
+.track-toggle-btn.speaker-harmony.active {
+  background: rgba(236, 72, 153, 0.1);
+  border-color: rgb(236, 72, 153);
+  color: rgb(236, 72, 153);
+}
+
+.track-toggle-btn.speaker-choir.active {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgb(34, 197, 94);
+  color: rgb(34, 197, 94);
+}
+
+.track-toggle-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.lyric-lane-content {
+  flex: 1;
+  overflow: auto;
+  position: relative;
+  background: var(--background);
+  min-height: 40px;
+}
+
+.lyric-tracks-stacked {
+  position: relative;
+  width: 100%;
+  min-width: var(--timeline-width, 800px);
+}
+
+.lyric-track-row {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  min-height: 50px;
+}
+
+.lyric-track-row:last-child {
+  border-bottom: none;
+}
+
+.lyric-track-label {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-start;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: rgba(0, 0, 0, 0.3);
+  border-top: 1px solid var(--border);
+  font-size: 0.75rem;
+  min-height: 20px;
+  order: 2;
+  margin-top: 30px;
+}
+
+.lyric-track-label .track-name {
+  font-weight: 600;
+  color: var(--text);
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.lyric-track-label .track-voice {
+  color: var(--text-muted);
+  font-size: 0.625rem;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.lyric-track-row.speaker-lead .lyric-track-label {
+  border-left: 3px solid rgb(147, 51, 234);
+}
+
+.lyric-track-row.speaker-harmony .lyric-track-label {
+  border-left: 3px solid rgb(236, 72, 153);
+}
+
+.lyric-track-row.speaker-choir .lyric-track-label {
+  border-left: 3px solid rgb(34, 197, 94);
+}
+
+.lyric-words-container {
+  position: relative;
+  height: 30px;
+  width: 100%;
+  flex: 1;
+  order: 1;
+  margin-top: 5px;
+}
+
+.lyric-word-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(158, 127, 255, 0.8);
+  color: white;
+  border-radius: 14px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+  min-width: 30px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 8px;
+}
+
+.lyric-word-chip:hover {
+  transform: scale(1.05);
+  background: rgba(158, 127, 255, 0.9);
+  box-shadow: 0 2px 8px rgba(158, 127, 255, 0.3);
+}
+
+/* Speaker Type Styling */
+.lyric-word-chip.speaker-lead {
+  background: rgba(158, 127, 255, 0.9); /* Lead = solid fill (primary) */
+  border-color: rgba(158, 127, 255, 1);
+}
+
+.lyric-word-chip.speaker-harmony {
+  background: rgba(244, 114, 182, 0.3); /* Harmony = outline style */
+  border-color: rgba(244, 114, 182, 1);
+  color: rgba(244, 114, 182, 1);
+  border-width: 2px;
+}
+
+.lyric-word-chip.speaker-choir {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(34, 197, 94, 0.3),
+    rgba(34, 197, 94, 0.3) 4px,
+    rgba(34, 197, 94, 0.1) 4px,
+    rgba(34, 197, 94, 0.1) 8px
+  ); /* Choir = striped */
+  border-color: rgba(34, 197, 94, 1);
+  color: rgba(34, 197, 94, 1);
+}
+
+/* Active word highlighting */
+.lyric-word-chip.active {
+  background: rgba(255, 193, 7, 0.9);
+  color: var(--surface);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(255, 193, 7, 0.4);
+  z-index: 10;
+}
+
+/* Karaoke highlight animation */
+.lyric-word-chip.karaoke-highlight {
+  position: relative;
+  overflow: hidden;
+}
+
+.karaoke-sweep {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: linear-gradient(
+    to right,
+    rgba(255, 255, 255, 0.4),
+    rgba(255, 255, 255, 0.6),
+    rgba(255, 255, 255, 0.4)
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.word-text {
+  position: relative;
+  z-index: 2;
+}
+
+/* Lyric lane playhead */
+.lyric-lane-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  z-index: 20;
+  pointer-events: none;
+  box-shadow: 0 0 4px rgba(244, 114, 182, 0.5);
+}
+
 .timeline-editor {
   display: flex;
   flex-direction: column;

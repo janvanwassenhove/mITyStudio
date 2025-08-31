@@ -13,12 +13,22 @@ import {
   type EffectSettings
 } from '../services/audioEffects'
 
+export interface SyllableBreakdown {
+  t: string        // syllable text
+  noteIdx: number[] // note indices this syllable maps to
+  dur: number      // duration of this syllable
+  melisma?: boolean // if this syllable spans multiple notes
+}
+
 export interface LyricFragment {
   text: string
   notes: string[]
   start: number
   duration?: number
   durations?: number[]
+  // Extended structure for advanced vocal synthesis
+  syllables?: SyllableBreakdown[]
+  phonemes?: string[] // IPA phonemes for TTS/singing engines
 }
 
 export interface Voice {
@@ -55,6 +65,9 @@ export interface AudioClip {
   lyrics?: LyricFragment[] // Direct lyrics array for voice-specific clips
   // Legacy multi-voice structure (deprecated in favor of separate voice tracks)
   voices?: Voice[]
+  // Extended structure for master lyric lane
+  sectionId?: string // Reference to song structure section
+  sectionSpans?: string[] // Sections this clip spans (for cross-boundary clips)
 }
 
 export interface Track {

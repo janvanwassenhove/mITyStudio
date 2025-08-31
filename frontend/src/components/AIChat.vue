@@ -1127,12 +1127,304 @@ const parseMusicalSuggestions = (content: string): any => {
   return suggestions
 }
 
+// Generate instrument-specific action buttons based on actual instruments mentioned in AI response
+const generateInstrumentSpecificActions = (responseContent: string): ChatAction[] => {
+  const actions: ChatAction[] = []
+  console.log('=== generateInstrumentSpecificActions called ===')
+  console.log('Response content length:', responseContent.length)
+  console.log('First 500 chars:', responseContent.substring(0, 500))
+  
+  // Parse the AI response for instrument categories and specific instruments
+  const lines = responseContent.split('\n')
+  console.log('Total lines to parse:', lines.length)
+  
+  const instrumentMentions: { type: string, instruments: string[] }[] = []
+  
+  let currentCategory = ''
+  let currentInstruments: string[] = []
+  
+  for (const line of lines) {
+    const trimmedLine = line.trim()
+    
+    // Look for markdown category headers (like "### Strings:" or "### Woodwinds:")
+    const markdownCategoryMatch = trimmedLine.match(/^###\s*([^:]+):?\s*$/i)
+    if (markdownCategoryMatch) {
+      // Save previous category if it exists
+      if (currentCategory && currentInstruments.length > 0) {
+        instrumentMentions.push({ type: currentCategory, instruments: [...currentInstruments] })
+      }
+      
+      currentCategory = markdownCategoryMatch[1].toLowerCase().trim()
+      currentInstruments = []
+      console.log('Found markdown category:', currentCategory)
+      continue
+    }
+    
+    // Look for numbered category headers (like "1. **Guitar Acoustic**:" or "1. Acoustic Guitar:")
+    const numberedCategoryMatch = trimmedLine.match(/^\d+\.\s*([^:]+):?\s*/i)
+    if (numberedCategoryMatch) {
+      // Save previous category if it exists
+      if (currentCategory && currentInstruments.length > 0) {
+        instrumentMentions.push({ type: currentCategory, instruments: [...currentInstruments] })
+        console.log('Saved previous category:', currentCategory, 'with instruments:', currentInstruments)
+      }
+      
+      // Clean up the category name by removing bold markdown
+      let categoryName = numberedCategoryMatch[1].trim()
+      categoryName = categoryName.replace(/\*\*(.*?)\*\*/g, '$1') // Remove **bold** markdown
+      currentCategory = categoryName.toLowerCase()
+      currentInstruments = []
+      console.log('Found numbered category:', currentCategory)
+      
+      // Look for quoted instrument names in the same line
+      const quotedInstruments = trimmedLine.match(/"([^"]+)"/g)
+      if (quotedInstruments) {
+        for (const quoted of quotedInstruments) {
+          const instrumentName = quoted.replace(/"/g, '')
+          const matchedInstrument = findBestInstrumentMatch(instrumentName)
+          if (matchedInstrument) {
+            currentInstruments.push(matchedInstrument)
+            console.log('Found instrument in category line:', instrumentName, '→', matchedInstrument)
+          }
+        }
+      }
+      continue
+    }
+    
+    // Look for bullet point instrument names (like "- Acoustic Bass" or "   - Guitar_Acoustic")
+    if (trimmedLine.startsWith('-') && trimmedLine.length > 2 && currentCategory) {
+      let instrumentName = trimmedLine.substring(1).trim()
+      
+      // If the line contains quoted text, extract the first quoted instrument
+      const quotedMatch = instrumentName.match(/"([^"]+)"/)
+      if (quotedMatch) {
+        instrumentName = quotedMatch[1]
+      }
+      
+      // Remove any remaining quotes
+      const cleanInstrumentName = instrumentName.replace(/"/g, '')
+      
+      console.log('Processing bullet point line:', trimmedLine)
+      console.log('Extracted instrument name:', cleanInstrumentName)
+      
+      const matchedInstrument = findBestInstrumentMatch(cleanInstrumentName)
+      if (matchedInstrument) {
+        currentInstruments.push(matchedInstrument)
+        console.log('Found bullet point instrument:', cleanInstrumentName, '→', matchedInstrument)
+      } else {
+        console.log('No match found for bullet point instrument:', cleanInstrumentName)
+      }
+      continue
+    }
+    
+    // Look for quoted instrument names in regular text lines
+    if (currentCategory) {
+      const quotedInstruments = trimmedLine.match(/"([^"]+)"/g)
+      if (quotedInstruments) {
+        for (const quoted of quotedInstruments) {
+          const instrumentName = quoted.replace(/"/g, '')
+          const matchedInstrument = findBestInstrumentMatch(instrumentName)
+          if (matchedInstrument) {
+            currentInstruments.push(matchedInstrument)
+            console.log('Found quoted instrument in text:', instrumentName, '→', matchedInstrument)
+          }
+        }
+      }
+    }
+  }
+  
+  // Don't forget the last category
+  if (currentCategory && currentInstruments.length > 0) {
+    instrumentMentions.push({ type: currentCategory, instruments: [...currentInstruments] })
+    console.log('Saved final category:', currentCategory, 'with instruments:', currentInstruments)
+  }
+  console.log('Found instrument mentions:', instrumentMentions)
+  
+  // Generate action buttons for found instruments
+  const addedInstruments = new Set<string>() // Track to prevent duplicates
+  
+  for (const mention of instrumentMentions) {
+    console.log('Processing mention:', mention)
+    
+    // Take the first 2-3 instruments from each category to avoid too many buttons
+    const instrumentsToUse = mention.instruments.slice(0, 3)
+    
+    for (const instrument of instrumentsToUse) {
+      // Skip if we've already added an action for this instrument
+      if (addedInstruments.has(instrument)) {
+        console.log('Skipping duplicate instrument:', instrument)
+        continue
+      }
+      
+      addedInstruments.add(instrument)
+      const displayName = getInstrumentDisplayName(instrument)
+      console.log('Creating action for instrument:', instrument, '→', displayName)
+      
+      let action = 'add_melody'
+      let icon = Music
+      let label = `Add ${displayName}`
+      
+      // Determine action type based on category
+      if (mention.type.includes('bass')) {
+        action = 'add_bass_track'
+        label = `Add Bass Track (${displayName})`
+        icon = Plus
+      } else if (mention.type.includes('drum') || mention.type.includes('percussion')) {
+        action = 'add_drum_pattern'
+        label = `Add Drum Pattern (${displayName})`
+        icon = Plus
+      } else if (mention.type.includes('guitar') || mention.type.includes('string')) {
+        action = 'add_melody'
+        // If the instrument name contains specific model info, show it
+        if (instrument.toLowerCase().includes('acoustic') || instrument.includes('_')) {
+          label = `Add Guitar Track (${displayName})`
+        } else {
+          label = `Add Guitar Track (${displayName})`
+        }
+        icon = Music
+      } else {
+        action = 'add_melody'
+        label = `Add ${displayName} Track`
+        icon = Music
+      }
+      
+      console.log('Generated action:', { label, action, params: { instrument } })
+      
+      actions.push({
+        label,
+        icon,
+        action,
+        params: { 
+          instrument: instrument
+        }
+      })
+    }
+  }
+  
+  console.log('Returning actions:', actions)
+  return actions
+}
+
+// Helper function to find the best matching instrument from available instruments
+const findBestInstrumentMatch = (searchName: string): string | null => {
+  console.log('findBestInstrumentMatch called with:', searchName)
+  console.log('Available instruments structure:', availableInstruments.value)
+  
+  if (!availableInstruments.value?.categories) {
+    console.log('No availableInstruments.categories found')
+    return null
+  }
+  
+  const lowerSearchName = searchName.toLowerCase().trim()
+  console.log('Searching for (lowercase):', lowerSearchName)
+  
+  let bestMatch: string | null = null
+  let exactMatch: string | null = null
+  
+  // Check each category for matches
+  for (const category in availableInstruments.value.categories) {
+    const instruments = availableInstruments.value.categories[category]
+    console.log(`Checking category ${category} with ${instruments.length} instruments`)
+    
+    for (const instrument of instruments) {
+      const instrumentName = instrument.name || instrument
+      const displayName = instrument.display_name || instrumentName
+      
+      console.log(`  Checking instrument: ${instrumentName} (display: ${displayName})`)
+      
+      // Check for exact display name matches first
+      if (displayName.toLowerCase() === lowerSearchName) {
+        console.log(`  EXACT DISPLAY MATCH FOUND: ${instrumentName}`)
+        exactMatch = instrumentName
+        break
+      }
+      
+      // Check exact instrument name match
+      if (instrumentName.toLowerCase() === lowerSearchName) {
+        console.log(`  EXACT NAME MATCH FOUND: ${instrumentName}`)
+        exactMatch = instrumentName
+        break
+      }
+      
+      // Store first partial match but don't return it yet
+      if (!bestMatch) {
+        if (displayName.toLowerCase().includes(lowerSearchName) || 
+            lowerSearchName.includes(displayName.toLowerCase())) {
+          console.log(`  PARTIAL MATCH FOUND: ${instrumentName}`)
+          bestMatch = instrumentName
+        }
+        // Check internal name matches too
+        else {
+          const formattedName = instrumentName.toLowerCase().replace(/_/g, ' ')
+          if (formattedName.includes(lowerSearchName) ||
+              lowerSearchName.includes(formattedName)) {
+            console.log(`  FORMATTED MATCH FOUND: ${instrumentName}`)
+            bestMatch = instrumentName
+          }
+        }
+      }
+    }
+    
+    // If we found an exact match, return immediately
+    if (exactMatch) {
+      return exactMatch
+    }
+  }
+  
+  // If no exact match found, return best partial match
+  if (bestMatch) {
+    console.log('  RETURNING PARTIAL MATCH:', bestMatch)
+    return bestMatch
+  }
+  
+  console.log('  NO MATCH FOUND for:', searchName)
+  return null
+}
+
+// Helper function to get display name for an instrument
+const getInstrumentDisplayName = (instrument: string): string => {
+  if (!availableInstruments.value?.categories) {
+    return instrument.replace(/_/g, ' ').replace(/-/g, ' ')
+  }
+  
+  // Check if we have display name info from available instruments
+  for (const category in availableInstruments.value.categories) {
+    const instruments = availableInstruments.value.categories[category]
+    const foundInstrument = instruments.find((inst: any) => 
+      (inst.name || inst) === instrument
+    )
+    if (foundInstrument) {
+      return foundInstrument.display_name || foundInstrument.name || instrument.replace(/_/g, ' ').replace(/-/g, ' ')
+    }
+  }
+  
+  // Fallback to formatted name
+  return instrument.replace(/_/g, ' ').replace(/-/g, ' ')
+}
+
 // Generate contextual action buttons based on AI response content
 const generateContextualActions = (responseContent: string): ChatAction[] => {
+  console.log('=== generateContextualActions called ===')
   const actions: ChatAction[] = []
   const content = responseContent.toLowerCase()
   const originalContent = responseContent
   const suggestions = parseMusicalSuggestions(originalContent)
+  
+  console.log('generateContextualActions called with content length:', originalContent.length)
+  
+  // Enhanced parsing for specific instruments mentioned in AI response
+  console.log('Calling generateInstrumentSpecificActions...')
+  const specificInstrumentActions = generateInstrumentSpecificActions(originalContent)
+  console.log('specificInstrumentActions returned:', specificInstrumentActions.length, 'actions')
+  console.log('Actions details:', specificInstrumentActions)
+  
+  if (specificInstrumentActions.length > 0) {
+    console.log('Using specific instrument actions, skipping fallback logic')
+    return specificInstrumentActions
+  }
+  
+  console.log('No specific instrument actions found, using fallback logic')
+  console.log('Parsed suggestions:', suggestions)
   
   // Handle detailed drum pattern suggestions first
   if (suggestions.hasDetailedInstructions && suggestions.drumElements.length > 0) {
@@ -1291,17 +1583,43 @@ const sendMessage = async (content: string) => {
     // Use the regular AI chat service that we know works
     const result = await aiStore.sendMessage(content)
     console.log('AI response received:', result)
+    console.log('Result structure:', {
+      hasResult: !!result,
+      hasContent: !!result?.content,
+      hasResponse: !!result?.response,
+      resultKeys: result ? Object.keys(result).slice(0, 10) : 'no result',
+      resultType: typeof result,
+      isString: typeof result === 'string'
+    })
     
     // Generate contextual action buttons based on the AI response
-    if (result && result.content) {
-      const actions = generateContextualActions(result.content)
+    let responseContent = null
+    if (typeof result === 'string') {
+      // If result is directly the string response
+      responseContent = result
+    } else if (result?.content) {
+      responseContent = result.content
+    } else if (result?.response) {
+      responseContent = result.response
+    }
+    
+    if (responseContent) {
+      console.log('Generating actions for content:', responseContent.substring(0, 100) + '...')
+      const actions = generateContextualActions(responseContent)
       if (actions.length > 0) {
+        console.log('Generated actions:', actions)
         // Update the last message with generated actions
         const lastMessage = aiStore.messages[aiStore.messages.length - 1]
         if (lastMessage && lastMessage.role === 'assistant') {
-          lastMessage.actions = [...(lastMessage.actions || []), ...actions]
+          // Replace with new actions since backend no longer generates generic ones
+          lastMessage.actions = actions
+          console.log('Updated last message with actions')
         }
+      } else {
+        console.log('No actions generated')
       }
+    } else {
+      console.log('No valid response content found for action generation')
     }
     
   } catch (error) {

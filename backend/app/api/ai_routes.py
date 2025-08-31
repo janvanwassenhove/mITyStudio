@@ -35,8 +35,17 @@ def chat():
     if not message:
         return jsonify({'error': 'Message is required'}), 400
     
+    # Enhance context with available instruments
+    try:
+        available_instruments = get_all_available_instruments()
+        context['available_instruments'] = available_instruments
+        current_app.logger.info(f"Added {len(available_instruments)} available instruments to AI context")
+    except Exception as e:
+        current_app.logger.warning(f"Could not load available instruments for AI context: {str(e)}")
+        context['available_instruments'] = []
+
     ai_service = AIService()
-    
+
     try:
         response = ai_service.chat_completion(
             message=message,
@@ -44,7 +53,7 @@ def chat():
             model=model,
             context=context
         )
-        
+
         # Build enhanced response with LangChain fields if available
         result = {
             'response': response['content'],
@@ -54,7 +63,7 @@ def chat():
             'timestamp': response.get('timestamp'),
             'success': response.get('success', True)
         }
-        
+
         # Include LangChain-specific fields if present
         if 'updated_song_structure' in response:
             result['updated_song_structure'] = response['updated_song_structure']
