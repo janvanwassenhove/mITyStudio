@@ -530,8 +530,8 @@ def _get_voice_notes_for_range(voice_range: str, song_key: str) -> List[str]:
 
 
 def _create_voice_lyrics_exact_format(voice_words: List[str], voice_notes: List[str], 
-                                     duration: float, start_time: float) -> List[Dict]:
-    """Create lyrics fragments for a voice following EXACT JSON specification format"""
+                                     duration: float, start_time: float, section_id: str = None) -> List[Dict]:
+    """Create lyrics fragments for a voice following EXACT JSON specification format with extended structure"""
     voice_lyrics = []
     
     # Calculate timing for each word
@@ -561,6 +561,13 @@ def _create_voice_lyrics_exact_format(voice_words: List[str], voice_notes: List[
                 "start": i * word_duration,
                 "duration": word_duration  # Single duration for single note
             }
+        
+        # Add extended structure: syllables breakdown
+        fragment["syllables"] = _generate_syllable_breakdown_for_word(word, fragment.get("notes", []), 
+                                                                     fragment.get("durations", fragment.get("duration", word_duration)))
+        
+        # Add phonemes for TTS/singing engines
+        fragment["phonemes"] = _generate_phonemes_for_word(word)
         
         voice_lyrics.append(fragment)
     
@@ -600,6 +607,167 @@ def _create_voice_lyrics(voice_words: List[str], voice_notes: List[str],
         voice_lyrics.append(fragment)
     
     return voice_lyrics
+
+
+def _generate_syllable_breakdown_for_word(word: str, notes: List[str], durations) -> List[Dict[str, Any]]:
+    """
+    Generate syllable breakdown for a single word with note mapping.
+    
+    Args:
+        word: Word to split into syllables
+        notes: List of notes for this word
+        durations: Duration(s) for the notes
+        
+    Returns:
+        List of syllable dictionaries with note mapping
+    """
+    try:
+        # Simple syllable detection (can be enhanced with proper phonetic libraries)
+        word_syllables = _split_word_into_syllables(word)
+        syllables = []
+        
+        # Ensure durations is always a list
+        if not isinstance(durations, list):
+            durations = [durations]
+        
+        note_index = 0
+        for i, syllable in enumerate(word_syllables):
+            is_melisma = len(word_syllables) > 1 and i == len(word_syllables) - 1
+            
+            # Map syllable to notes
+            note_indices = []
+            if note_index < len(notes):
+                if is_melisma and note_index + 1 < len(notes):
+                    # For melisma, use multiple notes
+                    note_indices = [note_index, note_index + 1]
+                    note_index += 2
+                else:
+                    note_indices = [note_index]
+                    note_index += 1
+            else:
+                note_indices = [0]  # Fallback to first note
+            
+            duration = durations[note_indices[0]] if note_indices[0] < len(durations) else 0.3
+            
+            syllable_dict = {
+                "t": syllable,
+                "noteIdx": note_indices,
+                "dur": duration
+            }
+            
+            if is_melisma:
+                syllable_dict["melisma"] = True
+            
+            syllables.append(syllable_dict)
+        
+        return syllables
+        
+    except Exception as e:
+        safe_log_error(f"Error generating syllable breakdown for word '{word}': {e}")
+        return [{"t": word, "noteIdx": [0], "dur": 1.0}]
+
+
+def _split_word_into_syllables(word: str) -> List[str]:
+    """
+    Simple syllable splitting (basic implementation).
+    For production, consider using a proper phonetic library like pyphen or syllables.
+    
+    Args:
+        word: Word to split into syllables
+        
+    Returns:
+        List of syllables
+    """
+    try:
+        # Basic vowel-based syllable detection
+        vowels = "aeiouyAEIOUY"
+        syllables = []
+        current_syllable = ""
+        
+        for i, char in enumerate(word):
+            current_syllable += char
+            
+            if char in vowels:
+                # Check if this is the end of a syllable
+                if i + 1 < len(word) and word[i + 1] not in vowels:
+                    # Add consonant to current syllable if it's not the last character
+                    if i + 2 < len(word):
+                        current_syllable += word[i + 1]
+                        syllables.append(current_syllable)
+                        current_syllable = ""
+                        continue
+                elif i == len(word) - 1:
+                    # End of word
+                    syllables.append(current_syllable)
+                    current_syllable = ""
+        
+        if current_syllable:
+            if syllables:
+                syllables[-1] += current_syllable
+            else:
+                syllables.append(current_syllable)
+        
+        return syllables if syllables else [word]
+        
+    except Exception as e:
+        safe_log_error(f"Error splitting syllables for word '{word}': {e}")
+        return [word]
+
+
+def _generate_phonemes_for_word(word: str) -> List[str]:
+    """
+    Generate IPA phonemes for a single word for TTS/singing engines.
+    This is a basic implementation - for production use, consider proper IPA libraries.
+    
+    Args:
+        word: The word to convert to phonemes
+        
+    Returns:
+        List of IPA phoneme strings
+    """
+    try:
+        # Basic English phoneme mapping (simplified)
+        phoneme_map = {
+            # Vowels
+            'a': 'ɑ', 'e': 'ɛ', 'i': 'ɪ', 'o': 'ɔ', 'u': 'ʊ',
+            'ai': 'aɪ', 'ay': 'eɪ', 'ey': 'eɪ', 'oy': 'ɔɪ', 'ow': 'aʊ',
+            'ee': 'i', 'oo': 'u', 'ou': 'aʊ',
+            
+            # Consonants
+            'th': 'θ', 'sh': 'ʃ', 'ch': 'tʃ', 'ng': 'ŋ', 'ph': 'f',
+            'b': 'b', 'c': 'k', 'd': 'd', 'f': 'f', 'g': 'g',
+            'h': 'h', 'j': 'dʒ', 'k': 'k', 'l': 'l', 'm': 'm',
+            'n': 'n', 'p': 'p', 'r': 'r', 's': 's', 't': 't',
+            'v': 'v', 'w': 'w', 'x': 'ks', 'y': 'j', 'z': 'z'
+        }
+        
+        word_lower = word.lower()
+        phonemes = []
+        
+        i = 0
+        while i < len(word_lower):
+            # Check for two-character combinations first
+            if i + 1 < len(word_lower):
+                two_char = word_lower[i:i+2]
+                if two_char in phoneme_map:
+                    phonemes.append(phoneme_map[two_char])
+                    i += 2
+                    continue
+            
+            # Single character
+            char = word_lower[i]
+            if char in phoneme_map:
+                phonemes.append(phoneme_map[char])
+            else:
+                phonemes.append(char)  # Keep unknown characters as-is
+            i += 1
+        
+        return phonemes
+        
+    except Exception as e:
+        safe_log_error(f"Error generating phonemes for word '{word}': {e}")
+        # Fallback: return characters as basic phonemes
+        return list(word.lower())
 
 
 def _find_voice_for_range(available_voices: Dict[str, Dict], voice_range: str) -> str:

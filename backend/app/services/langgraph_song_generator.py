@@ -130,13 +130,13 @@ def _initialize_global_llms():
         return
     
     # Initialize OpenAI LLM with default parameters - model will be overridden per instance
-    if ChatOpenAI and openai_key:
+    if ChatOpenAI and openai_key and not openai_key.startswith('your-'):
         try:
             print("🚀 Creating global OpenAI LLM...")
-            # Use default model for global instance - actual model selection happens per-instance
+            # Use available model for global instance - actual model selection happens per-instance
             _global_openai_llm = ChatOpenAI(
                 api_key=openai_key,
-                model="gpt-5",  # Default to GPT-5 for best performance
+                model="gpt-4o-mini",  # Use available model instead of non-existent gpt-5
                 temperature=0.7,
                 max_retries=2,
                 timeout=120  # Increased to 2 minutes for complex song generation tasks
@@ -150,8 +150,8 @@ def _initialize_global_llms():
             try:
                 print("🔄 Retrying OpenAI LLM with basic parameters...")
                 _global_openai_llm = ChatOpenAI(
-                    openai_api_key=openai_key,  # Try alternative parameter name
-                    model_name="gpt-4",
+                    api_key=openai_key,
+                    model="gpt-4o",  # Try gpt-4o instead
                     temperature=0.7,
                     timeout=120  # Increased timeout for fallback as well
                 )
@@ -161,10 +161,13 @@ def _initialize_global_llms():
                 print(f"❌ Alternative OpenAI LLM initialization also failed: {e2}")
                 logger.error(f"✗ Alternative OpenAI LLM initialization failed: {e2}")
     else:
-        print(f"⚠️ OpenAI LLM not available - ChatOpenAI: {ChatOpenAI is not None}, Key: {bool(openai_key)}")
+        if openai_key and openai_key.startswith('your-'):
+            print("⚠️ OpenAI API key not configured - using placeholder value")
+        else:
+            print(f"⚠️ OpenAI LLM not available - ChatOpenAI: {ChatOpenAI is not None}, Key: {bool(openai_key)}")
     
     # Initialize Anthropic LLM with minimal parameters
-    if ChatAnthropic and anthropic_key:
+    if ChatAnthropic and anthropic_key and not anthropic_key.startswith('your-'):
         try:
             print("🚀 Creating global Anthropic LLM...")
             # Use minimal parameters to avoid compatibility issues
@@ -184,8 +187,8 @@ def _initialize_global_llms():
             try:
                 print("🔄 Retrying Anthropic LLM with basic parameters...")
                 _global_anthropic_llm = ChatAnthropic(
-                    anthropic_api_key=anthropic_key,  # Try alternative parameter name
-                    model_name="claude-3-5-sonnet-20241022",
+                    api_key=anthropic_key,
+                    model="claude-3-5-haiku-20241022",  # Try different model
                     temperature=0.7,
                     timeout=120  # Increased timeout for fallback as well
                 )
@@ -195,7 +198,10 @@ def _initialize_global_llms():
                 print(f"❌ Alternative Anthropic LLM initialization also failed: {e2}")
                 logger.error(f"✗ Alternative Anthropic LLM initialization failed: {e2}")
     else:
-        print(f"⚠️ Anthropic LLM not available - ChatAnthropic: {ChatAnthropic is not None}, Key: {bool(anthropic_key)}")
+        if anthropic_key and anthropic_key.startswith('your-'):
+            print("⚠️ Anthropic API key not configured - using placeholder value")
+        else:
+            print(f"⚠️ Anthropic LLM not available - ChatAnthropic: {ChatAnthropic is not None}, Key: {bool(anthropic_key)}")
     
     print(f"🏁 Global LLM initialization complete - OpenAI: {bool(_global_openai_llm)}, Anthropic: {bool(_global_anthropic_llm)}")
 
@@ -386,7 +392,7 @@ class LangGraphSongGenerator:
         # Create main LLM based on user's selected provider and model
         if self.provider.lower() == "anthropic":
             logger.info(f"🎯 User selected ANTHROPIC provider")
-            if ChatAnthropic and anthropic_key:
+            if ChatAnthropic and anthropic_key and not anthropic_key.startswith('your-'):
                 try:
                     mapped_model = self._map_anthropic_model(self.model)
                     logger.info(f"🚀 Creating Anthropic LLM with model: {mapped_model}")
@@ -408,7 +414,10 @@ class LangGraphSongGenerator:
                     else:
                         logger.error("❌ No Anthropic LLM available (global or created)")
             else:
-                logger.error(f"❌ Cannot create Anthropic LLM - ChatAnthropic: {ChatAnthropic is not None}, Key: {bool(anthropic_key)}")
+                if anthropic_key and anthropic_key.startswith('your-'):
+                    logger.error("❌ Anthropic API key not configured - using placeholder value")
+                else:
+                    logger.error(f"❌ Cannot create Anthropic LLM - ChatAnthropic: {ChatAnthropic is not None}, Key: {bool(anthropic_key)}")
                 if _global_anthropic_llm:
                     self.llm = _global_anthropic_llm
                     logger.info("🔄 Using global Anthropic LLM")
@@ -416,7 +425,7 @@ class LangGraphSongGenerator:
                     logger.error("❌ No Anthropic options available")
         elif self.provider.lower() == "openai":
             logger.info(f"🎯 User selected OPENAI provider")
-            if ChatOpenAI and openai_key:
+            if ChatOpenAI and openai_key and not openai_key.startswith('your-'):
                 try:
                     mapped_model = self._map_openai_model(self.model)
                     logger.info(f"🚀 Creating OpenAI LLM with model: {mapped_model}")
@@ -438,7 +447,10 @@ class LangGraphSongGenerator:
                     else:
                         logger.error("❌ No OpenAI LLM available (global or created)")
             else:
-                logger.error(f"❌ Cannot create OpenAI LLM - ChatOpenAI: {ChatOpenAI is not None}, Key: {bool(openai_key)}")
+                if openai_key and openai_key.startswith('your-'):
+                    logger.error("❌ OpenAI API key not configured - using placeholder value")
+                else:
+                    logger.error(f"❌ Cannot create OpenAI LLM - ChatOpenAI: {ChatOpenAI is not None}, Key: {bool(openai_key)}")
                 if _global_openai_llm:
                     self.llm = _global_openai_llm
                     logger.info("🔄 Using global OpenAI LLM")
@@ -458,6 +470,12 @@ class LangGraphSongGenerator:
                 logger.info("🆘 Emergency fallback to global OpenAI LLM")
             else:
                 logger.error("🚨 NO LLMs available at all!")
+                # Check if it's a key issue and provide helpful message
+                if openai_key and openai_key.startswith('your-') and anthropic_key and anthropic_key.startswith('your-'):
+                    logger.error("💡 SOLUTION: Please configure your API keys in the .env file")
+                    logger.error("   1. Copy .env.example to backend/.env")
+                    logger.error("   2. Add your API keys (get them from provider websites)")
+                    logger.error("   3. Restart the server")
         
         # Log final result
         if self.llm:
@@ -467,12 +485,12 @@ class LangGraphSongGenerator:
             logger.error(f"💥 FINAL LLM: None (user wanted: {self.provider})")
         
         # Always use OpenAI for album cover generation (design phase) if available
-        if ChatOpenAI and openai_key:
+        if ChatOpenAI and openai_key and not openai_key.startswith('your-'):
             try:
                 # For design phase, always use OpenAI with a good model for image generation
                 self.openai_llm = ChatOpenAI(
                     api_key=openai_key,
-                    model="gpt-5",  # Use GPT-5 for best image generation prompts
+                    model="gpt-4o",  # Use available model for best image generation prompts
                     temperature=0.7,
                     max_retries=2,
                     timeout=120
@@ -488,7 +506,7 @@ class LangGraphSongGenerator:
                 self.openai_llm = _global_openai_llm
                 logger.info("✓ Using global OpenAI LLM for album covers")
             else:
-                logger.warning("✗ No OpenAI LLM available - album cover generation may fail")
+                logger.warning("✗ No OpenAI LLM available - album cover generation will be limited")
     
     async def _safe_progress_callback(self, message: str, progress: int, agent: str = None, restart_reason: str = None, restart_attempt: int = None, **kwargs):
         """Safely call progress callback whether it's async or sync"""
@@ -702,6 +720,72 @@ class LangGraphSongGenerator:
                     logger.warning("No fallback data available, returning empty dict")
                     return {}
     
+    def _format_style_tags(self, style_tags: List[Any]) -> str:
+        """
+        Safely format style tags, handling both string and dict formats
+        """
+        if not style_tags:
+            return ""
+        
+        formatted_tags = []
+        for tag in style_tags:
+            if isinstance(tag, str):
+                formatted_tags.append(tag)
+            elif isinstance(tag, dict):
+                # Handle dict format - try to extract a string representation
+                if 'name' in tag:
+                    formatted_tags.append(tag['name'])
+                elif 'value' in tag:
+                    formatted_tags.append(tag['value'])
+                elif 'label' in tag:
+                    formatted_tags.append(tag['label'])
+                else:
+                    # Fallback: use the first string value found
+                    for key, value in tag.items():
+                        if isinstance(value, str):
+                            formatted_tags.append(value)
+                            break
+            else:
+                # Convert other types to string
+                formatted_tags.append(str(tag))
+        
+        return ', '.join(formatted_tags)
+    
+    def _ensure_string_list(self, items: List[Any]) -> List[str]:
+        """
+        Ensure all items in a list are strings, converting as needed
+        """
+        if not items:
+            return []
+        
+        string_items = []
+        for item in items:
+            if isinstance(item, str):
+                string_items.append(item)
+            elif isinstance(item, dict):
+                # Handle dict format - try to extract a string representation
+                if 'message' in item:
+                    string_items.append(item['message'])
+                elif 'issue' in item:
+                    string_items.append(item['issue'])
+                elif 'description' in item:
+                    string_items.append(item['description'])
+                else:
+                    # Fallback: use the first string value found or convert to string
+                    found_string = False
+                    for key, value in item.items():
+                        if isinstance(value, str) and value.strip():
+                            string_items.append(value)
+                            found_string = True
+                            break
+                    if not found_string:
+                        string_items.append(str(item))
+            else:
+                # Convert other types to string
+                string_items.append(str(item))
+        
+        return string_items
+    
     def _initialize_llms(self) -> None:
         """Initialize LLM clients based on provider selection"""
         logger.info(f"Initializing LLMs - Provider: {self.provider}, Model: {self.model}")
@@ -830,29 +914,7 @@ class LangGraphSongGenerator:
     def _map_openai_model(self, model_id: str) -> str:
         """Map frontend model ID to actual OpenAI model name"""
         model_mapping = {
-            # GPT-5 Family (Latest)
-            'gpt-5': 'gpt-5',
-            'gpt-5-2025-08-07': 'gpt-5-2025-08-07',
-            'gpt-5-chat-latest': 'gpt-5-chat-latest',
-            'gpt-5-mini': 'gpt-5-mini',
-            'gpt-5-mini-2025-08-07': 'gpt-5-mini-2025-08-07',
-            'gpt-5-nano': 'gpt-5-nano',
-            'gpt-5-nano-2025-08-07': 'gpt-5-nano-2025-08-07',
-            # o1 Family (Reasoning)
-            'o1-pro': 'o1-pro',
-            'o1-pro-2025-03-19': 'o1-pro-2025-03-19',
-            'o1': 'o1',
-            'o1-2024-12-17': 'o1-2024-12-17',
-            'o1-mini': 'o1-mini',
-            'o1-mini-2024-09-12': 'o1-mini-2024-09-12',
-            # GPT-4.1 Family
-            'gpt-4.1': 'gpt-4.1',
-            'gpt-4.1-2025-04-14': 'gpt-4.1-2025-04-14',
-            'gpt-4.1-mini': 'gpt-4.1-mini',
-            'gpt-4.1-mini-2025-04-14': 'gpt-4.1-mini-2025-04-14',
-            'gpt-4.1-nano': 'gpt-4.1-nano',
-            'gpt-4.1-nano-2025-04-14': 'gpt-4.1-nano-2025-04-14',
-            # GPT-4o Family
+            # GPT-4o Family (Available)
             'chatgpt-4o-latest': 'chatgpt-4o-latest',
             'gpt-4o': 'gpt-4o',
             'gpt-4o-2024-11-20': 'gpt-4o-2024-11-20',
@@ -860,7 +922,7 @@ class LangGraphSongGenerator:
             'gpt-4o-2024-05-13': 'gpt-4o-2024-05-13',
             'gpt-4o-mini': 'gpt-4o-mini',
             'gpt-4o-mini-2024-07-18': 'gpt-4o-mini-2024-07-18',
-            # GPT-4 Family
+            # GPT-4 Family (Available)
             'gpt-4-turbo': 'gpt-4-turbo',
             'gpt-4-turbo-2024-04-09': 'gpt-4-turbo-2024-04-09',
             'gpt-4-turbo-preview': 'gpt-4-turbo-preview',
@@ -868,14 +930,26 @@ class LangGraphSongGenerator:
             'gpt-4-1106-preview': 'gpt-4-1106-preview',
             'gpt-4': 'gpt-4',
             'gpt-4-0613': 'gpt-4-0613',
-            # GPT-3.5 Family
+            # GPT-3.5 Family (Available)
             'gpt-3.5-turbo': 'gpt-3.5-turbo',
             'gpt-3.5-turbo-0125': 'gpt-3.5-turbo-0125',
             'gpt-3.5-turbo-1106': 'gpt-3.5-turbo-1106',
             'gpt-3.5-turbo-16k': 'gpt-3.5-turbo-16k',
-            'gpt-3.5-turbo-instruct': 'gpt-3.5-turbo-instruct'
+            'gpt-3.5-turbo-instruct': 'gpt-3.5-turbo-instruct',
+            # o1 Family (Available)
+            'o1-pro': 'o1-pro',
+            'o1': 'o1',
+            'o1-2024-12-17': 'o1-2024-12-17',
+            'o1-mini': 'o1-mini',
+            'o1-mini-2024-09-12': 'o1-mini-2024-09-12',
+            # Future models - map to available alternatives
+            'gpt-5': 'gpt-4o',  # Map future models to current best
+            'gpt-5-mini': 'gpt-4o-mini',
+            'gpt-5-nano': 'gpt-4o-mini',
+            'gpt-4.1': 'gpt-4o',
+            'gpt-4.1-mini': 'gpt-4o-mini'
         }
-        return model_mapping.get(model_id, 'gpt-4o')  # Default to gpt-4o instead of gpt-4
+        return model_mapping.get(model_id, 'gpt-4o-mini')  # Default to gpt-4o-mini as it's cost effective
     
     def _build_graph(self) -> None:
         """Build the LangGraph workflow"""
@@ -887,8 +961,8 @@ class LangGraphSongGenerator:
         
         # Add all agent nodes
         workflow.add_node("composer", self._composer_agent)
-        workflow.add_node("arrangement", self._arrangement_agent)
-        workflow.add_node("lyrics", self._lyrics_agent)
+        workflow.add_node("arranger", self._arrangement_agent)  # Renamed to avoid conflict with state field
+        workflow.add_node("lyricist", self._lyrics_agent)  # Renamed to avoid conflict with state field
         workflow.add_node("vocal", self._vocal_agent)
         workflow.add_node("instrument", self._instrument_agent)
         workflow.add_node("effects", self._effects_agent)
@@ -900,21 +974,21 @@ class LangGraphSongGenerator:
         workflow.set_entry_point("composer")
         
         # Linear progression with conditional paths for instrumental tracks
-        workflow.add_edge("composer", "arrangement")
+        workflow.add_edge("composer", "arranger")
         
         # Conditional edge: Skip lyrics/vocal agents for instrumental tracks
         workflow.add_conditional_edges(
-            "arrangement",
+            "arranger",
             self._arrangement_decision,
             {
                 "skip_lyrics_vocal": "instrument",  # Skip lyrics and vocal agents for instrumental tracks
-                "include_lyrics_vocal": "lyrics"    # Include lyrics and vocal agents for non-instrumental tracks
+                "include_lyrics_vocal": "lyricist"    # Include lyrics and vocal agents for non-instrumental tracks
             }
         )
         
         # Conditional edge: Skip vocal agent for instrumental tracks (in case we reach lyrics)
         workflow.add_conditional_edges(
-            "lyrics",
+            "lyricist",
             self._vocal_decision,
             {
                 "skip_vocal": "instrument",  # Skip vocal agent for instrumental tracks
@@ -946,8 +1020,8 @@ class LangGraphSongGenerator:
                 "complete": END,           # Song validation passed
                 "user_review": "user_approval",      # Let user decide on improvements
                 "restart_composer": "composer",       # Restart from composer for tempo/key issues
-                "restart_arrangement": "arrangement", # Restart from arrangement for structure issues
-                "restart_lyrics": "lyrics",           # Restart from lyrics for lyric issues
+                "restart_arrangement": "arranger", # Restart from arranger for structure issues
+                "restart_lyrics": "lyricist",           # Restart from lyrics for lyric issues
                 "restart_vocal": "vocal",             # Restart from vocal for voice/vocal issues
                 "restart_instrument": "instrument",   # Restart from instrument for instrumental issues
                 "restart_effects": "effects",         # Restart from effects for effects issues
@@ -965,8 +1039,8 @@ class LangGraphSongGenerator:
             {
                 "accept": END,             # User accepts current version
                 "restart_composer": "composer",       # User wants to restart from composer
-                "restart_arrangement": "arrangement", # User wants to restart from arrangement
-                "restart_lyrics": "lyrics",           # User wants to restart from lyrics
+                "restart_arrangement": "arranger", # User wants to restart from arranger
+                "restart_lyrics": "lyricist",           # User wants to restart from lyrics
                 "restart_vocal": "vocal",             # User wants to restart from vocal
                 "restart_instrument": "instrument",   # User wants to restart from instrument
                 "restart_effects": "effects",         # User wants to restart from effects
@@ -1012,7 +1086,20 @@ class LangGraphSongGenerator:
     async def generate_song(self, request: SongGenerationRequest, progress_callback=None) -> Dict[str, Any]:
         """Generate a complete song structure using the multi-agent system"""
         if not self.graph:
-            raise RuntimeError("Graph not initialized. Check dependencies and API key.")
+            # Provide specific error messages based on the issue
+            if not ChatOpenAI and not ChatAnthropic:
+                raise RuntimeError("LangChain dependencies not available. Please install: pip install langchain-openai langchain-anthropic")
+            elif not self.llm:
+                # Check API keys
+                openai_key = os.getenv('OPENAI_API_KEY')
+                anthropic_key = os.getenv('ANTHROPIC_API_KEY')
+                
+                if (not openai_key or openai_key.startswith('your-')) and (not anthropic_key or anthropic_key.startswith('your-')):
+                    raise RuntimeError("API keys not configured. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY in your .env file. Get keys from: OpenAI (https://platform.openai.com/api-keys) or Anthropic (https://console.anthropic.com/account/keys)")
+                else:
+                    raise RuntimeError("Failed to initialize AI models. Check your API keys and internet connection.")
+            else:
+                raise RuntimeError("Graph not initialized. Check dependencies and API key.")
         
         # Store progress callback for agents to use
         self.progress_callback = progress_callback
@@ -1084,6 +1171,25 @@ class LangGraphSongGenerator:
                         "recursion_error": True
                     }
                 else:
+                    # Enhanced error logging for string join errors
+                    import traceback
+                    error_msg = str(e)
+                    full_traceback = traceback.format_exc()
+                    
+                    if "expected str instance, dict found" in error_msg:
+                        logger.error(f"String join error detected: {error_msg}")
+                        logger.error(f"Full traceback for string join error: {full_traceback}")
+                        
+                        # Try to extract the specific location from the traceback
+                        traceback_lines = full_traceback.split('\n')
+                        for i, line in enumerate(traceback_lines):
+                            if 'langgraph_song_generator.py' in line and i + 1 < len(traceback_lines):
+                                logger.error(f"Error occurred at: {line}")
+                                logger.error(f"Next line: {traceback_lines[i + 1]}")
+                                break
+                    
+                    logger.error(f"Graph execution error: {error_msg}")
+                    logger.error(f"Full error traceback: {full_traceback}")
                     raise  # Re-raise other exceptions
             
             await self._safe_progress_callback("Processing final results...", 90)
@@ -1143,7 +1249,7 @@ class LangGraphSongGenerator:
                 logger.error(f"Validation errors: {detailed_errors}")
                 return {
                     "success": False,
-                    "error": f"Song generation failed validation: {'; '.join(detailed_errors[:3])}",
+                    "error": f"Song generation failed validation: {'; '.join(str(err) for err in detailed_errors[:3])}",
                     "errors": errors,
                     "review_notes": review_notes,
                     "debug_info": {
@@ -1248,7 +1354,7 @@ class LangGraphSongGenerator:
             qa_context = f"""
 🔄 QA RESTART CONTEXT (Attempt {state.qa_restart_count + 1}):
 Previous iteration had issues that need addressing:
-{chr(10).join(f"- {feedback}" for feedback in state.qa_feedback)}
+{chr(10).join(f"- {str(feedback)}" for feedback in self._ensure_string_list(state.qa_feedback))}
 
 Please specifically address these issues in your composition choices.
 """
@@ -1258,7 +1364,7 @@ Please specifically address these issues in your composition choices.
 {qa_context}
 Song Request:
 - Idea: {state.request.song_idea}
-- Style Tags: {', '.join(state.request.style_tags)}
+- Style Tags: {self._format_style_tags(state.request.style_tags)}
 - Custom Style: {state.request.custom_style}
 - Duration Preference: {state.request.duration or 'Not specified'} (target: ~{preferred_duration['seconds']} seconds)
 - Key Preference: {state.request.song_key or 'Not specified'}
@@ -1386,9 +1492,12 @@ Key selection guidelines:
         qa_context = ""
         if state.qa_restart_count > 0 and state.qa_feedback:
             # Filter QA feedback to only include relevant issues for this track type
+            # First, ensure all qa_feedback items are strings
+            string_feedback_list = self._ensure_string_list(state.qa_feedback)
             relevant_feedback = []
-            for feedback in state.qa_feedback:
-                feedback_lower = feedback.lower()
+            
+            for feedback_str in string_feedback_list:
+                feedback_lower = feedback_str.lower()
                 # Skip vocal/lyrics feedback for instrumental tracks
                 if state.request.is_instrumental:
                     if any(vocal_kw in feedback_lower for vocal_kw in ['vocal', 'voice', 'singing', 'singer', 'lyrics', 'lyric']):
@@ -1398,10 +1507,10 @@ Key selection guidelines:
                             relevant_feedback.append("structure: Focus on lead instrumental tracks for melody instead of vocal tracks")
                         continue
                     else:
-                        relevant_feedback.append(feedback)
+                        relevant_feedback.append(feedback_str)
                 else:
                     # Include all feedback for vocal tracks
-                    relevant_feedback.append(feedback)
+                    relevant_feedback.append(feedback_str)
             
             if relevant_feedback:
                 track_type = "instrumental" if state.request.is_instrumental else "vocal"
@@ -1426,7 +1535,7 @@ Song Parameters:
 - Key: {state.global_params.get('key')}
 - Total Duration: {duration_seconds} seconds (~{total_bars} bars)
 - Time Signature: {state.global_params.get('timeSignature')}
-- Style: {', '.join(state.request.style_tags)} {state.request.custom_style}
+- Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
 - Instrumental: {state.request.is_instrumental}
 - Song Idea: {state.request.song_idea}
 
@@ -1858,7 +1967,7 @@ Guidelines:
 
 Song Context:
 - Core Idea: {state.request.song_idea}
-- Musical Style: {', '.join(state.request.style_tags)} {state.request.custom_style}
+- Musical Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
 - Emotional Mood: {state.request.mood}
 - Key: {key}
 - Tempo: {tempo} BPM
@@ -2101,7 +2210,7 @@ Song Parameters:
 - Key: {key}
 - Tempo: {tempo} BPM  
 - Time Signature: {time_signature}
-- Style: {', '.join(state.request.style_tags)} {state.request.custom_style}
+- Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
 
 Available Voices and Ranges:
 {self.music_tools.format_voices_for_prompt(state.available_voices)}
@@ -2140,6 +2249,8 @@ Create complete vocal track assignments with melodic content. Respond ONLY with 
                     "volume": 0.8,
                     "pan": 0.0,
                     "effects": {{"reverb": 0.2, "delay": 0.1, "distortion": 0}},
+                    "sectionId": "verse1",
+                    "sectionSpans": ["verse1"],
                     "voices": [
                         {{
                             "voice_id": "soprano01",
@@ -2149,14 +2260,31 @@ Create complete vocal track assignments with melodic content. Respond ONLY with 
                                     "notes": ["C4", "D4", "E4", "F4", "G4"],
                                     "start": 0.0,
                                     "durations": [1.0, 1.0, 0.5, 0.5, 2.0],
-                                    "velocities": [80, 75, 85, 80, 90]
+                                    "velocities": [80, 75, 85, 80, 90],
+                                    "syllables": [
+                                        {{"t": "First", "noteIdx": [0], "dur": 1.0}},
+                                        {{"t": "line", "noteIdx": [1], "dur": 1.0}},
+                                        {{"t": "of", "noteIdx": [2], "dur": 0.5}},
+                                        {{"t": "verse", "noteIdx": [3], "dur": 0.5}},
+                                        {{"t": "lyrics", "noteIdx": [4], "dur": 2.0}}
+                                    ],
+                                    "phonemes": ["f", "ɜr", "s", "t", "l", "aɪ", "n", "ʌ", "v", "v", "ɜr", "s", "l", "ɪ", "r", "ɪ", "k", "s"]
                                 }},
                                 {{
                                     "text": "Second line continues melody",
                                     "notes": ["F4", "E4", "D4", "C4"],
                                     "start": 5.0,
                                     "durations": [1.5, 1.0, 1.0, 1.5],
-                                    "velocities": [75, 80, 85, 80]
+                                    "velocities": [75, 80, 85, 80],
+                                    "syllables": [
+                                        {{"t": "Sec", "noteIdx": [0], "dur": 0.7}},
+                                        {{"t": "ond", "noteIdx": [0], "dur": 0.8}},
+                                        {{"t": "line", "noteIdx": [1], "dur": 1.0}},
+                                        {{"t": "con-tin", "noteIdx": [2], "dur": 1.0}},
+                                        {{"t": "ues", "noteIdx": [3], "dur": 0.8}},
+                                        {{"t": "mel", "noteIdx": [3], "dur": 0.7}}
+                                    ],
+                                    "phonemes": ["s", "ɛ", "k", "ə", "n", "d", "l", "aɪ", "n", "k", "ə", "n", "t", "ɪ", "n", "j", "u", "z", "m", "ɛ", "l"]
                                 }}
                             ]
                         }}
@@ -2190,6 +2318,15 @@ Critical Guidelines:
 - Include backing vocals/harmonies for choruses and final sections
 - Map syllables to note timing carefully - avoid cramming too many syllables per beat
 - Use velocities (60-100) to create dynamic expression in the vocal performance
+- REQUIRED EXTENDED STRUCTURE FIELDS:
+  * "sectionId": Must reference the section name (e.g., "verse1", "chorus", "bridge")  
+  * "sectionSpans": Array of sections this clip spans (for cross-boundary clips)
+  * "syllables": Array of syllable breakdowns with note mapping for each lyric
+  * "phonemes": Array of IPA phoneme strings for TTS/singing engines for each lyric
+- SYLLABLES FORMAT: {{"t": "syllable_text", "noteIdx": [note_index], "dur": duration, "melisma": true/false}}
+- Generate accurate syllable breakdowns that map to note indices within each lyric
+- Include IPA phonemes for proper pronunciation in singing synthesis engines
+- Ensure syllables and phonemes arrays are provided for every lyric entry
 """
         
         try:
@@ -2322,7 +2459,7 @@ Critical Guidelines:
                         "voices": [{
                             "voice_id": voice_id,
                             "lyrics": [{
-                                "text": " ".join(section_lyrics) if isinstance(section_lyrics, list) else section_lyrics,
+                                "text": " ".join(str(lyric) for lyric in section_lyrics) if isinstance(section_lyrics, list) else str(section_lyrics),
                                 "notes": ["C4", "D4", "E4", "F4"],  # Simple default melody
                                 "start": 0.0,
                                 "durations": [2.0, 2.0, 2.0, 2.0],
@@ -2385,7 +2522,7 @@ Song Parameters:
 - Key: {key}
 - Tempo: {tempo} BPM
 - Time Signature: {time_signature}
-- Style: {', '.join(state.request.style_tags)} {state.request.custom_style}
+- Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
 - Song Idea: {state.request.song_idea}
 - Track Type: {'INSTRUMENTAL ONLY - No Vocals' if state.request.is_instrumental else 'Mixed - Includes Vocals'}
 
@@ -2408,7 +2545,7 @@ SAMPLE SELECTION GUIDELINES:
 - User samples should be integrated creatively into the arrangement - they're not just backing tracks
 - When using user samples, note their metadata (BPM, key, duration) in your reasoning
 - Fall back to default samples only when user samples aren't suitable for the specific instrument role
-- Use sample tags to find appropriate sounds for the intended style: {', '.join(state.request.style_tags)}
+- Use sample tags to find appropriate sounds for the intended style: {self._format_style_tags(state.request.style_tags)}
 - Consider sample duration when creating clips - shorter samples for percussion hits, longer samples for melodic loops
 - Mix default instrument samples with user-uploaded samples for variety and personalized sound
 {'- INSTRUMENTAL FOCUS: Since this is an instrumental track, create rich, layered arrangements with prominent lead melodies, complex harmonies, and dynamic instrumental sections that compensate for the absence of vocals' if state.request.is_instrumental else '- VOCAL SUPPORT: Create arrangements that support and complement the vocal parts without overwhelming them'}
@@ -2550,7 +2687,7 @@ AVOID SIMPLE PATTERNS:
 - DO NOT have all instruments play the same notes
 - DO NOT ignore instrument ranges (bass should be low, melody should be higher)
 
-- Match musical content to song style: {', '.join(state.request.style_tags)}
+- Match musical content to song style: {self._format_style_tags(state.request.style_tags)}
 - Use appropriate effects for each instrument and style
 - Ensure all instruments work together harmonically in key: {key}
 - Consider instrument ranges and capabilities
@@ -2774,7 +2911,7 @@ AVOID SIMPLE PATTERNS:
         
         prompt = f"""You are an audio engineer. Add appropriate effects to the tracks based on style and instrument type.
 
-Song Style: {', '.join(state.request.style_tags)} {state.request.custom_style}
+Song Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
 Track Type: {'INSTRUMENTAL ONLY - No Vocals' if state.request.is_instrumental else 'Mixed - Includes Vocals'}
 Tempo: {state.global_params.get('tempo')} BPM
 
@@ -2870,7 +3007,7 @@ Generated Song Structure:
 
 Original Request:
 - Idea: {state.request.song_idea}
-- Style: {', '.join(state.request.style_tags)} {state.request.custom_style}
+- Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
 - Instrumental: {state.request.is_instrumental}
 
 Evaluate and respond ONLY with a JSON object:
@@ -2962,7 +3099,7 @@ Be constructive but focus on what works rather than minor improvements. Most son
 
 Song Information:
 - Title: {state.song_metadata.get('name', 'Untitled')}
-- Style: {', '.join(state.request.style_tags)} {state.request.custom_style}
+- Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
 - Mood: {state.lyrics.get('mood', 'Unknown')}
 - Theme: {state.lyrics.get('theme', 'Unknown')}
 - Key: {state.global_params.get('key')} (consider emotional implications)
@@ -3115,7 +3252,7 @@ Guidelines:
     def _create_image_prompt_from_concept(self, concept_data: Dict[str, Any], state: SongState) -> str:
         """Create a detailed DALL-E prompt from the album art concept"""
         song_name = state.song_metadata.get('name', 'Untitled')
-        style_tags = ', '.join(state.request.style_tags)
+        style_tags = self._format_style_tags(state.request.style_tags)
         
         # Base prompt with the concept
         base_concept = concept_data.get('concept', 'Modern album cover design')
@@ -3123,7 +3260,7 @@ Guidelines:
         # Add style and mood information
         style = concept_data.get('style', 'modern')
         mood = concept_data.get('mood', 'neutral')
-        elements = ', '.join(concept_data.get('elements', []))
+        elements = ', '.join([str(el) if not isinstance(el, str) else el for el in concept_data.get('elements', [])])
         
         # Create a comprehensive prompt for DALL-E-3
         prompt = f"""Professional album cover for "{song_name}". {base_concept}. 
@@ -3273,7 +3410,8 @@ Validation Checks:
             else:
                 # Store feedback for restart decision and explicitly mark as NOT ready
                 state.is_ready_for_export = False  # Explicitly set to False to trigger restart
-                state.qa_feedback = result.get("remaining_issues", [])
+                raw_issues = result.get("remaining_issues", [])
+                state.qa_feedback = self._ensure_string_list(raw_issues)
                 state.errors.extend(state.qa_feedback)
                 logger.warning(f"⚠ QA Agent: Song failed validation - {state.qa_feedback}")
                 
@@ -3351,7 +3489,7 @@ Validation Checks:
         
         # Analyze potential improvement areas from QA feedback
         if state.qa_feedback:
-            feedback_text = " ".join(state.qa_feedback).lower()
+            feedback_text = " ".join(self._ensure_string_list(state.qa_feedback)).lower()
             improvement_suggestions = []
             
             if any(word in feedback_text for word in ['tempo', 'bpm', 'key', 'timing']):
@@ -3478,7 +3616,7 @@ Validation Checks:
             state.qa_restart_count += 1
             
             # Use existing QA analysis logic to determine best restart point
-            feedback_text = " ".join(state.qa_feedback).lower() if state.qa_feedback else ""
+            feedback_text = " ".join(self._ensure_string_list(state.qa_feedback)).lower() if state.qa_feedback else ""
             
             # Determine which agent to restart based on feedback content
             restart_target = "restart_arrangement"  # Default
@@ -3857,7 +3995,9 @@ async def generate_song_with_langgraph(request_data: Dict[str, Any], openai_api_
         song_idea = request_data.get("song_idea", "")
         mood = ""
         if style_tags:
-            mood = ", ".join(style_tags)
+            # Ensure style_tags are strings before joining
+            safe_tags = [str(tag) if isinstance(tag, dict) else tag for tag in style_tags]
+            mood = ", ".join(safe_tags)
         if song_idea and mood:
             mood = f"{mood} (inspired by: {song_idea})"
         elif song_idea:

@@ -80,7 +80,7 @@ echo.
 
 REM Start both frontend and backend concurrently
 echo [START] Starting backend with PyTorch support
-start "mITyStudio Backend" cmd /k "cd backend && venv\Scripts\activate && python run.py"
+start "mITyStudio Backend" cmd /k "cd backend && venv\Scripts\activate && set PYTHONWARNINGS=ignore::SyntaxWarning:pydub && set TF_CPP_MIN_LOG_LEVEL=2 && set TF_ENABLE_ONEDNN_OPTS=0 && python run.py"
 timeout /t 3 /nobreak >nul
 echo [START] Starting frontend
 start "mITyStudio Frontend" cmd /k "cd frontend && npm run dev"

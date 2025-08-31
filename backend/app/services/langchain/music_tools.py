@@ -504,7 +504,39 @@ class MusicCompositionTools:
         formatted = []
         
         # Check if this looks like user samples (list of dicts) vs default samples (dict of lists)
-        if samples and isinstance(list(samples.values())[0], list):
+        # User samples format: {category: [sample_objects]} where each sample is a dict
+        # Default samples format: {category: {instrument: [sample_names]}} where sample_names are strings
+        
+        is_user_samples = False
+        if samples:
+            try:
+                # Check the structure more carefully
+                first_value = next(iter(samples.values()), None)
+                if isinstance(first_value, list):
+                    # It's a list - check what's in the list
+                    if first_value and isinstance(first_value[0], dict):
+                        # List of dicts = user samples
+                        is_user_samples = True
+                    else:
+                        # List of strings = default samples (but this structure is unusual)
+                        is_user_samples = False
+                elif isinstance(first_value, dict):
+                    # It's a dict - check if it's nested structure
+                    nested_first_value = next(iter(first_value.values()), None) if first_value else None
+                    if isinstance(nested_first_value, list):
+                        # Nested dict structure = default samples: {category: {instrument: [samples]}}
+                        is_user_samples = False
+                    else:
+                        # Single level dict = user samples (unusual but possible)
+                        is_user_samples = True
+                else:
+                    # Neither list nor dict - treat as default
+                    is_user_samples = False
+            except (StopIteration, IndexError, TypeError):
+                # If we can't determine structure, assume default
+                is_user_samples = False
+        
+        if is_user_samples:
             # This appears to be user samples format: {category: [sample_objects]}
             if samples:
                 formatted.append("User-Uploaded Samples:")
@@ -540,11 +572,55 @@ class MusicCompositionTools:
         
         else:
             # This is default samples format: {category: {instrument: [samples]}}
-            # Add default samples first
+            # BUT we need to handle cases where detection was wrong and we actually have user samples
             for category, sample_groups in samples.items():
                 formatted.append(f"{category.title()} Samples:")
-                for group_name, sample_list in sample_groups.items():
-                    formatted.append(f"  {group_name}: {', '.join(sample_list)}")
+                
+                # Check if sample_groups is actually a list (user samples mistakenly in this branch)
+                if isinstance(sample_groups, list):
+                    # This is actually user samples format - handle it appropriately
+                    for sample in sample_groups:
+                        if isinstance(sample, dict):
+                            sample_name = sample.get('name', sample.get('filename', 'Unnamed sample'))
+                            sample_info = f"  • {sample_name}"
+                            
+                            # Add some basic metadata
+                            details = []
+                            if sample.get('bpm'):
+                                details.append(f"{sample['bpm']} BPM")
+                            if sample.get('duration'):
+                                details.append(f"{sample['duration']:.1f}s")
+                            
+                            if details:
+                                sample_info += f" ({'; '.join(details)})"
+                            
+                            formatted.append(sample_info)
+                        else:
+                            formatted.append(f"  • {str(sample)}")
+                            
+                elif isinstance(sample_groups, dict):
+                    # This is the expected default samples format
+                    for group_name, sample_list in sample_groups.items():
+                        # Ensure all items in sample_list are strings
+                        if isinstance(sample_list, list):
+                            # Convert any non-string items to strings safely
+                            string_samples = []
+                            for item in sample_list:
+                                if isinstance(item, str):
+                                    string_samples.append(item)
+                                elif isinstance(item, dict):
+                                    # Extract name from dict if available
+                                    name = item.get('name', item.get('filename', str(item)))
+                                    string_samples.append(name)
+                                else:
+                                    string_samples.append(str(item))
+                            formatted.append(f"  {group_name}: {', '.join(string_samples)}")
+                        else:
+                            # If sample_list is not a list, convert it to string
+                            formatted.append(f"  {group_name}: {str(sample_list)}")
+                else:
+                    # Unknown format, just convert to string
+                    formatted.append(f"  {str(sample_groups)}")
             
             # Add user-uploaded samples with rich metadata
             try:
@@ -726,3 +802,808 @@ class MusicCompositionTools:
                 return ["G4", "C5", "E5", "G5", "C5", "E5", "G4", "C5"]
             else:
                 return ["C4", "E4", "G4", "C5"]
+
+    def generate_extended_vocal_clip(self, clip_id: str, track_id: str, section_id: str, 
+                                   start_time: float, duration: float, voice_id: str,
+                                   lyrics_text: str, notes: List[str], durations: List[float],
+                                   tags: List[str] = None) -> Dict[str, Any]:
+        """
+        Generate an extended vocal clip with syllable breakdown and phonemes.
+        
+        Args:
+            clip_id: Unique clip identifier
+            track_id: Parent track identifier
+            section_id: Section identifier for structure reference
+            start_time: Start time in seconds
+            duration: Duration in seconds
+            voice_id: Voice identifier (e.g., "soprano01")
+            lyrics_text: The lyrics text to be sung
+            notes: List of note names
+            durations: List of durations for each note
+            tags: Optional tags like ["lead", "harmony", "choir", "adlib"]
+            
+        Returns:
+            Extended vocal clip dictionary with syllables and phonemes
+        """
+        try:
+            # Generate syllable breakdown
+            syllables = self._generate_syllable_breakdown(lyrics_text, notes, durations)
+            
+            # Generate phonemes
+            phonemes = self._generate_phonemes(lyrics_text)
+            
+            # Create the extended vocal clip structure
+            clip = {
+                "id": clip_id,
+                "trackId": track_id,
+                "type": "lyrics",
+                "sectionId": section_id,
+                "startTime": start_time,
+                "duration": duration,
+                "voiceId": voice_id,
+                "lyrics": [
+                    {
+                        "text": lyrics_text,
+                        "start": 0.0,
+                        "notes": notes,
+                        "durations": durations,
+                        "syllables": syllables,
+                        "phonemes": phonemes
+                    }
+                ],
+                "tags": tags or ["lead"]
+            }
+            
+            return clip
+            
+        except Exception as e:
+            safe_log_error(f"Error generating extended vocal clip: {e}")
+            # Fallback to basic structure
+            return {
+                "id": clip_id,
+                "trackId": track_id,
+                "type": "lyrics",
+                "sectionId": section_id,
+                "startTime": start_time,
+                "duration": duration,
+                "voiceId": voice_id,
+                "lyrics": [
+                    {
+                        "text": lyrics_text,
+                        "start": 0.0,
+                        "notes": notes,
+                        "durations": durations
+                    }
+                ],
+                "tags": tags or ["lead"]
+            }
+
+    def generate_song_structure(self, sections: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Generate song structure with sections for better visualization.
+        
+        Args:
+            sections: List of section dictionaries with id, type, label, startTime, endTime, index
+            
+        Returns:
+            Song structure dictionary with sections
+        """
+        try:
+            structure = {
+                "sections": []
+            }
+            
+            for section in sections:
+                section_dict = {
+                    "id": section.get("id", f"sec-{section.get('type', 'unknown')}"),
+                    "type": section.get("type", "unknown"),
+                    "label": section.get("label", section.get("type", "Unknown").title()),
+                    "startTime": section.get("startTime", 0.0),
+                    "endTime": section.get("endTime", 8.0),
+                    "index": section.get("index", 1)
+                }
+                structure["sections"].append(section_dict)
+            
+            return structure
+            
+        except Exception as e:
+            safe_log_error(f"Error generating song structure: {e}")
+            return {"sections": []}
+
+    def generate_section_spans(self, section_spans: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Generate section spans for clips that cross section boundaries.
+        
+        Args:
+            section_spans: List of section span dictionaries
+            
+        Returns:
+            List of formatted section spans
+        """
+        try:
+            spans = []
+            for span in section_spans:
+                span_dict = {
+                    "sectionId": span.get("sectionId", ""),
+                    "startOffset": span.get("startOffset", 0.0),
+                    "duration": span.get("duration", 1.0)
+                }
+                spans.append(span_dict)
+            
+            return spans
+            
+        except Exception as e:
+            safe_log_error(f"Error generating section spans: {e}")
+            return []
+
+    def _generate_syllable_breakdown(self, lyrics_text: str, notes: List[str], 
+                                   durations: List[float]) -> List[Dict[str, Any]]:
+        """
+        Generate syllable breakdown with note mapping.
+        
+        Args:
+            lyrics_text: The lyrics text
+            notes: List of note names
+            durations: List of durations
+            
+        Returns:
+            List of syllable dictionaries with note mapping
+        """
+        try:
+            words = lyrics_text.split()
+            syllables = []
+            note_index = 0
+            
+            for word in words:
+                # Simple syllable detection (can be enhanced with proper phonetic libraries)
+                word_syllables = self._split_into_syllables(word)
+                
+                for i, syllable in enumerate(word_syllables):
+                    is_melisma = len(word_syllables) > 1 and i == len(word_syllables) - 1
+                    
+                    # Map syllable to notes
+                    note_indices = []
+                    if note_index < len(notes):
+                        if is_melisma and note_index + 1 < len(notes):
+                            # For melisma, use multiple notes
+                            note_indices = [note_index, note_index + 1]
+                            note_index += 2
+                        else:
+                            note_indices = [note_index]
+                            note_index += 1
+                    
+                    duration = durations[note_indices[0]] if note_indices and note_indices[0] < len(durations) else 0.3
+                    
+                    syllable_dict = {
+                        "t": syllable,
+                        "noteIdx": note_indices,
+                        "dur": duration
+                    }
+                    
+                    if is_melisma:
+                        syllable_dict["melisma"] = True
+                    
+                    syllables.append(syllable_dict)
+            
+            return syllables
+            
+        except Exception as e:
+            safe_log_error(f"Error generating syllable breakdown: {e}")
+            return [{"t": lyrics_text, "noteIdx": [0], "dur": 1.0}]
+
+    def _split_into_syllables(self, word: str) -> List[str]:
+        """
+        Simple syllable splitting (basic implementation).
+        For production, consider using a proper phonetic library like pyphen or syllables.
+        
+        Args:
+            word: Word to split into syllables
+            
+        Returns:
+            List of syllables
+        """
+        try:
+            # Basic vowel-based syllable detection
+            vowels = "aeiouyAEIOUY"
+            syllables = []
+            current_syllable = ""
+            
+            for i, char in enumerate(word):
+                current_syllable += char
+                
+                if char in vowels:
+                    # Check if this is the end of a syllable
+                    if i + 1 < len(word) and word[i + 1] not in vowels:
+                        # Add consonant to current syllable if it's not the last character
+                        if i + 2 < len(word):
+                            current_syllable += word[i + 1]
+                            syllables.append(current_syllable)
+                            current_syllable = ""
+                            continue
+                    elif i == len(word) - 1:
+                        # End of word
+                        syllables.append(current_syllable)
+                        current_syllable = ""
+            
+            if current_syllable:
+                if syllables:
+                    syllables[-1] += current_syllable
+                else:
+                    syllables.append(current_syllable)
+            
+            return syllables if syllables else [word]
+            
+        except Exception as e:
+            safe_log_error(f"Error splitting syllables for word '{word}': {e}")
+            return [word]
+
+    def _generate_phonemes(self, lyrics_text: str) -> List[str]:
+        """
+        Generate IPA phonemes for TTS/singing engines.
+        This is a basic implementation - for production use, consider proper IPA libraries.
+        
+        Args:
+            lyrics_text: The lyrics text
+            
+        Returns:
+            List of IPA phoneme strings
+        """
+        try:
+            # Basic English phoneme mapping (simplified)
+            phoneme_map = {
+                # Vowels
+                'a': 'ɑ', 'e': 'ɛ', 'i': 'ɪ', 'o': 'ɔ', 'u': 'ʊ',
+                'ai': 'aɪ', 'ay': 'eɪ', 'ey': 'eɪ', 'oy': 'ɔɪ', 'ow': 'aʊ',
+                'ee': 'i', 'oo': 'u', 'ou': 'aʊ',
+                
+                # Consonants
+                'th': 'θ', 'sh': 'ʃ', 'ch': 'tʃ', 'ng': 'ŋ', 'ph': 'f',
+                'b': 'b', 'c': 'k', 'd': 'd', 'f': 'f', 'g': 'g',
+                'h': 'h', 'j': 'dʒ', 'k': 'k', 'l': 'l', 'm': 'm',
+                'n': 'n', 'p': 'p', 'r': 'r', 's': 's', 't': 't',
+                'v': 'v', 'w': 'w', 'x': 'ks', 'y': 'j', 'z': 'z'
+            }
+            
+            words = lyrics_text.lower().split()
+            phonemes = []
+            
+            for word in words:
+                word_phonemes = []
+                i = 0
+                while i < len(word):
+                    # Check for two-character combinations first
+                    if i + 1 < len(word):
+                        two_char = word[i:i+2]
+                        if two_char in phoneme_map:
+                            word_phonemes.append(phoneme_map[two_char])
+                            i += 2
+                            continue
+                    
+                    # Single character
+                    char = word[i]
+                    if char in phoneme_map:
+                        word_phonemes.append(phoneme_map[char])
+                    else:
+                        word_phonemes.append(char)  # Keep unknown characters as-is
+                    i += 1
+                
+                phonemes.extend(word_phonemes)
+                # Add word boundary marker
+                if word != words[-1]:
+                    phonemes.append(' ')
+            
+            return phonemes
+            
+        except Exception as e:
+            safe_log_error(f"Error generating phonemes: {e}")
+            # Fallback: return characters as basic phonemes
+            return list(lyrics_text.lower().replace(' ', ' '))
+
+    def create_complete_vocal_track(self, track_id: str, voice_id: str, 
+                                  clips_data: List[Dict[str, Any]], 
+                                  structure: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a complete vocal track with extended clip structure and song sections.
+        
+        Args:
+            track_id: Track identifier
+            voice_id: Voice identifier
+            clips_data: List of clip data dictionaries
+            structure: Song structure with sections
+            
+        Returns:
+            Complete vocal track dictionary
+        """
+        try:
+            clips = []
+            
+            for clip_data in clips_data:
+                clip = self.generate_extended_vocal_clip(
+                    clip_id=clip_data.get("id", f"clip-{voice_id}-{len(clips)}"),
+                    track_id=track_id,
+                    section_id=clip_data.get("sectionId", "sec-unknown"),
+                    start_time=clip_data.get("startTime", 0.0),
+                    duration=clip_data.get("duration", 4.0),
+                    voice_id=voice_id,
+                    lyrics_text=clip_data.get("lyrics_text", ""),
+                    notes=clip_data.get("notes", ["C4"]),
+                    durations=clip_data.get("durations", [1.0]),
+                    tags=clip_data.get("tags", ["lead"])
+                )
+                
+                # Add section spans if clip crosses section boundaries
+                if clip_data.get("sectionSpans"):
+                    clip["sectionSpans"] = self.generate_section_spans(clip_data["sectionSpans"])
+                
+                clips.append(clip)
+            
+            track = {
+                "id": track_id,
+                "name": f"Voice: {voice_id}",
+                "instrument": "vocals",
+                "category": "vocals",
+                "voiceId": voice_id,
+                "volume": 0.8,
+                "pan": 0,
+                "muted": False,
+                "solo": False,
+                "clips": clips,
+                "effects": {
+                    "reverb": 0,
+                    "delay": 0,
+                    "distortion": 0,
+                    "pitchShift": 0,
+                    "chorus": 0,
+                    "filter": 0,
+                    "bitcrush": 0
+                }
+            }
+            
+            return track
+            
+        except Exception as e:
+            safe_log_error(f"Error creating complete vocal track: {e}")
+            return {
+                "id": track_id,
+                "name": f"Voice: {voice_id}",
+                "instrument": "vocals",
+                "category": "vocals",
+                "voiceId": voice_id,
+                "clips": []
+            }
+
+    def create_example_extended_song(self) -> Dict[str, Any]:
+        """
+        Create an example song with extended vocal structure, sections, and phonemes.
+        Demonstrates the complete extended JSON format.
+        
+        Returns:
+            Complete song structure with extended vocal features
+        """
+        try:
+            # Define song sections
+            sections = [
+                {
+                    "id": "sec-intro",
+                    "type": "intro",
+                    "label": "Intro",
+                    "startTime": 0.0,
+                    "endTime": 8.0,
+                    "index": 1
+                },
+                {
+                    "id": "sec-v1",
+                    "type": "verse",
+                    "label": "Verse 1",
+                    "startTime": 8.0,
+                    "endTime": 24.0,
+                    "index": 1
+                },
+                {
+                    "id": "sec-chorus",
+                    "type": "chorus",
+                    "label": "Chorus",
+                    "startTime": 24.0,
+                    "endTime": 40.0,
+                    "index": 1
+                }
+            ]
+            
+            # Create song structure
+            structure = self.generate_song_structure(sections)
+            
+            # Define vocal clips data
+            clips_data = [
+                {
+                    "id": "clip-v1-soprano-a",
+                    "sectionId": "sec-v1",
+                    "startTime": 8.0,
+                    "duration": 4.0,
+                    "lyrics_text": "Shine bright like a diamond",
+                    "notes": ["E4", "F4", "G4", "A4", "B4"],
+                    "durations": [0.3, 0.3, 0.4, 0.5, 0.5],
+                    "tags": ["lead"]
+                }
+            ]
+            
+            # Create vocal track
+            soprano_track = self.create_complete_vocal_track(
+                track_id="track-soprano",
+                voice_id="soprano01",
+                clips_data=clips_data,
+                structure=structure
+            )
+            
+            # Create complete song
+            song = {
+                "id": "song-example-extended",
+                "name": "Extended Vocal Example",
+                "tempo": 120,
+                "timeSignature": [4, 4],
+                "key": "C",
+                "structure": structure,
+                "tracks": [soprano_track],
+                "duration": 40.0,
+                "createdAt": "2025-08-21T12:00:00.000Z",
+                "updatedAt": "2025-08-21T12:00:00.000Z",
+                "lyrics": "Shine bright like a diamond"
+            }
+            
+            return song
+            
+        except Exception as e:
+            safe_log_error(f"Error creating example extended song: {e}")
+            return {"error": f"Failed to create example song: {str(e)}"}
+
+    def validate_extended_vocal_structure(self, clip_data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Validate an extended vocal clip structure and provide feedback.
+        
+        Args:
+            clip_data: Vocal clip data to validate
+            
+        Returns:
+            Validation result with status and messages
+        """
+        try:
+            validation_result = {
+                "valid": True,
+                "errors": [],
+                "warnings": [],
+                "suggestions": []
+            }
+            
+            # Required fields validation
+            required_fields = ["id", "trackId", "type", "sectionId", "startTime", "duration", "voiceId"]
+            for field in required_fields:
+                if field not in clip_data:
+                    validation_result["errors"].append(f"Missing required field: {field}")
+                    validation_result["valid"] = False
+            
+            # Type validation
+            if clip_data.get("type") != "lyrics":
+                validation_result["errors"].append("Vocal clips must have type 'lyrics'")
+                validation_result["valid"] = False
+            
+            # Lyrics structure validation
+            if "lyrics" in clip_data:
+                for i, lyric in enumerate(clip_data["lyrics"]):
+                    if "text" not in lyric:
+                        validation_result["warnings"].append(f"Lyric {i} missing text field")
+                    
+                    if "syllables" in lyric:
+                        # Validate syllable structure
+                        for j, syllable in enumerate(lyric["syllables"]):
+                            if "t" not in syllable:
+                                validation_result["warnings"].append(f"Syllable {j} in lyric {i} missing text ('t') field")
+                            if "noteIdx" not in syllable:
+                                validation_result["warnings"].append(f"Syllable {j} in lyric {i} missing noteIdx field")
+                    
+                    if "phonemes" in lyric:
+                        if not isinstance(lyric["phonemes"], list):
+                            validation_result["warnings"].append(f"Phonemes in lyric {i} should be a list")
+            
+            # Voice ID validation
+            valid_voices = ["soprano01", "alto01", "tenor01", "bass01"]
+            if clip_data.get("voiceId") not in valid_voices:
+                validation_result["suggestions"].append(f"Consider using a standard voice ID: {', '.join(valid_voices)}")
+            
+            # Tags validation
+            if "tags" in clip_data:
+                valid_tags = ["lead", "harmony", "choir", "adlib"]
+                for tag in clip_data["tags"]:
+                    if tag not in valid_tags:
+                        validation_result["suggestions"].append(f"Unknown tag '{tag}'. Valid tags: {', '.join(valid_tags)}")
+            
+            return validation_result
+            
+        except Exception as e:
+            return {
+                "valid": False,
+                "errors": [f"Validation error: {str(e)}"],
+                "warnings": [],
+                "suggestions": []
+            }
+
+    def get_extended_vocal_schema(self) -> Dict[str, Any]:
+        """
+        Get the schema definition for extended vocal clips with examples.
+        
+        Returns:
+            JSON schema for extended vocal clips
+        """
+        return {
+            "title": "Extended Vocal Clip Schema",
+            "description": "Enhanced vocal clip structure with syllables, sections, and phonemes",
+            "type": "object",
+            "required": ["id", "trackId", "type", "sectionId", "startTime", "duration", "voiceId", "lyrics"],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "description": "Unique clip identifier",
+                    "example": "clip-v1-soprano-a"
+                },
+                "trackId": {
+                    "type": "string", 
+                    "description": "Parent track identifier",
+                    "example": "track-soprano"
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["lyrics"],
+                    "description": "Clip type (must be 'lyrics' for vocal clips)"
+                },
+                "sectionId": {
+                    "type": "string",
+                    "description": "Section identifier for structure reference",
+                    "example": "sec-v1"
+                },
+                "startTime": {
+                    "type": "number",
+                    "description": "Start time in seconds",
+                    "example": 8.0
+                },
+                "duration": {
+                    "type": "number",
+                    "description": "Duration in seconds",
+                    "example": 4.0
+                },
+                "voiceId": {
+                    "type": "string",
+                    "description": "Voice identifier",
+                    "enum": ["soprano01", "alto01", "tenor01", "bass01"],
+                    "example": "soprano01"
+                },
+                "lyrics": {
+                    "type": "array",
+                    "description": "Array of lyric fragments",
+                    "items": {
+                        "type": "object",
+                        "required": ["text", "start", "notes", "durations"],
+                        "properties": {
+                            "text": {
+                                "type": "string",
+                                "description": "Lyrics text",
+                                "example": "Shine bright like a diamond"
+                            },
+                            "start": {
+                                "type": "number",
+                                "description": "Start time relative to clip",
+                                "example": 0.0
+                            },
+                            "notes": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "Musical notes",
+                                "example": ["E4", "F4", "G4", "A4", "B4"]
+                            },
+                            "durations": {
+                                "type": "array",
+                                "items": {"type": "number"},
+                                "description": "Duration for each note",
+                                "example": [0.3, 0.3, 0.4, 0.5, 0.5]
+                            },
+                            "syllables": {
+                                "type": "array",
+                                "description": "Syllable breakdown with note mapping",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "t": {"type": "string", "description": "Syllable text"},
+                                        "noteIdx": {"type": "array", "items": {"type": "integer"}},
+                                        "dur": {"type": "number", "description": "Duration"},
+                                        "melisma": {"type": "boolean", "description": "Is this a melisma"}
+                                    }
+                                },
+                                "example": [
+                                    {"t": "Shine", "noteIdx": [0], "dur": 0.3},
+                                    {"t": "bright", "noteIdx": [1], "dur": 0.3},
+                                    {"t": "like", "noteIdx": [2], "dur": 0.4},
+                                    {"t": "a", "noteIdx": [3], "dur": 0.5},
+                                    {"t": "dia-mond", "noteIdx": [4], "dur": 0.5, "melisma": True}
+                                ]
+                            },
+                            "phonemes": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": "IPA phonemes for TTS/singing engines",
+                                "example": ["ʃ", "aɪ", "n", " ", "b", "r", "aɪ", "t"]
+                            }
+                        }
+                    }
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Flexible tags for vocal classification",
+                    "enum": ["lead", "harmony", "choir", "adlib"],
+                    "example": ["lead"]
+                },
+                "sectionSpans": {
+                    "type": "array",
+                    "description": "For clips that span multiple sections",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "sectionId": {"type": "string"},
+                            "startOffset": {"type": "number"},
+                            "duration": {"type": "number"}
+                        }
+                    },
+                    "example": [
+                        {"sectionId": "sec-v1", "startOffset": 0.0, "duration": 2.0},
+                        {"sectionId": "sec-chorus", "startOffset": 0.0, "duration": 1.0}
+                    ]
+                }
+            }
+        }
+
+
+# Global helper function for creating extended vocal examples
+def create_extended_vocal_example() -> Dict[str, Any]:
+    """
+    Create a comprehensive example showing the extended vocal JSON structure.
+    
+    Returns:
+        Complete song with extended vocal structure, sections, syllables, and phonemes
+    """
+    return {
+        "id": "song-extended-vocal-demo",
+        "name": "Extended Vocal Structure Demo",
+        "tempo": 120,
+        "timeSignature": [4, 4],
+        "key": "C",
+        "structure": {
+            "sections": [
+                {
+                    "id": "sec-intro",
+                    "type": "intro",
+                    "label": "Intro",
+                    "startTime": 0.0,
+                    "endTime": 8.0,
+                    "index": 1
+                },
+                {
+                    "id": "sec-v1",
+                    "type": "verse",
+                    "label": "Verse 1",
+                    "startTime": 8.0,
+                    "endTime": 24.0,
+                    "index": 1
+                },
+                {
+                    "id": "sec-chorus",
+                    "type": "chorus",
+                    "label": "Chorus",
+                    "startTime": 24.0,
+                    "endTime": 40.0,
+                    "index": 1
+                }
+            ]
+        },
+        "tracks": [
+            {
+                "id": "track-soprano",
+                "name": "Soprano Voice",
+                "instrument": "vocals",
+                "category": "vocals",
+                "voiceId": "soprano01",
+                "volume": 0.8,
+                "pan": -0.2,
+                "muted": False,
+                "solo": False,
+                "clips": [
+                    {
+                        "id": "clip-v1-soprano-a",
+                        "trackId": "track-soprano",
+                        "type": "lyrics",
+                        "sectionId": "sec-v1",
+                        "startTime": 8.0,
+                        "duration": 4.0,
+                        "voiceId": "soprano01",
+                        "lyrics": [
+                            {
+                                "text": "Shine bright like a diamond",
+                                "start": 0.0,
+                                "notes": ["E4", "F4", "G4", "A4", "B4"],
+                                "durations": [0.3, 0.3, 0.4, 0.5, 0.5],
+                                "syllables": [
+                                    {"t": "Shine", "noteIdx": [0], "dur": 0.3},
+                                    {"t": "bright", "noteIdx": [1], "dur": 0.3},
+                                    {"t": "like", "noteIdx": [2], "dur": 0.4},
+                                    {"t": "a", "noteIdx": [3], "dur": 0.5},
+                                    {"t": "dia-mond", "noteIdx": [4], "dur": 0.5, "melisma": True}
+                                ],
+                                "phonemes": ["ʃ", "aɪ", "n", " ", "b", "r", "aɪ", "t", " ", "l", "aɪ", "k", " ", "ɑ", " ", "d", "aɪ", "ɑ", "m", "ə", "n", "d"]
+                            }
+                        ],
+                        "tags": ["lead"]
+                    }
+                ],
+                "effects": {
+                    "reverb": 0.2,
+                    "delay": 0,
+                    "distortion": 0,
+                    "pitchShift": 0,
+                    "chorus": 0,
+                    "filter": 0,
+                    "bitcrush": 0
+                }
+            },
+            {
+                "id": "track-alto",
+                "name": "Alto Voice",
+                "instrument": "vocals",
+                "category": "vocals", 
+                "voiceId": "alto01",
+                "volume": 0.7,
+                "pan": 0.2,
+                "muted": False,
+                "solo": False,
+                "clips": [
+                    {
+                        "id": "clip-v1-alto-a",
+                        "trackId": "track-alto",
+                        "type": "lyrics",
+                        "sectionId": "sec-v1",
+                        "startTime": 10.0,
+                        "duration": 6.0,
+                        "voiceId": "alto01",
+                        "lyrics": [
+                            {
+                                "text": "So shine tonight",
+                                "start": 0.0,
+                                "notes": ["C4", "D4", "E4", "F4"],
+                                "durations": [0.5, 0.5, 0.5, 1.5],
+                                "syllables": [
+                                    {"t": "So", "noteIdx": [0], "dur": 0.5},
+                                    {"t": "shine", "noteIdx": [1], "dur": 0.5},
+                                    {"t": "to-", "noteIdx": [2], "dur": 0.5},
+                                    {"t": "night", "noteIdx": [3], "dur": 1.5, "melisma": True}
+                                ],
+                                "phonemes": ["s", "oʊ", " ", "ʃ", "aɪ", "n", " ", "t", "ə", "n", "aɪ", "t"]
+                            }
+                        ],
+                        "tags": ["harmony"],
+                        "sectionSpans": [
+                            {"sectionId": "sec-v1", "startOffset": 2.0, "duration": 4.0},
+                            {"sectionId": "sec-chorus", "startOffset": 0.0, "duration": 2.0}
+                        ]
+                    }
+                ],
+                "effects": {
+                    "reverb": 0.1,
+                    "delay": 0,
+                    "distortion": 0,
+                    "pitchShift": 0,
+                    "chorus": 0,
+                    "filter": 0,
+                    "bitcrush": 0
+                }
+            }
+        ],
+        "duration": 40.0,
+        "createdAt": "2025-08-21T12:00:00.000Z",
+        "updatedAt": "2025-08-21T12:00:00.000Z",
+        "lyrics": "Shine bright like a diamond\nSo shine tonight"
+    }

@@ -877,7 +877,9 @@ const generateSongWithLangGraph = async () => {
                               creativity_score: 8, // Default scores since not provided in current structure
                               coherence_score: data.qa_feedback?.length ? 6 : 8,
                               overall_score: data.qa_feedback?.length ? 7 : 8,
-                              feedback: data.qa_feedback?.join('; ') || 'Song quality is good'
+                              feedback: Array.isArray(data.qa_feedback) 
+                                ? data.qa_feedback.map((item: any) => typeof item === 'string' ? item : JSON.stringify(item)).join('; ')
+                                : 'Song quality is good'
                             },
                             can_restart: data.user_approval_data?.restart_info?.current_attempt < data.user_approval_data?.restart_info?.max_attempts
                           }

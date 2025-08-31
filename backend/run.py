@@ -6,7 +6,15 @@ Development server runner for mITyStudio Backend
 import os
 import sys
 import importlib.util
+import warnings
 from flask import Flask
+
+# Suppress TensorFlow warnings and info messages
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # 0=all, 1=info, 2=warning, 3=error
+os.environ['TF_ENABLE_ONEDNN_OPTS'] = '0'  # Disable oneDNN optimizations messages
+
+# Suppress specific warnings
+warnings.filterwarnings("ignore", category=SyntaxWarning, module="pydub")
 
 # Add the current directory to Python path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

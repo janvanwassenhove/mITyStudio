@@ -31,38 +31,46 @@ class AIService:
             return logging.getLogger(__name__)
     
     def _initialize_clients(self):
-        """Initialize AI service clients"""
+        """Initialize AI service clients with explicit parameter control"""
         openai_key = os.getenv('OPENAI_API_KEY')
         anthropic_key = os.getenv('ANTHROPIC_API_KEY')
         
         logger = self._get_logger()
         
+        # Clear any existing clients first
+        self.openai_client = None
+        self.anthropic_client = None
+        
         if openai_key:
             try:
-                # Create OpenAI client with explicit minimal configuration
-                # to avoid any parameter conflicts from environment or global state
-                self.openai_client = openai.OpenAI(
-                    api_key=openai_key
-                )
+                # Import OpenAI fresh to avoid any global state issues
+                import importlib
+                openai_module = importlib.import_module('openai')
+                
+                # Create OpenAI client with only the required api_key parameter
+                # Explicitly avoid any other parameters that might be added by global config
+                self.openai_client = openai_module.OpenAI(api_key=openai_key)
                 logger.info("OpenAI client initialized successfully")
             except Exception as e:
                 logger.error(f"OpenAI client initialization failed: {e}")
-                # Set to None but continue - we can still use Anthropic
                 self.openai_client = None
         else:
             logger.info("No OpenAI API key provided")
-            self.openai_client = None
         
         if anthropic_key:
             try:
-                self.anthropic_client = anthropic.Anthropic(api_key=anthropic_key)
+                # Import Anthropic fresh to avoid any global state issues
+                import importlib
+                anthropic_module = importlib.import_module('anthropic')
+                
+                # Create Anthropic client with only the required api_key parameter
+                self.anthropic_client = anthropic_module.Anthropic(api_key=anthropic_key)
                 logger.info("Anthropic client initialized successfully")
             except Exception as e:
                 logger.error(f"Anthropic client initialization failed: {e}")
                 self.anthropic_client = None
         else:
             logger.info("No Anthropic API key provided")
-            self.anthropic_client = None
             
         # Ensure at least one client is available
         if not self.openai_client and not self.anthropic_client:
@@ -211,7 +219,27 @@ class AIService:
         production techniques, and music theory. You can suggest chord progressions, 
         melodies, instruments, and effects.
 
-        AVAILABLE SAMPLE LIBRARY:
+        AVAILABLE SAMPLE LIBRARY:"""
+        
+        # Include actual available instruments if provided in context
+        if context and context.get('available_instruments'):
+            available_instruments = context.get('available_instruments', [])
+            # Group instruments by category
+            categories = {}
+            for instrument in available_instruments:
+                category = instrument.get('category', 'other')
+                if category not in categories:
+                    categories[category] = []
+                categories[category].append(instrument.get('display_name', instrument.get('name', '')))
+            
+            base_prompt += "\nThe studio has the following instruments available by category:\n"
+            for category, instruments in categories.items():
+                base_prompt += f"        - {category.title()}: {', '.join(sorted(instruments))}\n"
+            
+            base_prompt += f"\nTotal available instruments: {len(available_instruments)}. \n\nIMPORTANT NAMING RULES:\n- ALWAYS use the EXACT instrument names from the list above (including underscores, parentheses, numbers, etc.)\n- Put exact instrument names in quotes when mentioning them (e.g., \"Guitar_Acoustic_(963KB)\", \"Cambridge_Concert_Flute\")\n- Never modify, abbreviate, or reformat the instrument names\n- Only suggest instruments that appear exactly in the list above\n- Example: Use \"Guitar_Acoustic_(963KB)\" not \"Guitar Acoustic (963kb)\"\n- Example: Use \"VL_Acoustic_Guitar_1.1\" not \"VI Acoustic Guitar 1.1\"\n"
+        else:
+            # Fallback to generic description
+            base_prompt += """
         The studio has an extensive sample library with instruments organized by categories:
         - Brass: trumpet, trombone, french_horn, tuba
         - Keyboards: piano, electric_piano, organ, synth
@@ -220,7 +248,9 @@ class AIService:
         - Synth: synth_lead, synth_pad, synth_bass, synth_arp
         - Vocal: various vocal samples and voice types
         - Woodwinds: flute, clarinet, saxophone, oboe
+        """
 
+        base_prompt += """
         Each instrument has chord samples in multiple keys and variations. Always suggest 
         instruments that are actually available in the sample library.
 
@@ -328,42 +358,16 @@ IMPORTANT RULES FOR LYRICS:
         """Extract actionable items from AI response"""
         actions = []
         
-        # Look for specific patterns that suggest actions
-        if "add" in content.lower() and ("chord" in content.lower() or "progression" in content.lower()):
-            actions.append({
-                'label': 'Add Chord Progression',
-                'action': 'add_chord_progression',
-                'icon': 'Plus'
-            })
+        # NOTE: Generic action extraction disabled - frontend now handles specific instrument actions
+        # This prevents duplicate generic actions when the frontend generates specific ones
         
-        if "add" in content.lower() and ("drum" in content.lower() or "beat" in content.lower()):
-            actions.append({
-                'label': 'Add Drum Pattern',
-                'action': 'add_drum_pattern',
-                'icon': 'Plus'
-            })
-        
-        if "add" in content.lower() and "bass" in content.lower():
-            actions.append({
-                'label': 'Add Bass Track',
-                'action': 'add_bass_track',
-                'icon': 'Plus'
-            })
-        
-        # Check for lyrics JSON in response
+        # Only extract lyrics JSON actions as they need backend processing
         if self._contains_lyrics_json(content):
             actions.append({
                 'label': 'Add Lyrics to Song',
                 'action': 'add_lyrics_json',
                 'icon': 'Music',
                 'data': self._extract_lyrics_json_data(content)
-            })
-        
-        if "add" in content.lower() and ("lyrics" in content.lower() or "vocals" in content.lower()):
-            actions.append({
-                'label': 'Add Vocals',
-                'action': 'add_vocals',
-                'icon': 'Mic'
             })
         
         return actions

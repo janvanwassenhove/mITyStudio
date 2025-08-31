@@ -162,7 +162,7 @@ LYRICS TRACK STRUCTURE:
   "effects": { "reverb": 0, "delay": 0, "distortion": 0 }
 }
 
-LYRICS CLIP STRUCTURE (REQUIRED FORMAT):
+LYRICS CLIP STRUCTURE (EXTENDED FORMAT - REQUIRED):
 {
   "id": "clip-lyrics-1",
   "trackId": "track-lyrics", 
@@ -172,6 +172,8 @@ LYRICS CLIP STRUCTURE (REQUIRED FORMAT):
   "instrument": "vocals",
   "volume": 0.8,
   "effects": { "reverb": 0, "delay": 0, "distortion": 0 },
+  "sectionId": "verse1",
+  "sectionSpans": ["verse1"],
   "voices": [
     {
       "voice_id": "soprano01",
@@ -180,27 +182,43 @@ LYRICS CLIP STRUCTURE (REQUIRED FORMAT):
           "text": "Shine",
           "notes": ["E4", "F4"],
           "start": 0.0,
-          "durations": [0.4, 0.4]
+          "durations": [0.4, 0.4],
+          "syllables": [
+            {"t": "Shine", "noteIdx": [0, 1], "dur": 0.8, "melisma": true}
+          ],
+          "phonemes": ["ʃ", "aɪ", "n"]
         },
         {
           "text": "on", 
           "notes": ["G4"],
           "start": 1.0,
-          "duration": 0.6
+          "duration": 0.6,
+          "syllables": [
+            {"t": "on", "noteIdx": [0], "dur": 0.6}
+          ],
+          "phonemes": ["ɔ", "n"]
         }
       ]
     }
   ]
 }
 
-IMPORTANT RULES FOR LYRICS:
+IMPORTANT RULES FOR LYRICS (EXTENDED STRUCTURE):
 - Use "voices" array for multi-voice structure
 - Each voice has "voice_id" and "lyrics" array
 - Each lyric fragment has "text", "notes", "start", and either "duration" (single note) OR "durations" (multiple notes)
+- REQUIRED EXTENDED FIELDS:
+  * "syllables": Array of syllable breakdowns with note mapping
+  * "phonemes": Array of IPA phoneme strings for TTS/singing engines
+  * "sectionId": Reference to song structure section (e.g., "verse1", "chorus", "bridge")
+  * "sectionSpans": Array of sections this clip spans (for cross-boundary clips)
+- SYLLABLES FORMAT: {"t": "syllable_text", "noteIdx": [note_indices], "dur": duration, "melisma": true/false}
 - For single notes: use "duration" (number)
 - For multiple notes: use "durations" (array of numbers)
 - Always set effects to { "reverb": 0, "delay": 0, "distortion": 0 } unless specified
 - Use proper voice_ids like "soprano01", "alto01", "tenor01", "bass01"
+- Ensure syllables map correctly to notes for proper singing synthesis
+- Include IPA phonemes for accurate pronunciation in TTS engines
 
 AI INTEGRATION FEATURES:
 - When you generate lyrics JSON, the user can automatically integrate it into their song
