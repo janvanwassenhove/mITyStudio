@@ -102,6 +102,16 @@
     "apiKeySet": "Clé API définie",
     "checking": "Vérification..."
   },
+  "lyricsVocals": {
+    "title": "Paroles et Voix",
+    "underConstruction": "Cette section est actuellement en construction",
+    "constructionMessage": "Nous travaillons dur pour vous apporter des fonctionnalités avancées de paroles et de voix. Restez à l'écoute pour les mises à jour!",
+    "comingSoon": "Bientôt Disponible",
+    "addSegment": "Ajouter un Segment",
+    "addFirstLyrics": "Ajoutez Vos Premières Paroles",
+    "noLyricsYet": "Pas encore de paroles",
+    "addLyricalContent": "Ajoutez du contenu lyrique avec timing et notes vocales"
+  },
   "json": {
     "title": "Structure de Chanson",
     "export": "Exporter",

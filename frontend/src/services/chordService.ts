@@ -357,18 +357,34 @@ export class ChordService {
   /**
    * Analyze an array of notes and identify the chord(s) they represent
    */
-  static analyzeNotesToChords(notes: string[]): string[] {
+  /**
+   * Analyze chords from notes, with priority for explicit chordSequence
+   */
+  static analyzeNotesToChords(notes: string[], chordSequence?: string[]): string[] {
+    // First priority: use explicit chordSequence from LangGraph agents
+    if (chordSequence && chordSequence.length > 0) {
+      console.log('🎼 Using explicit chordSequence:', chordSequence)
+      return chordSequence
+    }
+
+    // Second priority: analyze notes to determine chords
     if (!notes || notes.length === 0) {
       return ['C_major'] // Default fallback
     }
 
-    // Extract note names without octaves
+    // Check if this is a simple note sequence (repeated or single notes)
     const noteNames = notes.map(note => note.replace(/\d+$/, ''))
-    
-    // Remove duplicates and sort
     const uniqueNotes = [...new Set(noteNames)].sort()
     
     console.log('Analyzing notes:', notes, '-> unique notes:', uniqueNotes)
+    
+    // If only one unique note, return it as a note sequence rather than forcing a chord
+    if (uniqueNotes.length === 1) {
+      const noteName = uniqueNotes[0]
+      console.log(`🎵 Single note type detected: ${noteName}, treating as note sequence`)
+      // Return the note pattern as detected, but still provide a chord interpretation
+      return [`${noteName}_major`] // Could be enhanced to show note sequence
+    }
     
     // Define chord patterns (intervals from root)
     const chordPatterns = {
@@ -416,19 +432,31 @@ export class ChordService {
       for (const [chordType, intervals] of Object.entries(chordPatterns)) {
         const expectedSemitones = intervals.map(interval => (rootSemitone + interval) % 12).sort((a, b) => a - b)
         
-        // Check if the notes match this chord pattern
-        const matches = expectedSemitones.every(semitone => noteSemitones.includes(semitone))
+        // Check for exact match - all expected notes present AND no extra notes (except octaves)
+        const hasAllExpected = expectedSemitones.every(semitone => noteSemitones.includes(semitone))
+        const hasOnlyExpected = noteSemitones.every(semitone => expectedSemitones.includes(semitone))
         
-        if (matches && expectedSemitones.length <= noteSemitones.length) {
+        if (hasAllExpected && hasOnlyExpected) {
           const chordName = `${rootNote}_${chordType}`
           detectedChords.push(chordName)
-          console.log(`✅ Detected chord: ${chordName} (${rootNote} ${chordType})`)
+          console.log(`✅ Detected chord: ${chordName} (${rootNote} ${chordType}) - exact match`)
+        }
+        // Also allow partial matches for incomplete chords (but prioritize exact matches)
+        else if (hasAllExpected && expectedSemitones.length <= noteSemitones.length) {
+          // Only add if no exact matches found yet
+          if (detectedChords.length === 0) {
+            const chordName = `${rootNote}_${chordType}`
+            console.log(`⚠️ Partial chord match: ${chordName} (${rootNote} ${chordType}) - has extra notes`)
+            // Don't add partial matches to avoid false positives
+          }
         }
       }
     }
 
     // If no perfect matches, try simpler analysis
     if (detectedChords.length === 0) {
+      console.log(`No exact chord matches found for notes: ${uniqueNotes.join(', ')}`)
+      
       // Single note or unison - treat as major chord of that note
       if (noteSemitones.length === 1) {
         const rootNote = semitoneToNote[noteSemitones[0]]
@@ -451,17 +479,19 @@ export class ChordService {
           detectedChords.push(chordName)
           console.log(`🎵 Minor third interval, assuming minor chord: ${chordName}`)
         } else {
-          const chordName = `${rootNote}_major`
+          // Create a generic description for unclear intervals
+          const chordName = `${rootNote}_interval`
           detectedChords.push(chordName)
-          console.log(`🎵 Unknown interval, defaulting to major chord: ${chordName}`)
+          console.log(`🎵 Unknown interval (${interval} semitones), treating as interval: ${chordName}`)
         }
       }
-      // Multiple notes but no clear chord - use first note as major
+      // Multiple notes but no clear chord - analyze as note cluster
       else {
-        const rootNote = semitoneToNote[noteSemitones[0]]
-        const chordName = `${rootNote}_major`
+        // Instead of forcing a major chord, describe it as a note cluster
+        const sortedNotes = uniqueNotes.sort()
+        const chordName = `${sortedNotes[0]}_cluster`
         detectedChords.push(chordName)
-        console.log(`🎵 Complex notes, using first note as major chord: ${chordName}`)
+        console.log(`🎵 Note cluster: ${sortedNotes.join('-')}, treating as ${chordName}`)
       }
     }
 
@@ -469,6 +499,82 @@ export class ChordService {
     const result = [...new Set(detectedChords)]
     console.log('Final detected chords:', result)
     return result.length > 0 ? result : ['C_major']
+  }
+
+  /**
+   * Analyze note patterns to provide detailed information
+   */
+  static analyzeNotePattern(notes: string[]): {
+    pattern: string;
+    description: string;
+    isChord: boolean;
+    uniqueNotes: string[];
+    noteCount: Record<string, number>;
+  } {
+    if (!notes || notes.length === 0) {
+      return {
+        pattern: 'empty',
+        description: 'No notes',
+        isChord: false,
+        uniqueNotes: [],
+        noteCount: {}
+      }
+    }
+
+    // Extract note names and count occurrences
+    const noteNames = notes.map(note => note.replace(/\d+$/, ''))
+    const uniqueNotes = [...new Set(noteNames)].sort()
+    const noteCount: Record<string, number> = {}
+    
+    noteNames.forEach(note => {
+      noteCount[note] = (noteCount[note] || 0) + 1
+    })
+
+    // Determine pattern type
+    if (uniqueNotes.length === 1) {
+      const noteName = uniqueNotes[0]
+      const count = noteCount[noteName]
+      return {
+        pattern: 'unison',
+        description: `${count} ${noteName} notes (unison)`,
+        isChord: false,
+        uniqueNotes,
+        noteCount
+      }
+    } else if (uniqueNotes.length === 2) {
+      return {
+        pattern: 'interval',
+        description: `2-note interval: ${uniqueNotes.join(', ')}`,
+        isChord: false,
+        uniqueNotes,
+        noteCount
+      }
+    } else if (uniqueNotes.length >= 3) {
+      // Analyze if it's a recognizable chord pattern
+      const noteNames = uniqueNotes.join(', ')
+      let description = `${uniqueNotes.length}-note pattern: ${noteNames}`
+      
+      // Check for specific note combinations
+      if (uniqueNotes.includes('B') && uniqueNotes.includes('E') && uniqueNotes.includes('F')) {
+        description = `Non-standard chord: ${noteNames} (B-E-F does not match standard chord patterns)`
+      }
+      
+      return {
+        pattern: 'chord',
+        description: description,
+        isChord: uniqueNotes.length >= 3,
+        uniqueNotes,
+        noteCount
+      }
+    } else {
+      return {
+        pattern: 'unknown',
+        description: 'Unknown pattern',
+        isChord: false,
+        uniqueNotes,
+        noteCount
+      }
+    }
   }
 
   /**

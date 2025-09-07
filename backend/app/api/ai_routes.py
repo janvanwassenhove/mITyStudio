@@ -14,6 +14,7 @@ import json
 import os
 import time
 import asyncio
+import logging
 from pathlib import Path
 from datetime import datetime
 
@@ -1602,7 +1603,8 @@ def generate_song_langgraph_stream():
                 yield f"data: {json.dumps(error_data)}\n\n"
             
         except Exception as e:
-            current_app.logger.error(f"LangGraph streaming generation error: {str(e)}")
+            logger = logging.getLogger(__name__)
+            logger.error(f"LangGraph streaming generation error: {str(e)}")
             error_data = {
                 'type': 'error',
                 'success': False,

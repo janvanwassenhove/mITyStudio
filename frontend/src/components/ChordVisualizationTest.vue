@@ -30,6 +30,41 @@
             <label>Type:</label>
             <span>{{ selectedClip.type }}</span>
           </div>
+          <div v-if="selectedClip.chordSequence" class="detail-row">
+            <label>Chord Source:</label>
+            <span class="chord-source">LangGraph Agent ({{ selectedClip.chordSequence.length }} chords)</span>
+          </div>
+          <div v-else-if="selectedClip.notes" class="detail-row">
+            <label>Chord Source:</label>
+            <span class="chord-source">Analyzed from Notes ({{ selectedClip.notes.length }} notes)</span>
+          </div>
+          <div v-if="selectedClip.notes" class="detail-row">
+            <label>Notes in Clip:</label>
+            <span class="chord-analysis">{{ selectedClip.notes.join(', ') }}</span>
+          </div>
+          <!-- Validation Status -->
+          <div v-if="chordValidationInfo" class="detail-row">
+            <label>Validation:</label>
+            <span :class="['validation-status', chordValidationInfo.status]">
+              {{ chordValidationInfo.message }}
+            </span>
+          </div>
+          <div v-if="selectedClip.chordSequence && chordValidationInfo && chordValidationInfo.status === 'mismatch'" class="detail-row">
+            <label>Explicit Sequence:</label>
+            <span class="chord-analysis explicit-sequence">{{ selectedClip.chordSequence.join(', ') }}</span>
+          </div>
+          <div v-if="chordValidationInfo && chordValidationInfo.notesAnalysis" class="detail-row">
+            <label>Notes Analysis:</label>
+            <span class="chord-analysis notes-analysis">{{ chordValidationInfo.notesAnalysis.join(', ') }}</span>
+          </div>
+          <div v-if="chordAnalysisInfo" class="detail-row">
+            <label>Final Chords:</label>
+            <span class="chord-analysis">{{ chordAnalysisInfo.detectedChords }} chords detected: {{ chordAnalysisInfo.detectedChordNames }}</span>
+          </div>
+          <div v-if="chordAnalysisInfo && chordAnalysisInfo.notePattern" class="detail-row">
+            <label>Note Pattern:</label>
+            <span class="chord-analysis">{{ chordAnalysisInfo.notePattern.description }}</span>
+          </div>
         </div>
       </div>
 
@@ -214,6 +249,13 @@ const chordSequence = ref<string[]>([])
 const sampleDuration = ref(1)
 const clipDuration = ref(4)
 
+// Chord validation state
+const chordValidationInfo = ref<{
+  status: 'valid' | 'mismatch' | 'unknown'
+  message: string
+  notesAnalysis?: string[]
+} | null>(null)
+
 // Drag and drop state
 const dragState = ref({
   isDragging: false,
@@ -284,6 +326,76 @@ const availableChords = computed(() => {
   return chords
 })
 
+// Format chord names for display
+const formatChordName = (chordName: string): string => {
+  if (!chordName || typeof chordName !== 'string') {
+    return 'Unknown'
+  }
+  
+  // Handle special chord types
+  if (chordName.includes('_cluster')) {
+    const root = chordName.split('_')[0]
+    return `${root} cluster`
+  }
+  
+  if (chordName.includes('_interval')) {
+    const root = chordName.split('_')[0]
+    return `${root} interval`
+  }
+  
+  // Handle standard chord names
+  if (chordName.includes('_')) {
+    const [root, type] = chordName.split('_')
+    
+    // Convert chord type to display format
+    const typeDisplayMap: Record<string, string> = {
+      'major': 'maj',
+      'minor': 'min',
+      'dom7': 'dom7',
+      'maj7': 'maj7',
+      'min7': 'min7',
+      'sus2': 'sus2',
+      'sus4': 'sus4',
+      'augmented': 'aug',
+      'diminished': 'dim'
+    }
+    
+    const displayType = typeDisplayMap[type] || type
+    return `${root} ${displayType}`
+  }
+  
+  return chordName
+}
+
+// Analyze chord information for the selected clip
+const chordAnalysisInfo = computed(() => {
+  if (!selectedClip.value) {
+    return null
+  }
+
+  const clip = selectedClip.value
+  const detectedChords = chordSequence.value
+  
+  // Get detailed note pattern analysis
+  let notePattern = null
+  if (clip.notes && clip.notes.length > 0) {
+    notePattern = ChordService.analyzeNotePattern(clip.notes)
+  }
+
+  const analysis = {
+    hasChordSequence: !!clip.chordSequence,
+    chordSequenceLength: clip.chordSequence?.length || 0,
+    hasNotes: !!clip.notes,
+    notesLength: clip.notes?.length || 0,
+    detectedChords: detectedChords.length,
+    source: clip.chordSequence ? 'LangGraph Agent' : 'Note Analysis',
+    detectedChordNames: detectedChords.map(chord => formatChordName(chord)).join(', '),
+    notePattern: notePattern
+  }
+
+  return analysis
+})
+
 // Watch for clip selection changes
 watch(
   [selectedClip, availableChords],
@@ -301,10 +413,68 @@ watch(
       const clipNotes = newClip.notes || []
       console.log('Analyzing chord sequence from clip notes:', clipNotes)
       
-      // Use chord analysis to detect chords from the notes
-      const detectedChords = ChordService.analyzeNotesToChords(clipNotes)
-      console.log('Detected chords:', detectedChords)
-      chordSequence.value = [...detectedChords]
+      // VALIDATION: Check if explicit chordSequence matches the actual notes
+      if (newClip.chordSequence && newClip.chordSequence.length > 0 && clipNotes.length > 0) {
+        console.log('🔍 Validating chordSequence vs notes...')
+        
+        // Analyze what chords the notes actually represent
+        const notesOnlyChords = ChordService.analyzeNotesToChords(clipNotes) // No explicit sequence
+        const explicitChords = newClip.chordSequence
+        
+        console.log('📊 Chord Validation Results:')
+        console.log('  Clip Notes:', clipNotes)
+        console.log('  Notes Analysis:', notesOnlyChords)
+        console.log('  Explicit Sequence:', explicitChords)
+        
+        // Check for mismatch (simplified check for now)
+        const hasMismatch = explicitChords.some(chord => !notesOnlyChords.includes(chord))
+        
+        if (hasMismatch) {
+          console.warn('⚠️ MISMATCH DETECTED!')
+          console.warn('  The explicit chordSequence does not match the actual notes in the clip')
+          console.warn('  This indicates a data generation issue from LangGraph')
+          console.warn('  Using note analysis instead of explicit sequence')
+          
+          // Set validation info
+          chordValidationInfo.value = {
+            status: 'mismatch',
+            message: 'Explicit sequence doesn\'t match notes - using note analysis',
+            notesAnalysis: notesOnlyChords
+          }
+          
+          // Use note analysis instead of explicit sequence for mismatched data
+          const detectedChords = notesOnlyChords
+          chordSequence.value = [...detectedChords]
+        } else {
+          console.log('✅ Chord sequence and notes are consistent')
+          
+          // Set validation info
+          chordValidationInfo.value = {
+            status: 'valid',
+            message: 'Explicit sequence matches notes',
+            notesAnalysis: notesOnlyChords
+          }
+          
+          // Use explicit chordSequence as it matches the notes
+          const detectedChords = ChordService.analyzeNotesToChords(clipNotes, newClip.chordSequence)
+          chordSequence.value = [...detectedChords]
+        }
+      } else {
+        // No explicit sequence or no notes - use standard analysis
+        const detectedChords = ChordService.analyzeNotesToChords(clipNotes, newClip.chordSequence)
+        console.log('Detected chords:', detectedChords)
+        chordSequence.value = [...detectedChords]
+        
+        // Set validation info
+        if (clipNotes.length > 0) {
+          chordValidationInfo.value = {
+            status: 'unknown',
+            message: newClip.chordSequence ? 'Using explicit sequence' : 'Analyzed from notes only'
+          }
+        } else {
+          chordValidationInfo.value = null
+        }
+      }
       
       // Load sample duration - clamp to slider range
       const clipSampleDuration = newClip.sampleDuration || 1
@@ -550,6 +720,45 @@ const handleDrop = (targetIndex: number) => {
 .clip-details span {
   color: var(--text-primary);
   font-family: 'Courier New', monospace;
+}
+
+.chord-source {
+  font-style: italic;
+  color: var(--text-secondary) !important;
+  font-family: inherit !important;
+}
+
+.chord-analysis {
+  font-family: 'Courier New', monospace !important;
+  font-size: 0.85em;
+  color: var(--text-primary) !important;
+}
+
+.validation-status {
+  font-weight: bold;
+  font-size: 0.85em;
+}
+
+.validation-status.valid {
+  color: #28a745 !important;
+}
+
+.validation-status.mismatch {
+  color: #dc3545 !important;
+}
+
+.validation-status.unknown {
+  color: #ffc107 !important;
+}
+
+.explicit-sequence {
+  color: #dc3545 !important;
+  text-decoration: line-through;
+}
+
+.notes-analysis {
+  color: #28a745 !important;
+  font-weight: bold;
 }
 
 .chord-editor {

@@ -58,6 +58,10 @@ export interface AudioClip {
   }
   // Add waveform for sample clips
   waveform?: number[]
+  // Chord progression information from LangGraph agents
+  chordSequence?: string[] // Explicit chord names (e.g., ["C_major", "F_major", "G_major"])
+  chordAnalysis?: string // Description of harmonic content
+  rhythmicPattern?: string // Description of rhythmic approach
   // Lyrics-specific properties
   text?: string // For simple lyrics clips (legacy)
   chordName?: string // For lyrics clips (legacy)
@@ -1123,7 +1127,14 @@ Check your web server configuration to ensure it can serve audio files from: ${s
       
       // For samples, ensure we have chord names, not individual notes
       let sampleNotes = clip.notes
-      if (!sampleNotes || sampleNotes.length === 0 || !sampleNotes[0].includes('_')) {
+      
+      // First priority: use chordSequence from LangGraph agents if available
+      if (clip.chordSequence && clip.chordSequence.length > 0) {
+        console.log(`[scheduleClip] Using chordSequence from LangGraph:`, clip.chordSequence)
+        sampleNotes = clip.chordSequence
+      }
+      // Second priority: check if existing notes are chord names
+      else if (!sampleNotes || sampleNotes.length === 0 || !sampleNotes[0].includes('_')) {
         // Generate appropriate chord names for samples
         sampleNotes = generateChordNamesForClip(clip, songStructure.value.key)
         console.log(`[scheduleClip] Generated chord names for samples:`, sampleNotes)

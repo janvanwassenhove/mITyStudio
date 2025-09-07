@@ -332,7 +332,7 @@ The song structure is represented as a JSON object with the following schema:
                 {"t": "night", "noteIdx": [3], "dur": 1.5, "melisma": true}
               ],
               "phonemes": ["s", "oʊ", " ", "ʃ", "aɪ", "n", " ", "t", "ə", "n", "aɪ", "t"]
-            }§
+            }
           ],
           "tags": ["harmony"],   // Harmony voice
           "sectionSpans": [      // For clips crossing section boundaries

@@ -42,7 +42,11 @@
   "effects": {
     "reverb": "Reverb",
     "delay": "Delay",
-    "distortion": "Distortion"
+    "distortion": "Distortion",
+    "pitchShift": "Pitch Shift",
+    "chorus": "Chorus", 
+    "filter": "Filter",
+    "bitcrush": "Bit Crush"
   },
   "instruments": {
     "piano": "Piano",
@@ -96,6 +100,16 @@
     "apiKeyRequired": "API Key Required",
     "apiKeySet": "API Key Set",
     "checking": "Checking..."
+  },
+  "lyricsVocals": {
+    "title": "Lyrics & Vocals",
+    "underConstruction": "This section is currently under construction",
+    "constructionMessage": "We're working hard to bring you advanced lyrics and vocal features. Stay tuned for updates!",
+    "comingSoon": "Coming Soon",
+    "addSegment": "Add Segment",
+    "addFirstLyrics": "Add Your First Lyrics",
+    "noLyricsYet": "No lyrics yet",
+    "addLyricalContent": "Add lyrical content with timing and vocal notes"
   },
   "json": {
     "title": "Song Structure",

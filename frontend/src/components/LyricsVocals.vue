@@ -3,24 +3,24 @@
     <div class="lyrics-header">
       <div class="header-title">
         <Mic class="header-icon" />
-        <h3>Lyrics & Vocals</h3>
+        <h3>{{ $t('lyricsVocals.title') }}</h3>
       </div>
       
       <div class="header-actions">
-        <button class="btn btn-ghost" @click="toggleVoicePanel" title="Manage Voices">
+        <button class="btn btn-ghost" @click="toggleVoicePanel" :disabled="isUnderConstruction" :title="isUnderConstruction ? $t('lyricsVocals.underConstruction') : 'Manage Voices'">
           <User class="icon" />
           Voice
         </button>
-        <button class="btn btn-ghost" @click="addLyricsSegment" title="Add Lyrics Segment">
+        <button class="btn btn-ghost" @click="addLyricsSegment" :disabled="isUnderConstruction" :title="isUnderConstruction ? $t('lyricsVocals.underConstruction') : 'Add Lyrics Segment'">
           <Plus class="icon" />
-          Add Segment
+          {{ $t('lyricsVocals.addSegment') }}
         </button>
-        <button class="btn btn-ghost" @click="playLyrics" :disabled="!hasLyrics" title="Play with Vocals">
+        <button class="btn btn-ghost" @click="playLyrics" :disabled="!hasLyrics || isUnderConstruction" :title="isUnderConstruction ? $t('lyricsVocals.underConstruction') : 'Play with Vocals'">
           <Play v-if="!isPlayingLyrics" class="icon" />
           <Pause v-else class="icon" />
           Play Vocals
         </button>
-        <button class="btn btn-primary" @click="generateAllVoices" :disabled="!hasLyrics" title="Generate Singing Voices for All Segments">
+        <button class="btn btn-primary" @click="generateAllVoices" :disabled="!hasLyrics || isUnderConstruction" :title="isUnderConstruction ? $t('lyricsVocals.underConstruction') : 'Generate Singing Voices for All Segments'">
           <Mic class="icon" />
           Generate All
         </button>
@@ -283,14 +283,22 @@
     </div>
     
     <div class="lyrics-content">
+      <!-- Construction Notice -->
+      <div v-if="isUnderConstruction" class="construction-notice">
+        <div class="construction-icon">🚧</div>
+        <h4>{{ $t('lyricsVocals.underConstruction') }}</h4>
+        <p>{{ $t('lyricsVocals.constructionMessage') }}</p>
+        <div class="coming-soon-badge">{{ $t('lyricsVocals.comingSoon') }}</div>
+      </div>
+      
       <!-- Empty State -->
-      <div v-if="!hasLyrics" class="empty-state">
+      <div v-else-if="!hasLyrics" class="empty-state">
         <Music class="empty-icon" />
-        <h4>No lyrics yet</h4>
-        <p>Add lyrical content with timing and vocal notes</p>
-        <button class="btn btn-primary" @click="addLyricsSegment">
+        <h4>{{ $t('lyricsVocals.noLyricsYet') }}</h4>
+        <p>{{ $t('lyricsVocals.addLyricalContent') }}</p>
+        <button class="btn btn-primary" @click="addLyricsSegment" :disabled="isUnderConstruction">
           <Plus class="icon" />
-          Add Your First Lyrics
+          {{ $t('lyricsVocals.addFirstLyrics') }}
         </button>
       </div>
       
@@ -693,6 +701,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useAudioStore } from '../stores/audioStore'
 import { VoiceService } from '../services/voiceService'
 import { RVCService } from '../services/rvcService'
@@ -703,6 +712,7 @@ import {
   VolumeX, Volume2, Edit, ZoomIn, ZoomOut, RotateCcw, BarChart, MessageSquare, Clock
 } from 'lucide-vue-next'
 
+const { t } = useI18n()
 const audioStore = useAudioStore()
 
 // Initialize composables
@@ -825,6 +835,10 @@ const lyricsClips = computed(() => {
 })
 
 const hasLyrics = computed(() => lyricsClips.value.length > 0)
+
+// Construction flag - set to false to enable functionality
+// TODO: Remove this when lyrics & vocals features are complete
+const isUnderConstruction = computed(() => true)
 
 const maxTime = computed(() => {
   if (!hasLyrics.value) return 30
@@ -2296,6 +2310,56 @@ const generateWaveformPath = (waveformData: number[]): string => {
 
 .empty-state p {
   margin: 0 0 1.5rem 0;
+}
+
+/* Construction Notice */
+.construction-notice {
+  text-align: center;
+  padding: 3rem 2rem;
+  background: linear-gradient(135deg, var(--surface) 0%, rgba(255, 193, 7, 0.05) 100%);
+  border: 2px dashed rgba(255, 193, 7, 0.3);
+  border-radius: 12px;
+  margin: 2rem auto;
+  max-width: 500px;
+}
+
+.construction-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  display: block;
+}
+
+.construction-notice h4 {
+  color: #ffc107;
+  margin: 0 0 1rem 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.construction-notice p {
+  color: var(--text-secondary);
+  margin: 0 0 1.5rem 0;
+  line-height: 1.5;
+}
+
+.coming-soon-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #ffc107, #ff9800);
+  color: #fff;
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);
+}
+
+/* Disabled state for buttons when under construction */
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
 }
 
 /* Timeline */

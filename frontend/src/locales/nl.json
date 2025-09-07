@@ -102,6 +102,16 @@
     "apiKeySet": "API-sleutel ingesteld",
     "checking": "Controleren..."
   },
+  "lyricsVocals": {
+    "title": "Teksten & Zang",
+    "underConstruction": "Deze sectie is momenteel in ontwikkeling",
+    "constructionMessage": "We werken hard om u geavanceerde tekst- en zangfuncties te bieden. Blijf op de hoogte voor updates!",
+    "comingSoon": "Binnenkort Beschikbaar",
+    "addSegment": "Segment Toevoegen",
+    "addFirstLyrics": "Voeg Je Eerste Teksten Toe",
+    "noLyricsYet": "Nog geen teksten",
+    "addLyricalContent": "Voeg lyrische inhoud toe met timing en vocale noten"
+  },
   "json": {
     "title": "Liedstructuur",
     "export": "Exporteren",

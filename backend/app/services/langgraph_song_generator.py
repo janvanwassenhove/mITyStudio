@@ -11,7 +11,7 @@ AGENT WORKFLOW:
 1. ComposerAgent - Defines global musical parameters: tempo, key, timeSignature, duration
 2. ArrangementAgent - Determines song structure and decides track types
 3. LyricsAgent - Generates lyrics based on style_tags and inspiration
-4. VocalAgent - Assigns available voices and creates polyphonic vocal clips
+4. VocalAgent - Creates extended JSON vocal structure with syllables, phonemes, section mapping, and tags (NO voice synthesis/cloning)
 5. InstrumentAgent - Selects instruments/samples and creates melodic/harmonic/percussive content
 6. EffectsAgent - Adds reverb, delay, distortion effects per track/clip
 7. ReviewAgent - Evaluates for schema completeness, musical coherence, resource validity
@@ -22,7 +22,7 @@ INSTRUMENT & SAMPLE AWARENESS SYSTEM:
 - All agents are aware of available_instruments, available_samples, and available_voices
 - ArrangementAgent: Plans tracks using ONLY available instruments from the categorized lists
 - InstrumentAgent: Creates clips using ONLY available instruments and samples
-- VocalAgent: Assigns ONLY available voices to vocal tracks
+- VocalAgent: Creates extended JSON vocal structure with syllables, phonemes, and section mapping (NO voice synthesis/cloning)
 - System validates instrument/sample selections and provides fallbacks if invalid
 - JSON structure follows mITyStudio schema exactly:
   * Melodic instruments: type="synth", notes array directly in clip (NO wrapper)
@@ -132,20 +132,21 @@ def _initialize_global_llms():
     # Initialize OpenAI LLM with default parameters - model will be overridden per instance
     if ChatOpenAI and openai_key and not openai_key.startswith('your-'):
         try:
-            print("🚀 Creating global OpenAI LLM...")
+            print("Creating global OpenAI LLM...")
             # Use available model for global instance - actual model selection happens per-instance
             _global_openai_llm = ChatOpenAI(
                 api_key=openai_key,
                 model="gpt-4o-mini",  # Use available model instead of non-existent gpt-5
                 temperature=0.7,
                 max_retries=2,
-                timeout=120  # Increased to 2 minutes for complex song generation tasks
+                timeout=120,  # Increased to 2 minutes for complex song generation tasks
+                max_tokens=2000  # Limit response length to prevent timeouts
             )
-            print("✅ Global OpenAI LLM initialized successfully")
-            logger.info("✓ Global OpenAI LLM initialized successfully")
+            print("Global OpenAI LLM initialized successfully")
+            logger.info("Global OpenAI LLM initialized successfully")
         except Exception as e:
-            print(f"❌ Global OpenAI LLM initialization failed: {e}")
-            logger.error(f"✗ Global OpenAI LLM initialization failed: {e}")
+            print(f"Global OpenAI LLM initialization failed: {e}")
+            logger.error(f"Global OpenAI LLM initialization failed: {e}")
             # Try alternative initialization without timeout
             try:
                 print("🔄 Retrying OpenAI LLM with basic parameters...")
@@ -153,7 +154,8 @@ def _initialize_global_llms():
                     api_key=openai_key,
                     model="gpt-4o",  # Try gpt-4o instead
                     temperature=0.7,
-                    timeout=120  # Increased timeout for fallback as well
+                    timeout=120,  # Increased timeout for fallback as well
+                    max_tokens=2000  # Limit response length to prevent timeouts
                 )
                 print("✅ Global OpenAI LLM initialized with alternative parameters")
                 logger.info("✓ Global OpenAI LLM initialized with alternative parameters")
@@ -176,7 +178,8 @@ def _initialize_global_llms():
                 model="claude-3-5-sonnet-20241022",
                 temperature=0.7,
                 max_retries=2,
-                timeout=120  # Increased to 2 minutes for complex song generation tasks
+                timeout=120,  # Increased to 2 minutes for complex song generation tasks
+                max_tokens=2000  # Limit response length to prevent timeouts
             )
             print("✅ Global Anthropic LLM initialized successfully")
             logger.info("✓ Global Anthropic LLM initialized successfully")
@@ -190,7 +193,8 @@ def _initialize_global_llms():
                     api_key=anthropic_key,
                     model="claude-3-5-haiku-20241022",  # Try different model
                     temperature=0.7,
-                    timeout=120  # Increased timeout for fallback as well
+                    timeout=120,  # Increased timeout for fallback as well
+                    max_tokens=2000  # Limit response length to prevent timeouts
                 )
                 print("✅ Global Anthropic LLM initialized with alternative parameters")
                 logger.info("✓ Global Anthropic LLM initialized with alternative parameters")
@@ -534,10 +538,11 @@ class LangGraphSongGenerator:
         
         return adjusted_progress
 
-    async def _call_llm_safely(self, prompt: str, max_retries: int = 3) -> str:
+    async def _call_llm_safely(self, prompt: str, max_retries: int = 3, max_tokens: int = 1500) -> str:
         """
         Call LLM with proper message format for both OpenAI and Anthropic
         Includes retry logic for API overload and rate limiting
+        Includes max_tokens limit to prevent overly long responses that cause timeouts
         """
         last_exception = None
         
@@ -552,7 +557,7 @@ class LangGraphSongGenerator:
                 # Add comprehensive logging to track LLM usage
                 llm_type = type(self.llm).__name__
                 llm_model = getattr(self.llm, 'model', getattr(self.llm, 'model_name', 'unknown'))
-                print(f"🔍 CALLING LLM (Attempt {attempt + 1}/{max_retries}): {llm_type} | Model: {llm_model} | User wanted: {self.provider}")
+                print(f"CALLING LLM (Attempt {attempt + 1}/{max_retries}): {llm_type} | Model: {llm_model} | Max Tokens: {max_tokens} | User wanted: {self.provider}")
                 
                 # Check if we're using Anthropic LLM (either by provider or by actual LLM instance)
                 is_anthropic = (self.provider == "anthropic" or 
@@ -567,26 +572,36 @@ class LangGraphSongGenerator:
                     messages = [SystemMessage(content=prompt)]
                     logger.debug("Using SystemMessage for OpenAI")
                 
+                # Create configuration with max_tokens limit
+                config = {"max_tokens": max_tokens}
+                
                 # Try async first, fallback to sync if needed
                 response = None
                 if hasattr(self.llm, 'ainvoke'):
                     try:
-                        ainvoke_result = self.llm.ainvoke(messages)
+                        ainvoke_result = self.llm.ainvoke(messages, config=config)
                         if ainvoke_result is None:
                             raise ValueError("ainvoke returned None")
-                        response = await ainvoke_result
+                        # Add timeout wrapper to prevent hanging
+                        response = await asyncio.wait_for(ainvoke_result, timeout=90.0)  # 90 second timeout per LLM call
                     except Exception as async_error:
                         print(f"DEBUG: Async call failed: {async_error}, trying sync...")
                         # Fallback to sync call
                         if hasattr(self.llm, 'invoke'):
-                            response = await asyncio.get_event_loop().run_in_executor(
-                                None, self.llm.invoke, messages
+                            response = await asyncio.wait_for(
+                                asyncio.get_event_loop().run_in_executor(
+                                    None, lambda: self.llm.invoke(messages, config=config)
+                                ),
+                                timeout=90.0  # 90 second timeout for sync call too
                             )
                         else:
                             raise async_error
                 elif hasattr(self.llm, 'invoke'):
-                    response = await asyncio.get_event_loop().run_in_executor(
-                        None, self.llm.invoke, messages
+                    response = await asyncio.wait_for(
+                        asyncio.get_event_loop().run_in_executor(
+                            None, lambda: self.llm.invoke(messages, config=config)
+                        ),
+                        timeout=90.0  # 90 second timeout for sync call
                     )
                 else:
                     raise ValueError("LLM has neither ainvoke nor invoke methods")
@@ -598,7 +613,7 @@ class LangGraphSongGenerator:
                 if not content or not content.strip():
                     raise ValueError("LLM returned empty or whitespace-only content")
                     
-                print(f"✅ LLM call successful on attempt {attempt + 1}")
+                print(f"LLM call successful on attempt {attempt + 1}")
                 return content.strip()
                 
             except Exception as e:
@@ -1152,14 +1167,14 @@ class LangGraphSongGenerator:
                 
                 final_state = await asyncio.wait_for(
                     graph_invocation, 
-                    timeout=420.0  # Increased to 7 minutes to match frontend timeout
+                    timeout=180.0  # Reduced to 3 minutes for faster failure feedback
                 )
                 print(f"DEBUG: Graph execution completed successfully")
             except asyncio.TimeoutError:
-                logger.error("Song generation timed out after 7 minutes")
+                logger.error("Song generation timed out after 3 minutes")
                 return {
                     "success": False,
-                    "error": "Song generation timed out after 7 minutes. Please try with a simpler request, shorter duration, or different AI provider.",
+                    "error": "Song generation timed out after 3 minutes. Please try with a simpler request, shorter duration, or different AI provider.",
                     "timeout": True
                 }
             except Exception as e:
@@ -1638,13 +1653,42 @@ Guidelines:
 - CRITICAL: Use ONLY instruments from the available_instruments list above - NO other instruments
 - PRIORITY: When selecting instruments, prioritize ones that have user-uploaded samples available (check Available User-Uploaded Samples section)
 - USER SAMPLE STRATEGY: If user has uploaded samples in relevant categories, incorporate instruments that can utilize those samples
+
+🎛️ EFFECTS-AWARE ARRANGEMENT PLANNING:
+- Plan tracks with effects processing in mind (reverb, delay, distortion, pitchShift, chorus, filter, bitcrush)
+- Consider stereo field utilization: plan complementary pan positions for width and depth
+- Design track roles that will benefit from specific effects:
+  * Lead instruments: moderate reverb, chorus for width, occasional delay
+  * Rhythm instruments: tight reverb, possible distortion for character
+  * Atmospheric elements: heavy reverb, delay, filtering for texture
+  * Bass elements: minimal reverb, possible distortion for warmth
+- Plan for dynamic effects usage across song sections (verse vs chorus effects intensity)
+
+🎼 CHORD PROGRESSION & HARMONIC PLANNING:
+- Plan harmonic roles for each instrument: foundation (bass), harmony (chords), melody (leads), texture (pads)
+- Consider chord progression variety between sections (different progressions for verse/chorus/bridge)
+- Plan for harmonic complexity appropriate to style:
+  * Pop/Rock: I-vi-IV-V progressions with variations
+  * Jazz: Extended chords, ii-V-I movements, substitutions
+  * Electronic: Simple progressions with textural emphasis
+  * Classical: Sophisticated voice leading and harmonic rhythm
+- Design complementary rhythmic patterns that will create rich, interlocking arrangements
+- Plan dynamic contrast between sections (verse lighter, chorus fuller, bridge different harmonic content)
+
+🎵 ARRANGEMENT DEPTH STRATEGIES:
+- Layer instruments for textural richness: foundation + rhythm + harmony + melody + atmosphere
+- Plan call-and-response patterns between instrument groups
+- Design complementary ranges: bass (low), harmony (mid), melody (high), percussion (rhythmic)
+- Consider instrument interactions: how each part will complement others in the mix
+- Plan for arrangement evolution: gradual building of complexity through the song
+
 - CRITICAL FOR INSTRUMENTAL TRACKS: DO NOT include any vocal tracks or voice_id assignments
 - Include appropriate tracks for the style (rock: drums+bass+guitar, jazz: piano+bass+drums, orchestral: strings+brass+woodwinds, etc.)
-- For instrumental tracks: Focus on melodic instruments that can carry the main themes
+- For instrumental tracks: Focus on melodic instruments that can carry the main themes with rich harmonic support
 - Each track should have a clear role: melodic (lead lines), harmonic (chords), rhythmic (beat/groove), textural (atmosphere)
 - Consider arrangement dynamics (intro lighter, main sections fuller, bridge different)
 - Plan which sections each track will play in (not all tracks play throughout)
-- Use appropriate pan positions for stereo field
+- Use appropriate pan positions for stereo field planning (-1.0 to +1.0)
 - Match instruments to style requirements from available options only
 - Consider user sample metadata (BPM, key, tags) when planning arrangement to make best use of uploaded samples
 - Instrument Selection Rules:
@@ -1652,9 +1696,10 @@ Guidelines:
   * For strings role: choose from available strings instruments  
   * For percussion role: choose from available percussion instruments
   * For vocal role: ONLY if NOT instrumental - use "vocals" with voice_id from available voices
-- If instrumental, focus on interesting melodic interplay between available instruments
+- If instrumental, focus on interesting melodic interplay between available instruments with sophisticated harmonic support
 - Ensure total duration matches the target ({duration_seconds} seconds)
 - Verify each planned instrument exists in the available_instruments before including it
+- Plan for professional mixing considerations: frequency separation, stereo width, dynamic range
 """
         
         try:
@@ -2159,10 +2204,12 @@ Critical Guidelines:
     
     async def _vocal_agent(self, state: SongState) -> SongState:
         """
-        VocalAgent: Assigns voices to lyrics and creates vocal clips
-        - Maps lyrics to melodic lines with notes and durations  
-        - Creates polyphonic vocal clips using available_voices
-        - Handles lead vocals, harmonies, and backing vocals
+        VocalAgent: Creates extended JSON vocal structure with detailed metadata
+        - Maps lyrics to melodic lines with notes, syllables, and phonemes
+        - Creates comprehensive vocal clips with section mapping and tags
+        - Handles lead vocals, harmonies, and backing vocals structure
+        - Generates syllable breakdowns for timeline visualization
+        - NO voice synthesis, cloning, or RVC - pure JSON structure creation
         """
         state.previous_agent = state.current_agent
         state.current_agent = "vocal"
@@ -2204,32 +2251,81 @@ Critical Guidelines:
         tempo = state.global_params.get('tempo', 120)
         time_signature = state.global_params.get('timeSignature', '4/4')
         
-        prompt = f"""You are a professional vocal arranger and melody writer. Create detailed vocal assignments that map lyrics to specific notes and timing.
+        # Format voices outside of f-string to avoid nesting issues
+        formatted_voices = self.music_tools.format_voices_for_prompt(state.available_voices)
+        formatted_styles = self._format_style_tags(state.request.style_tags)
+        formatted_lyrics = json.dumps(lyrics_sections, indent=2)
+        formatted_structure = json.dumps(structure, indent=2)
+        formatted_planned_tracks = json.dumps(planned_vocal_tracks, indent=2)
+        
+        prompt = f"""You are a professional vocal arranger and producer. Create sophisticated vocal tracks with detailed metadata, effects awareness, and varied vocal arrangements for fuller, more dynamic compositions.
+
+IMPORTANT: Respond with ONLY a valid JSON object. No explanations, no markdown formatting, no code blocks.
 
 Song Parameters:
 - Key: {key}
 - Tempo: {tempo} BPM  
 - Time Signature: {time_signature}
-- Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
+- Style: {formatted_styles} {state.request.custom_style}
 
-Available Voices and Ranges:
-{self.music_tools.format_voices_for_prompt(state.available_voices)}
+🎤 ADVANCED VOCAL COMPOSITION REQUIREMENTS:
+
+EFFECTS-AWARE VOCAL DESIGN:
+- Consider how vocals will be processed with all 7 effects: reverb, delay, distortion, pitchShift, chorus, filter, bitcrush
+- Design vocal melodies that will benefit from specific effects processing
+- Plan vocal arrangements that work well in a stereo field with pan positioning
+- Create space for reverb and delay by using appropriate phrasing and note spacing
+- Design harmonies that will be enhanced by chorus and doubling effects
+
+VOCAL ARRANGEMENT DEPTH:
+- Layer lead vocals with backing vocals and harmonies
+- Create call-and-response patterns between vocal parts
+- Use different vocal styles and techniques across sections
+- Implement dynamic vocal arrangements that build through the song
+- Design complementary vocal lines that work together harmonically
+
+MELODIC SOPHISTICATION:
+- Create varied melodic lines that avoid repetition
+- Use different ranges and tessitura for vocal variety
+- Implement melodic contour that supports the emotional arc
+- Design interval relationships that create interesting harmonies
+- Use rhythmic variation in vocal phrasing for dynamic interest
+
+Available Voices:
+{formatted_voices}
 
 Lyrics Sections:
-{json.dumps(lyrics_sections, indent=2)}
+{formatted_lyrics}
 
-Song Structure (with timing in seconds):
-{json.dumps(structure, indent=2)}
+Song Structure:
+{formatted_structure}
 
-Planned Vocal Tracks from Arrangement:
-{json.dumps(planned_vocal_tracks, indent=2)}
+Planned Vocal Tracks:
+{formatted_planned_tracks}
 
-Create complete vocal track assignments with melodic content. Respond ONLY with a JSON object:
-{{
+COMPREHENSIVE VOCAL REQUIREMENTS:
+- Create one track per planned vocal track with effects-aware design
+- Each track must have clips with "voices" array containing sophisticated lyrics
+- Include comprehensive effects in clips: reverb, delay, distortion, pitchShift, chorus, filter, bitcrush
+- Include syllables breakdown: [{{"t": "word", "noteIdx": [0], "dur": 1.0}}]
+- Include phonemes array for each lyric line
+- Use sectionId, sectionSpans, and tags fields for organization
+- Set voiceId from available voices only
+- Design vocal melodies with variety and sophistication
+- Plan for stereo field utilization with different vocal parts
+- Create harmonically rich arrangements that support the full composition
+
+JSON STRUCTURE REQUIRED:
+- tracks: array of vocal track objects
+- vocal_arrangement: voice assignments object
+- melody_philosophy: brief explanation string"""
+
+        # Create comprehensive template with effects awareness
+        json_template = """{
     "tracks": [
-        {{
+        {
             "id": "track-lead-vocals",
-            "name": "Lead Vocals",
+            "name": "Lead Vocals", 
             "instrument": "vocals",
             "category": "vocal",
             "voiceId": "soprano01",
@@ -2238,99 +2334,127 @@ Create complete vocal track assignments with melodic content. Respond ONLY with 
             "muted": false,
             "solo": false,
             "clips": [
-                {{
-                    "id": "clip-lead-verse1",
-                    "trackId": "track-lead-vocals", 
+                {
+                    "id": "clip-verse1",
+                    "trackId": "track-lead-vocals",
                     "startTime": 8,
                     "duration": 16,
                     "type": "lyrics",
-                    "instrument": "vocals",
+                    "instrument": "vocals", 
                     "voiceId": "soprano01",
                     "volume": 0.8,
-                    "pan": 0.0,
-                    "effects": {{"reverb": 0.2, "delay": 0.1, "distortion": 0}},
+                    "effects": {
+                        "reverb": 0.3,
+                        "delay": 0.15,
+                        "distortion": 0.0,
+                        "pitchShift": 0,
+                        "chorus": 0.25,
+                        "filter": 0.0,
+                        "bitcrush": 0.0
+                    },
                     "sectionId": "verse1",
                     "sectionSpans": ["verse1"],
+                    "tags": ["lead", "verse"],
                     "voices": [
-                        {{
+                        {
                             "voice_id": "soprano01",
                             "lyrics": [
-                                {{
-                                    "text": "First line of verse lyrics",
-                                    "notes": ["C4", "D4", "E4", "F4", "G4"],
+                                {
+                                    "text": "Example sophisticated lyric line with melodic variation",
+                                    "notes": ["C4", "D4", "E4", "F4", "G4", "A4", "F4", "E4"],
                                     "start": 0.0,
-                                    "durations": [1.0, 1.0, 0.5, 0.5, 2.0],
-                                    "velocities": [80, 75, 85, 80, 90],
+                                    "durations": [1.0, 0.5, 1.5, 1.0, 2.0, 1.0, 1.0, 2.0],
+                                    "velocities": [80, 85, 90, 87, 92, 88, 85, 80],
                                     "syllables": [
-                                        {{"t": "First", "noteIdx": [0], "dur": 1.0}},
-                                        {{"t": "line", "noteIdx": [1], "dur": 1.0}},
-                                        {{"t": "of", "noteIdx": [2], "dur": 0.5}},
-                                        {{"t": "verse", "noteIdx": [3], "dur": 0.5}},
-                                        {{"t": "lyrics", "noteIdx": [4], "dur": 2.0}}
+                                        {"t": "Ex", "noteIdx": [0], "dur": 1.0},
+                                        {"t": "am", "noteIdx": [1], "dur": 0.5},
+                                        {"t": "ple", "noteIdx": [2], "dur": 1.5},
+                                        {"t": "so", "noteIdx": [3], "dur": 1.0},
+                                        {"t": "phis", "noteIdx": [4], "dur": 2.0},
+                                        {"t": "ti", "noteIdx": [5], "dur": 1.0},
+                                        {"t": "ca", "noteIdx": [6], "dur": 1.0},
+                                        {"t": "ted", "noteIdx": [7], "dur": 2.0}
                                     ],
-                                    "phonemes": ["f", "ɜr", "s", "t", "l", "aɪ", "n", "ʌ", "v", "v", "ɜr", "s", "l", "ɪ", "r", "ɪ", "k", "s"]
-                                }},
-                                {{
-                                    "text": "Second line continues melody",
-                                    "notes": ["F4", "E4", "D4", "C4"],
-                                    "start": 5.0,
-                                    "durations": [1.5, 1.0, 1.0, 1.5],
-                                    "velocities": [75, 80, 85, 80],
-                                    "syllables": [
-                                        {{"t": "Sec", "noteIdx": [0], "dur": 0.7}},
-                                        {{"t": "ond", "noteIdx": [0], "dur": 0.8}},
-                                        {{"t": "line", "noteIdx": [1], "dur": 1.0}},
-                                        {{"t": "con-tin", "noteIdx": [2], "dur": 1.0}},
-                                        {{"t": "ues", "noteIdx": [3], "dur": 0.8}},
-                                        {{"t": "mel", "noteIdx": [3], "dur": 0.7}}
-                                    ],
-                                    "phonemes": ["s", "ɛ", "k", "ə", "n", "d", "l", "aɪ", "n", "k", "ə", "n", "t", "ɪ", "n", "j", "u", "z", "m", "ɛ", "l"]
-                                }}
+                                    "phonemes": ["ɛ", "k", "s", "æ", "m", "p", "ə", "l", "s", "oʊ", "f", "ɪ", "s", "t", "ɪ", "k", "eɪ", "t", "ɪ", "d"]
+                                }
                             ]
-                        }}
+                        }
                     ]
-                }}
+                }
             ]
-        }}
+        },
+        {
+            "id": "track-harmony-vocals",
+            "name": "Harmony Vocals",
+            "instrument": "vocals",
+            "category": "vocal", 
+            "voiceId": "alto01",
+            "volume": 0.6,
+            "pan": -0.3,
+            "muted": false,
+            "solo": false,
+            "clips": [
+                {
+                    "id": "clip-harmony-chorus",
+                    "trackId": "track-harmony-vocals",
+                    "startTime": 24,
+                    "duration": 16,
+                    "type": "lyrics",
+                    "instrument": "vocals",
+                    "voiceId": "alto01",
+                    "volume": 0.6,
+                    "effects": {
+                        "reverb": 0.4,
+                        "delay": 0.1,
+                        "distortion": 0.0,
+                        "pitchShift": 0,
+                        "chorus": 0.4,
+                        "filter": 0.1,
+                        "bitcrush": 0.0
+                    },
+                    "sectionId": "chorus1",
+                    "sectionSpans": ["chorus1"],
+                    "tags": ["harmony", "chorus"],
+                    "voices": [
+                        {
+                            "voice_id": "alto01",
+                            "lyrics": [
+                                {
+                                    "text": "Harmonizing with thirds and fifths for rich vocal texture",
+                                    "notes": ["E4", "F4", "G4", "A4", "B4", "C5", "A4", "G4"],
+                                    "start": 0.0,
+                                    "durations": [1.0, 0.5, 1.5, 1.0, 2.0, 1.0, 1.0, 2.0],
+                                    "velocities": [75, 80, 85, 82, 87, 83, 80, 75],
+                                    "syllables": [
+                                        {"t": "Har", "noteIdx": [0], "dur": 1.0},
+                                        {"t": "mo", "noteIdx": [1], "dur": 0.5},
+                                        {"t": "niz", "noteIdx": [2], "dur": 1.5}
+                                    ],
+                                    "phonemes": ["h", "ɑ", "r", "m", "oʊ", "n", "aɪ", "z"]
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
     ],
-    "voice_assignments": {{
-        "lead": "soprano01",
+    "vocal_arrangement": {
+        "lead": ["soprano01"],
         "harmony": ["alto01"],
-        "backing": ["tenor01", "bass01"]
-    }},
-    "melody_philosophy": "Explanation of melodic choices and vocal arrangement approach",
-    "harmonic_structure": "Description of how harmonies support the lead melody",
-    "vocal_production_notes": "Guidance for vocal effects, mixing, and production"
-}}
+        "backing": ["tenor01"],
+        "effects_strategy": "Lead vocals with moderate reverb and chorus, harmonies with enhanced reverb for width",
+        "stereo_positioning": "Lead center, harmonies panned for width and depth"
+    },
+    "melody_philosophy": "Sophisticated vocal arrangements with effects-aware design, melodic variety, and harmonic richness for professional sound",
+    "vocal_effects_integration": "Comprehensive effects usage planned for enhanced vocal presence and spatial characteristics"
+}"""
 
-Critical Guidelines:
-- Create a clip for EVERY lyrical section that appears in the song structure
-- Map every line of lyrics to specific notes in the song key: {key}
-- Use appropriate vocal ranges for each voice (soprano: C4-C6, alto: G3-G5, tenor: C3-C5, bass: E2-E4)
-- Calculate accurate timing: startTime and duration based on structure timing
-- Create singable melodies that match the tempo: {tempo} BPM and style
-- Include appropriate effects (reverb, delay) for the style
-- For harmony tracks, create supporting notes that complement the lead melody
-- Use voice_id values that match available voices: {list(state.available_voices.keys())}
-- Ensure total clip duration matches the section duration from structure
-- Consider vocal production appropriate to style (pop: compressed, classical: natural, etc.)
-- Create emotional arc through melody: verses conversational, chorus soaring
-- Include backing vocals/harmonies for choruses and final sections
-- Map syllables to note timing carefully - avoid cramming too many syllables per beat
-- Use velocities (60-100) to create dynamic expression in the vocal performance
-- REQUIRED EXTENDED STRUCTURE FIELDS:
-  * "sectionId": Must reference the section name (e.g., "verse1", "chorus", "bridge")  
-  * "sectionSpans": Array of sections this clip spans (for cross-boundary clips)
-  * "syllables": Array of syllable breakdowns with note mapping for each lyric
-  * "phonemes": Array of IPA phoneme strings for TTS/singing engines for each lyric
-- SYLLABLES FORMAT: {{"t": "syllable_text", "noteIdx": [note_index], "dur": duration, "melisma": true/false}}
-- Generate accurate syllable breakdowns that map to note indices within each lyric
-- Include IPA phonemes for proper pronunciation in singing synthesis engines
-- Ensure syllables and phonemes arrays are provided for every lyric entry
-"""
+        full_prompt = prompt + "\n\nCreate complete vocal track assignments with melodic content. Respond ONLY with a JSON object:\n" + json_template
         
         try:
-            response = await self._call_llm_safely(prompt)
+            # Use larger max_tokens for vocal agent since it generates complex JSON with syllables/phonemes
+            response = await self._call_llm_safely(full_prompt, max_tokens=3000)
             
             # Handle empty or whitespace-only responses
             if not response or not response.strip():
@@ -2338,16 +2462,45 @@ Critical Guidelines:
             
             # Clean response and validate JSON
             cleaned_response = response.strip()
+            logger.info(f"🎤 VocalAgent: Raw LLM response length: {len(cleaned_response)} characters")
+            
+            # Remove common markdown formatting if present
+            if cleaned_response.startswith('```json'):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.startswith('```'):
+                cleaned_response = cleaned_response[3:]
+            if cleaned_response.endswith('```'):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+            
             if not cleaned_response.startswith('{') or not cleaned_response.endswith('}'):
+                logger.warning(f"🎤 VocalAgent: Response doesn't look like pure JSON, trying to extract...")
                 # Try to extract JSON from response if it contains other text
                 import re
-                json_match = re.search(r'\{.*\}', cleaned_response, re.DOTALL)
+                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', cleaned_response, re.DOTALL)
                 if json_match:
                     cleaned_response = json_match.group(0)
+                    logger.info(f"🎤 VocalAgent: Extracted JSON block of {len(cleaned_response)} characters")
                 else:
-                    raise ValueError(f"No valid JSON found in vocal agent response: {cleaned_response[:200]}...")
+                    # Try a more aggressive extraction
+                    start_brace = cleaned_response.find('{')
+                    end_brace = cleaned_response.rfind('}')
+                    if start_brace != -1 and end_brace != -1 and end_brace > start_brace:
+                        cleaned_response = cleaned_response[start_brace:end_brace+1]
+                        logger.info(f"🎤 VocalAgent: Extracted JSON using brace matching: {len(cleaned_response)} characters")
+                    else:
+                        logger.error(f"🎤 VocalAgent: No valid JSON found in response: {cleaned_response[:500]}...")
+                        raise ValueError(f"No valid JSON found in vocal agent response: {cleaned_response[:200]}...")
             
-            result = json.loads(cleaned_response)
+            try:
+                result = json.loads(cleaned_response)
+                logger.info(f"🎤 VocalAgent: Successfully parsed JSON with {len(result.get('tracks', []))} tracks")
+            except json.JSONDecodeError as parse_error:
+                logger.error(f"🎤 VocalAgent: JSON parse error at line {parse_error.lineno}, column {parse_error.colno}")
+                logger.error(f"🎤 VocalAgent: Error message: {parse_error.msg}")
+                logger.error(f"🎤 VocalAgent: Problematic JSON around error: {cleaned_response[max(0, parse_error.pos-100):parse_error.pos+100]}")
+                raise ValueError(f"JSON parse error: {parse_error.msg} at line {parse_error.lineno}, column {parse_error.colno}")
+            
             
             tracks = result.get("tracks", [])
             voice_assignments = result.get("voice_assignments", {})
@@ -2456,6 +2609,9 @@ Critical Guidelines:
                         "volume": 0.8,
                         "pan": 0.0,
                         "effects": {"reverb": 0.1, "delay": 0.05, "distortion": 0},
+                        "sectionId": section_name,
+                        "sectionSpans": [section_name],
+                        "tags": ["lead"] if i == 0 else ["harmony"],
                         "voices": [{
                             "voice_id": voice_id,
                             "lyrics": [{
@@ -2463,7 +2619,14 @@ Critical Guidelines:
                                 "notes": ["C4", "D4", "E4", "F4"],  # Simple default melody
                                 "start": 0.0,
                                 "durations": [2.0, 2.0, 2.0, 2.0],
-                                "velocities": [80, 80, 80, 80]
+                                "velocities": [80, 80, 80, 80],
+                                "syllables": [
+                                    {"t": "Default", "noteIdx": [0], "dur": 2.0},
+                                    {"t": "vocal", "noteIdx": [1], "dur": 2.0},
+                                    {"t": "structure", "noteIdx": [2], "dur": 2.0},
+                                    {"t": "created", "noteIdx": [3], "dur": 2.0}
+                                ],
+                                "phonemes": ["d", "ɪ", "f", "ɔ", "l", "t", " ", "v", "oʊ", "k", "ə", "l", " ", "s", "t", "r", "ʌ", "k", "tʃ", "ər", " ", "k", "r", "i", "eɪ", "t", "ɪ", "d"]
                             }]
                         }]
                     }
@@ -2516,26 +2679,60 @@ Critical Guidelines:
         self._current_key = key
         self._current_style_tags = state.request.style_tags
         
-        prompt = f"""You are a professional instrumental arranger and composer. Create detailed instrumental tracks with musical content.
+        # Pre-format method calls to avoid f-string nesting issues
+        formatted_instruments = self.music_tools.format_instruments_for_prompt(state.available_instruments)
+        formatted_samples = self.music_tools.format_samples_for_prompt(state.available_samples)
+        formatted_user_samples = self.music_tools.format_samples_for_prompt(state.available_user_samples) if state.available_user_samples else "No user samples uploaded yet"
+        formatted_styles = self._format_style_tags(state.request.style_tags)
+        formatted_structure = json.dumps(structure, indent=2)
+        formatted_planned_tracks = json.dumps(planned_instrument_tracks, indent=2)
+        sample_stats = f"📊 Sample Library Statistics: {state.sample_metadata.get('total_count', 0)} total samples ({state.sample_metadata.get('user_count', 0)} user-uploaded, {state.sample_metadata.get('combined_count', 0)} default)" if state.sample_metadata else ""
+        track_focus = "- INSTRUMENTAL FOCUS: Since this is an instrumental track, create rich, layered arrangements with prominent lead melodies, complex harmonies, and dynamic instrumental sections that compensate for the absence of vocals" if state.request.is_instrumental else "- VOCAL SUPPORT: Create arrangements that support and complement the vocal parts without overwhelming them"
+        
+        prompt = f"""You are a professional instrumental arranger and composer. Create detailed instrumental tracks with rich musical content, varied chord sequences, and effects-aware arrangements for fuller, more dynamic compositions.
 
 Song Parameters:
 - Key: {key}
 - Tempo: {tempo} BPM
 - Time Signature: {time_signature}
-- Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
+- Style: {formatted_styles} {state.request.custom_style}
 - Song Idea: {state.request.song_idea}
 - Track Type: {'INSTRUMENTAL ONLY - No Vocals' if state.request.is_instrumental else 'Mixed - Includes Vocals'}
 
+🎼 ADVANCED COMPOSITION REQUIREMENTS:
+
+CHORD SEQUENCE VARIATION:
+- Create diverse chord progressions that vary between sections
+- Use different chord durations (whole notes, half notes, quarter notes) for rhythmic interest
+- Implement chord inversions and voice leading for smoother progressions
+- Vary clip durations based on harmonic rhythm (2-bar, 4-bar, 8-bar patterns)
+- Use chord substitutions and extensions (7ths, 9ths, sus chords) for sophistication
+- Create harmonic movement that supports the emotional arc of the song
+
+EFFECTS-AWARE COMPOSITION:
+- Consider how effects will shape the final sound when creating patterns
+- Design complementary parts that will benefit from different effects processing
+- Create space for reverb and delay by using appropriate note spacing
+- Plan stereo field utilization with different instruments in mind
+- Design arrangements that will be enhanced by chorus, filter, and modulation effects
+
+MUSICAL DEPTH STRATEGIES:
+- Layer multiple instruments with different rhythmic patterns
+- Create call-and-response patterns between instrument groups
+- Use counterpoint and melodic interweaving
+- Implement dynamic contrast between sections
+- Design textural layers (foundation, harmony, melody, percussion)
+
 Available Instruments by Category:
-{self.music_tools.format_instruments_for_prompt(state.available_instruments)}
+{formatted_instruments}
 
 Available Default Samples:
-{self.music_tools.format_samples_for_prompt(state.available_samples)}
+{formatted_samples}
 
 🎵 PRIORITY: Available User-Uploaded Samples 🎵
-{self.music_tools.format_samples_for_prompt(state.available_user_samples) if state.available_user_samples else "No user samples uploaded yet"}
+{formatted_user_samples}
 
-{f"📊 Sample Library Statistics: {state.sample_metadata.get('total_count', 0)} total samples ({state.sample_metadata.get('user_count', 0)} user-uploaded, {state.sample_metadata.get('combined_count', 0)} default)" if state.sample_metadata else ""}
+{sample_stats}
 
 SAMPLE SELECTION GUIDELINES:
 - 🌟 HIGHEST PRIORITY: Use user-uploaded samples whenever possible - these are custom content the user specifically added
@@ -2545,16 +2742,16 @@ SAMPLE SELECTION GUIDELINES:
 - User samples should be integrated creatively into the arrangement - they're not just backing tracks
 - When using user samples, note their metadata (BPM, key, duration) in your reasoning
 - Fall back to default samples only when user samples aren't suitable for the specific instrument role
-- Use sample tags to find appropriate sounds for the intended style: {self._format_style_tags(state.request.style_tags)}
+- Use sample tags to find appropriate sounds for the intended style: {formatted_styles}
 - Consider sample duration when creating clips - shorter samples for percussion hits, longer samples for melodic loops
 - Mix default instrument samples with user-uploaded samples for variety and personalized sound
-{'- INSTRUMENTAL FOCUS: Since this is an instrumental track, create rich, layered arrangements with prominent lead melodies, complex harmonies, and dynamic instrumental sections that compensate for the absence of vocals' if state.request.is_instrumental else '- VOCAL SUPPORT: Create arrangements that support and complement the vocal parts without overwhelming them'}
+{track_focus}
 
 Song Structure (with timing in seconds):
-{json.dumps(structure, indent=2)}
+{formatted_structure}
 
 Planned Instrumental Tracks from Arrangement:
-{json.dumps(planned_instrument_tracks, indent=2)}
+{formatted_planned_tracks}
 
 Create complete instrumental tracks with musical content. You MUST use ONLY instruments from the available_instruments list and ONLY samples from the available_samples list.
 
@@ -2572,8 +2769,26 @@ FOR MELODIC/HARMONIC INSTRUMENTS (piano, guitar, strings, synths):
             "instrument": "piano",
             "volume": 0.7,
             "pan": 0.0,
-            "effects": {{"reverb": 0.1, "delay": 0, "distortion": 0}},
-            "notes": ["C4", "E4", "G4", "C5", "F4", "A4", "C5", "G4"]  // Rich chord progression
+            "effects": {{"reverb": 0.2, "delay": 0.1, "distortion": 0.0, "pitchShift": 0, "chorus": 0.2, "filter": 0.0, "bitcrush": 0.0}},
+            "notes": ["C4", "E4", "G4", "C5", "F4", "A4", "C5", "E4", "G4", "B4", "D5", "F4"],  // C major - F major - G major chord progression
+            "chordSequence": ["C_major", "F_major", "G_major"],  // Explicit chord names for frontend
+            "chordAnalysis": "I - IV - V progression in C major with clear chord tones",
+            "rhythmicPattern": "Arpeggiated chords with syncopated accents"
+        }},
+        {{
+            "id": "clip-piano-verse", 
+            "trackId": "track-piano",
+            "startTime": 8,
+            "duration": 16,
+            "type": "synth",
+            "instrument": "piano", 
+            "volume": 0.6,
+            "pan": 0.0,
+            "effects": {{"reverb": 0.15, "delay": 0.05, "distortion": 0.0, "pitchShift": 0, "chorus": 0.15, "filter": 0.0, "bitcrush": 0.0}},
+            "notes": ["C4", "E4", "G4", "C4", "A3", "C4", "E4", "A3", "F3", "A3", "C4", "F3", "G3", "B3", "D4", "G3"],  // Clear chord progression: C - Am - F - G
+            "chordSequence": ["C_major", "A_minor", "F_major", "G_major"],  // vi-IV-I-V progression  
+            "chordAnalysis": "I - vi - IV - V progression with clear chord tones and bass notes",
+            "rhythmicPattern": "Block chords with melodic embellishments and bass movement"
         }}
     ]
 }}
@@ -2590,8 +2805,11 @@ FOR BASS INSTRUMENTS:
             "instrument": "bass",
             "volume": 0.8,
             "pan": 0.0,
-            "effects": {{"reverb": 0.05, "delay": 0, "distortion": 0.1}},
-            "notes": ["C2", "G2", "F2", "G2", "C2", "E2", "F2", "G2"]  // Low octave bass line
+            "effects": {{"reverb": 0.05, "delay": 0.0, "distortion": 0.2, "pitchShift": 0, "chorus": 0.0, "filter": 0.1, "bitcrush": 0.0}},
+            "notes": ["C2", "C2", "G2", "C2", "A1", "A1", "E2", "A1", "F2", "F2", "C3", "F2", "G2", "G2", "D3", "G2"],  // Walking bass following chord progression
+            "chordSequence": ["C_major", "A_minor", "F_major", "G_major"],  // Match harmonic instruments
+            "chordAnalysis": "Root motion with passing tones supporting I-vi-IV-V progression",
+            "rhythmicPattern": "Syncopated walking bass with chord tone emphasis and rhythmic variation"
         }}
     ]
 }}
@@ -2608,8 +2826,11 @@ FOR PERCUSSION/DRUMS:
             "instrument": "drums",
             "volume": 0.6,
             "pan": 0.0,
-            "effects": {{"reverb": 0.2, "delay": 0, "distortion": 0}},
-            "notes": ["C4", "C4", "E4", "C4", "C4", "E4", "C4", "E4"]  // Kick-Snare pattern
+            "effects": {{"reverb": 0.25, "delay": 0.1, "distortion": 0.1, "pitchShift": 0, "chorus": 0.0, "filter": 0.0, "bitcrush": 0.15}},
+            "notes": ["C4", "C4", "E4", "C4", "F#4", "E4", "C4", "E4", "C4", "G4", "E4", "C4", "F#4", "E4", "E4", "C4"],  // Complex drum pattern with fills
+            "chordSequence": ["percussion"],  // Drums don't follow harmonic progression
+            "chordAnalysis": "Rhythmic foundation with Kick (C4), Snare (E4), Hi-hat (F#4), Crash (G4) pattern",
+            "rhythmicPattern": "Driving beat with ghost notes, accent variations, and dynamic fills"
         }}
     ]
 }}
@@ -2667,6 +2888,40 @@ Critical Guidelines:
 - Use ONLY instruments from the available_instruments list - NO other instruments allowed
 - For percussion: use type="synth" with notes array for rhythmic patterns (NOT samples)
 - For melodic instruments: use type="synth" with notes array directly in clip (NO musical_content wrapper)
+
+🎼 CHORD SEQUENCE & HARMONY REQUIREMENTS:
+- MANDATORY: Include "chordSequence" field in ALL harmonic clips (piano, guitar, strings, etc.)
+- Use standard chord names: "C_major", "A_minor", "F_major", "G_major", "D_minor", "E_minor", etc.
+- Available chord types: major, minor, dom7, maj7, min7, augmented, diminished, sus2, sus4
+- Format: "[Root]_[type]" (e.g., "C_major", "A_minor", "G_dom7", "F_maj7")
+- Ensure notes array matches the chordSequence (use actual chord tones)
+- For common progressions:
+  * I-V-vi-IV in C: ["C_major", "G_major", "A_minor", "F_major"]
+  * vi-IV-I-V in C: ["A_minor", "F_major", "C_major", "G_major"] 
+  * ii-V-I in C: ["D_minor", "G_major", "C_major"]
+
+🎵 CHORD TONE REQUIREMENTS:
+- Notes arrays MUST contain actual chord tones that represent the chordSequence
+- C_major: Use notes C, E, G (any octave: C3, E3, G3, C4, E4, G4, etc.)
+- A_minor: Use notes A, C, E (any octave: A3, C4, E4, A4, etc.)
+- F_major: Use notes F, A, C (any octave: F3, A3, C4, F4, etc.)
+- G_major: Use notes G, B, D (any octave: G3, B3, D4, G4, etc.)
+- D_minor: Use notes D, F, A (any octave: D3, F3, A3, D4, etc.)
+- E_minor: Use notes E, G, B (any octave: E3, G3, B3, E4, etc.)
+
+EXAMPLE CHORD PROGRESSIONS IN DIFFERENT KEYS:
+- C Major: ["C_major", "A_minor", "F_major", "G_major"] 
+- G Major: ["G_major", "E_minor", "C_major", "D_major"]
+- F Major: ["F_major", "D_minor", "As_major", "C_major"] (As = Bb)
+- A Minor: ["A_minor", "F_major", "C_major", "G_major"]
+- E Minor: ["E_minor", "C_major", "G_major", "D_major"]
+- D Minor: ["D_minor", "As_major", "F_major", "C_major"]
+
+🎯 CHORD-TO-NOTES MAPPING EXAMPLES:
+- If chordSequence: ["C_major", "F_major"], notes should include: ["C4", "E4", "G4", "C4", "F4", "A4", "C5", "F4"]
+- If chordSequence: ["A_minor", "G_major"], notes should include: ["A3", "C4", "E4", "A3", "G3", "B3", "D4", "G3"]
+- Bass instruments should follow chord roots: C_major = C2/C3, A_minor = A1/A2, etc.
+- Ensure bass and harmonic instruments use the SAME chordSequence for consistency
 - Calculate accurate timing: startTime and duration based on structure timing in seconds
 - CRITICAL SCHEMA COMPLIANCE: Follow the exact clip schema - put notes array directly in clip object, NOT inside musical_content
 - CORRECT clip structure: {{"id": "", "trackId": "", "startTime": 0, "duration": 4, "type": "synth", "instrument": "", "notes": ["C4", "E4", "G4", "C5"], "volume": 1.0, "effects": {{}}}}
@@ -2892,15 +3147,17 @@ AVOID SIMPLE PATTERNS:
 
     async def _effects_agent(self, state: SongState) -> SongState:
         """
-        EffectsAgent: Adds audio effects to tracks and clips
-        - reverb, delay, distortion guided by style
+        EffectsAgent: Adds comprehensive audio effects to tracks and clips
+        - All 7 available effects: reverb, delay, distortion, pitchShift, chorus, filter, bitcrush
+        - Pan positioning and volume adjustments for spatial depth
+        - Style-aware effect combinations for fuller, more varied compositions
         """
         state.current_agent = "effects"
         
         # Progress callback for effects agent
         if self.progress_callback:
             try:
-                await self._safe_progress_callback("Agent 6/9: Applying audio effects (reverb, delay, EQ)", 66, "effects")
+                await self._safe_progress_callback("Agent 6/9: Applying comprehensive audio effects (reverb, delay, distortion, pitch shift, chorus, filter, bit crush)", 66, "effects")
             except Exception as e:
                 print(f"Progress callback error: {e}")
         
@@ -2909,44 +3166,140 @@ AVOID SIMPLE PATTERNS:
         all_tracks.extend(state.vocal_assignments.get("tracks", []))
         all_tracks.extend(state.instrumental_content.get("tracks", []))
         
-        prompt = f"""You are an audio engineer. Add appropriate effects to the tracks based on style and instrument type.
+        prompt = f"""You are a professional audio engineer and producer. Apply comprehensive effects processing to create a fuller, more varied, and professionally mixed song.
 
 Song Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
 Track Type: {'INSTRUMENTAL ONLY - No Vocals' if state.request.is_instrumental else 'Mixed - Includes Vocals'}
 Tempo: {state.global_params.get('tempo')} BPM
+Key: {state.global_params.get('key')}
 
 Current Tracks:
 {json.dumps(all_tracks, indent=2)}
 
-Add effects to enhance the mix. Respond ONLY with a JSON object:
+Apply ALL SEVEN available effects plus pan/volume adjustments to create depth, variety, and professional sound. Respond ONLY with a JSON object:
 {{
     "track_effects": {{
         "track-id-1": {{
-            "reverb": 0.3,
-            "delay": 0.1,
-            "distortion": 0.0
+            "reverb": 0.3,      // 0.0-1.0: Room size/ambiance
+            "delay": 0.1,       // 0.0-1.0: Echo/space effect
+            "distortion": 0.0,  // 0.0-1.0: Harmonic saturation
+            "pitchShift": 0.0,  // -12 to +12 semitones: Pitch modulation
+            "chorus": 0.2,      // 0.0-1.0: Doubling/width effect
+            "filter": 0.0,      // 0.0-1.0: Low-pass filtering amount
+            "bitcrush": 0.0,    // 0.0-1.0: Lo-fi/digital distortion
+            "pan": 0.0,         // -1.0 to +1.0: Stereo positioning
+            "volume": 0.8       // 0.0-1.0: Track volume
         }},
         "track-id-2": {{
             "reverb": 0.1,
             "delay": 0.0,
-            "distortion": 0.2
+            "distortion": 0.3,
+            "pitchShift": 0.0,
+            "chorus": 0.0,
+            "filter": 0.2,
+            "bitcrush": 0.0,
+            "pan": -0.3,
+            "volume": 0.7
         }}
     }},
     "clip_effects": {{
         "clip-id-1": {{
             "reverb": 0.2,
-            "delay": 0.0,
-            "distortion": 0.0
+            "delay": 0.05,
+            "distortion": 0.0,
+            "pitchShift": 0.0,
+            "chorus": 0.1,
+            "filter": 0.0,
+            "bitcrush": 0.0
         }}
     }},
-    "mixing_notes": "Brief explanation of effect choices"
+    "mixing_notes": "Detailed explanation of effect choices and how they enhance the composition",
+    "stereo_field_strategy": "Description of pan positioning strategy for width and depth",
+    "effects_variation_strategy": "How effects vary across sections/clips for dynamic interest"
 }}
 
-Effect Guidelines (values 0.0-1.0):
-- Reverb: Vocals (0.2-0.4), Drums (0.1-0.3), Lead instruments (0.1-0.3)
-- Delay: Vocals/Leads (0.0-0.2), Rhythmic instruments (0.0-0.1)
-- Distortion: Rock guitars (0.2-0.6), Electronic synths (0.1-0.4), Clean instruments (0.0)
-- Style-specific: Rock (more distortion), Ambient (more reverb), Electronic (more delay)
+COMPREHENSIVE EFFECT GUIDELINES (all values 0.0-1.0 except pitchShift):
+
+🎛️ REVERB (Room Size/Ambiance):
+- Vocals: 0.2-0.5 (intimate to spacious)
+- Drums: 0.1-0.4 (tight to large room)
+- Lead instruments: 0.2-0.4 (presence with space)
+- Pad/atmosphere: 0.4-0.7 (lush, expansive)
+- Bass: 0.0-0.2 (keep tight and focused)
+
+🔄 DELAY (Echo/Rhythmic Interest):
+- Vocals: 0.1-0.3 (subtle to pronounced echo)
+- Lead guitars/synths: 0.2-0.4 (rhythmic enhancement)
+- Arpeggios/plucks: 0.1-0.3 (rhythmic doubling)
+- Pads: 0.0-0.2 (subtle texture)
+- Drums: 0.0-0.1 (minimal, mainly snare)
+
+🔥 DISTORTION (Harmonic Saturation):
+- Rock guitars: 0.3-0.8 (crunch to heavy)
+- Bass: 0.1-0.4 (warmth to growl)
+- Electronic synths: 0.2-0.5 (character to aggressive)
+- Vocals: 0.0-0.2 (warmth, avoid unless stylistic)
+- Clean instruments: 0.0-0.1 (subtle saturation)
+
+🎵 PITCH SHIFT (-12 to +12 semitones):
+- Octave doubling: -12 or +12 (bass/lead reinforcement)
+- Harmonic interest: -7, -5, +5, +7 (fifths/fourths)
+- Subtle thickening: -1, +1 (slight detuning)
+- Creative effects: ±3, ±4, ±8 (unusual intervals)
+- Normal pitch: 0 (no shift)
+
+🌊 CHORUS (Width/Doubling):
+- Vocals: 0.2-0.5 (natural doubling to lush)
+- Clean guitars: 0.3-0.6 (classic chorus sound)
+- Synth pads: 0.2-0.4 (width and movement)
+- Bass: 0.0-0.2 (minimal, keep focused)
+- Leads: 0.1-0.3 (enhance without muddying)
+
+🔊 FILTER (Low-pass Filtering):
+- Build-ups/breakdowns: 0.3-0.8 (dramatic filtering)
+- Vintage effects: 0.2-0.4 (warm, rounded sound)
+- Creative transitions: 0.4-0.7 (sweeping effects)
+- Subtle warmth: 0.1-0.2 (gentle high-freq rolloff)
+- Full brightness: 0.0 (no filtering)
+
+📟 BIT CRUSH (Lo-fi/Digital Distortion):
+- Retro/vintage style: 0.3-0.6 (authentic lo-fi)
+- Creative texture: 0.1-0.3 (subtle digital character)
+- Breakdown effects: 0.4-0.8 (dramatic degradation)
+- Modern clean: 0.0 (no bit crushing)
+- Drum textures: 0.2-0.5 (character without destruction)
+
+🔊 STEREO FIELD STRATEGY (Pan: -1.0 to +1.0):
+- Center (0.0): Bass, kick drum, lead vocals, main melody
+- Mid-Left (-0.3 to -0.5): Rhythm guitar, hi-hats, backing vocals
+- Mid-Right (+0.3 to +0.5): Keys, percussion, counter-melodies
+- Wide-Left (-0.6 to -0.9): Atmospheric sounds, guitar doubles
+- Wide-Right (+0.6 to +0.9): String sections, synth textures
+- Create movement: Pan can vary between clips for dynamic interest
+
+🎚️ VOLUME STRATEGY (0.0-1.0):
+- Lead elements: 0.7-0.9 (prominent without clipping)
+- Supporting elements: 0.6-0.8 (present but supportive)
+- Background/atmosphere: 0.4-0.6 (texture without interference)
+- Bass/foundation: 0.7-0.9 (solid foundation)
+- Dynamic automation: Volume can vary across sections
+
+STYLE-SPECIFIC EFFECT COMBINATIONS:
+- Rock: More distortion (0.3-0.6), moderate reverb (0.2-0.4), minimal chorus
+- Electronic: Heavy chorus (0.3-0.6), creative pitch shift, bit crush for texture
+- Ambient: Lush reverb (0.4-0.7), delay textures (0.2-0.4), subtle filtering
+- Jazz: Clean with subtle chorus (0.1-0.3), natural reverb (0.2-0.4)
+- Hip-Hop: Bit crush character (0.2-0.4), filtered effects, punchy distortion
+- Pop: Balanced effects, chorus for width, reverb for space
+- Classical: Natural reverb (0.3-0.6), minimal effects, focus on space
+
+CREATE VARIATION AND DEPTH:
+- Use different effect combinations per track for sonic variety
+- Vary effects intensity across song sections (verse vs chorus)
+- Create call-and-response between differently processed elements
+- Use pan positioning to create immersive stereo field
+- Layer complementary effects for rich, professional sound
+- Consider how effects interact with chord progressions and arrangements
 """
         
         try:
@@ -2969,17 +3322,63 @@ Effect Guidelines (values 0.0-1.0):
             
             result = json.loads(cleaned_response)
             
+            # Validate and normalize effect values
+            track_effects = result.get("track_effects", {})
+            clip_effects = result.get("clip_effects", {})
+            
+            # Normalize all effect values to proper ranges
+            for track_id, effects in track_effects.items():
+                # Ensure all 7 effects plus pan/volume are present with proper ranges
+                normalized_effects = {
+                    "reverb": max(0.0, min(1.0, effects.get("reverb", 0.0))),
+                    "delay": max(0.0, min(1.0, effects.get("delay", 0.0))),
+                    "distortion": max(0.0, min(1.0, effects.get("distortion", 0.0))),
+                    "pitchShift": max(-12.0, min(12.0, effects.get("pitchShift", 0.0))),
+                    "chorus": max(0.0, min(1.0, effects.get("chorus", 0.0))),
+                    "filter": max(0.0, min(1.0, effects.get("filter", 0.0))),
+                    "bitcrush": max(0.0, min(1.0, effects.get("bitcrush", 0.0))),
+                    "pan": max(-1.0, min(1.0, effects.get("pan", 0.0))),
+                    "volume": max(0.0, min(1.0, effects.get("volume", 0.8)))
+                }
+                track_effects[track_id] = normalized_effects
+            
+            # Normalize clip effects (no pan/volume at clip level)
+            for clip_id, effects in clip_effects.items():
+                normalized_effects = {
+                    "reverb": max(0.0, min(1.0, effects.get("reverb", 0.0))),
+                    "delay": max(0.0, min(1.0, effects.get("delay", 0.0))),
+                    "distortion": max(0.0, min(1.0, effects.get("distortion", 0.0))),
+                    "pitchShift": max(-12.0, min(12.0, effects.get("pitchShift", 0.0))),
+                    "chorus": max(0.0, min(1.0, effects.get("chorus", 0.0))),
+                    "filter": max(0.0, min(1.0, effects.get("filter", 0.0))),
+                    "bitcrush": max(0.0, min(1.0, effects.get("bitcrush", 0.0)))
+                }
+                clip_effects[clip_id] = normalized_effects
+            
             state.effects_config = {
-                "track_effects": result.get("track_effects", {}),
-                "clip_effects": result.get("clip_effects", {}),
-                "mixing_notes": result.get("mixing_notes", ""),
+                "track_effects": track_effects,
+                "clip_effects": clip_effects,
+                "mixing_notes": result.get("mixing_notes", "Comprehensive effects applied for enhanced sound"),
+                "stereo_field_strategy": result.get("stereo_field_strategy", "Strategic pan positioning applied"),
+                "effects_variation_strategy": result.get("effects_variation_strategy", "Dynamic effects variation across composition"),
                 "is_generated": True
             }
             
         except Exception as e:
             safe_log_error(f"Effects agent error: {e}")
             state.errors.append(f"Effects: {str(e)}")
-            state.effects_config = {"track_effects": {}, "clip_effects": {}, "error": str(e)}
+            # Create comprehensive fallback effects
+            fallback_effects = {
+                "reverb": 0.2, "delay": 0.1, "distortion": 0.0, "pitchShift": 0.0,
+                "chorus": 0.1, "filter": 0.0, "bitcrush": 0.0, "pan": 0.0, "volume": 0.8
+            }
+            state.effects_config = {
+                "track_effects": {track.get('id', f'track-{i}'): fallback_effects.copy() 
+                                for i, track in enumerate(all_tracks)},
+                "clip_effects": {},
+                "error": str(e),
+                "mixing_notes": "Fallback effects applied due to processing error"
+            }
         
         return state
     
@@ -3010,6 +3409,19 @@ Original Request:
 - Style: {self._format_style_tags(state.request.style_tags)} {state.request.custom_style}
 - Instrumental: {state.request.is_instrumental}
 
+CRITICAL VALIDATION CHECKLIST:
+1. CHORD SEQUENCE VALIDATION: Verify that notes arrays match their chordSequence
+   - C_major chords MUST contain notes C, E, G (any octave)
+   - A_minor chords MUST contain notes A, C, E (any octave)
+   - F_major chords MUST contain notes F, A, C (any octave)
+   - If notes don't match chords, this is a CRITICAL issue requiring revision
+   
+2. NOTE PATTERN VALIDATION: Ensure instrumental clips have meaningful note patterns
+   - Avoid trivial patterns like only 2-3 repeated notes
+   - Ensure variety and musical interest
+   - Check that bass instruments use low octaves (2-3)
+   - Check that melodies use appropriate octaves (4-6)
+
 Evaluate and respond ONLY with a JSON object:
 {{
     "is_ready": true,
@@ -3021,7 +3433,10 @@ Evaluate and respond ONLY with a JSON object:
         "Only list CRITICAL schema problems that prevent song playback"
     ],
     "musical_issues": [
-        "Only list CRITICAL musical problems that make the song unlistenable"
+        "Only list CRITICAL musical problems including chord-note mismatches"
+    ],
+    "chord_validation_issues": [
+        "List any clips where chordSequence doesn't match notes array"
     ],
     "recommendation": "continue",
     "revision_priority": "low"
@@ -3031,9 +3446,10 @@ IMPORTANT: Only recommend "revise" for CRITICAL issues that would prevent the so
 
 Check for:
 1. CRITICAL schema completeness (only flag if required fields are completely missing)
-2. CRITICAL musical coherence (only flag if completely unmusical)
-3. Track/clip relationships (only flag if IDs are broken)
-4. Basic playability
+2. CRITICAL musical coherence (only flag if completely unmusical) 
+3. CRITICAL chord-note mismatches (C_major with A-C-D notes is wrong!)
+4. Track/clip relationships (only flag if IDs are broken)
+5. Basic playability
 
 Be constructive but focus on what works rather than minor improvements. Most songs should receive "continue" recommendation.
 """
