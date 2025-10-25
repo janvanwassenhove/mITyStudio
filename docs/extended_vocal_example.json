@@ -1,0 +1,269 @@
+{
+  "id": "song-extended-vocal-demo",
+  "name": "Extended Vocal Structure Demo",
+  "tempo": 120,
+  "timeSignature": [
+    4,
+    4
+  ],
+  "key": "C",
+  "structure": {
+    "sections": [
+      {
+        "id": "sec-intro",
+        "type": "intro",
+        "label": "Intro",
+        "startTime": 0.0,
+        "endTime": 8.0,
+        "index": 1
+      },
+      {
+        "id": "sec-v1",
+        "type": "verse",
+        "label": "Verse 1",
+        "startTime": 8.0,
+        "endTime": 24.0,
+        "index": 1
+      },
+      {
+        "id": "sec-chorus",
+        "type": "chorus",
+        "label": "Chorus",
+        "startTime": 24.0,
+        "endTime": 40.0,
+        "index": 1
+      }
+    ]
+  },
+  "tracks": [
+    {
+      "id": "track-soprano",
+      "name": "Soprano Voice",
+      "instrument": "vocals",
+      "category": "vocals",
+      "voiceId": "soprano01",
+      "volume": 0.8,
+      "pan": -0.2,
+      "muted": false,
+      "solo": false,
+      "clips": [
+        {
+          "id": "clip-v1-soprano-a",
+          "trackId": "track-soprano",
+          "type": "lyrics",
+          "sectionId": "sec-v1",
+          "startTime": 8.0,
+          "duration": 4.0,
+          "voiceId": "soprano01",
+          "lyrics": [
+            {
+              "text": "Shine bright like a diamond",
+              "start": 0.0,
+              "notes": [
+                "E4",
+                "F4",
+                "G4",
+                "A4",
+                "B4"
+              ],
+              "durations": [
+                0.3,
+                0.3,
+                0.4,
+                0.5,
+                0.5
+              ],
+              "syllables": [
+                {
+                  "t": "Shine",
+                  "noteIdx": [
+                    0
+                  ],
+                  "dur": 0.3
+                },
+                {
+                  "t": "bright",
+                  "noteIdx": [
+                    1
+                  ],
+                  "dur": 0.3
+                },
+                {
+                  "t": "like",
+                  "noteIdx": [
+                    2
+                  ],
+                  "dur": 0.4
+                },
+                {
+                  "t": "a",
+                  "noteIdx": [
+                    3
+                  ],
+                  "dur": 0.5
+                },
+                {
+                  "t": "dia-mond",
+                  "noteIdx": [
+                    4
+                  ],
+                  "dur": 0.5,
+                  "melisma": true
+                }
+              ],
+              "phonemes": [
+                "ʃ",
+                "aɪ",
+                "n",
+                " ",
+                "b",
+                "r",
+                "aɪ",
+                "t",
+                " ",
+                "l",
+                "aɪ",
+                "k",
+                " ",
+                "ɑ",
+                " ",
+                "d",
+                "aɪ",
+                "ɑ",
+                "m",
+                "ə",
+                "n",
+                "d"
+              ]
+            }
+          ],
+          "tags": [
+            "lead"
+          ]
+        }
+      ],
+      "effects": {
+        "reverb": 0.2,
+        "delay": 0,
+        "distortion": 0,
+        "pitchShift": 0,
+        "chorus": 0,
+        "filter": 0,
+        "bitcrush": 0
+      }
+    },
+    {
+      "id": "track-alto",
+      "name": "Alto Voice",
+      "instrument": "vocals",
+      "category": "vocals",
+      "voiceId": "alto01",
+      "volume": 0.7,
+      "pan": 0.2,
+      "muted": false,
+      "solo": false,
+      "clips": [
+        {
+          "id": "clip-v1-alto-a",
+          "trackId": "track-alto",
+          "type": "lyrics",
+          "sectionId": "sec-v1",
+          "startTime": 10.0,
+          "duration": 6.0,
+          "voiceId": "alto01",
+          "lyrics": [
+            {
+              "text": "So shine tonight",
+              "start": 0.0,
+              "notes": [
+                "C4",
+                "D4",
+                "E4",
+                "F4"
+              ],
+              "durations": [
+                0.5,
+                0.5,
+                0.5,
+                1.5
+              ],
+              "syllables": [
+                {
+                  "t": "So",
+                  "noteIdx": [
+                    0
+                  ],
+                  "dur": 0.5
+                },
+                {
+                  "t": "shine",
+                  "noteIdx": [
+                    1
+                  ],
+                  "dur": 0.5
+                },
+                {
+                  "t": "to-",
+                  "noteIdx": [
+                    2
+                  ],
+                  "dur": 0.5
+                },
+                {
+                  "t": "night",
+                  "noteIdx": [
+                    3
+                  ],
+                  "dur": 1.5,
+                  "melisma": true
+                }
+              ],
+              "phonemes": [
+                "s",
+                "oʊ",
+                " ",
+                "ʃ",
+                "aɪ",
+                "n",
+                " ",
+                "t",
+                "ə",
+                "n",
+                "aɪ",
+                "t"
+              ]
+            }
+          ],
+          "tags": [
+            "harmony"
+          ],
+          "sectionSpans": [
+            {
+              "sectionId": "sec-v1",
+              "startOffset": 2.0,
+              "duration": 4.0
+            },
+            {
+              "sectionId": "sec-chorus",
+              "startOffset": 0.0,
+              "duration": 2.0
+            }
+          ]
+        }
+      ],
+      "effects": {
+        "reverb": 0.1,
+        "delay": 0,
+        "distortion": 0,
+        "pitchShift": 0,
+        "chorus": 0,
+        "filter": 0,
+        "bitcrush": 0
+      }
+    }
+  ],
+  "duration": 40.0,
+  "createdAt": "2025-08-21T12:00:00.000Z",
+  "updatedAt": "2025-08-21T12:00:00.000Z",
+  "lyrics": "Shine bright like a diamond\nSo shine tonight"
+}

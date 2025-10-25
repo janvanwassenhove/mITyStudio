@@ -80,15 +80,70 @@ except Exception as e:
         print(f"Warning: Pattern generation not available: {e2}")
         # Create a simple fallback
         def generate_intelligent_default_notes(instrument, key='C', style='pop'):
-            """Simple fallback pattern generation"""
-            if 'bass' in instrument.lower():
-                return ["C2", "G2", "F2", "G2"]
-            elif 'piano' in instrument.lower():
-                return ["C4", "E4", "G4", "C5"]
-            elif 'drum' in instrument.lower():
-                return ["C4", "C4", "E4", "C4"]  # Kick-snare pattern
-            else:
-                return ["C4", "D4", "E4", "F4"]  # Simple melody
+            """Generate fallback pattern using available chords for the instrument"""
+            try:
+                # Try to get available chords for the instrument
+                available_chords = get_available_instrument_chords(instrument)
+                if available_chords:
+                    # Generate pattern based on key and instrument type
+                    if 'bass' in instrument.lower():
+                        # For bass, prefer note files
+                        note_chords = [c for c in available_chords if '_note' in c]
+                        if note_chords:
+                            # Use root notes in progression
+                            key_note = key.replace('#', 's')
+                            bass_pattern = []
+                            for note_root in [key_note, 'G', 'A', key_note]:  # I-V-vi-I pattern
+                                matching = [c for c in note_chords if c.startswith(note_root + '_')]
+                                if matching:
+                                    bass_pattern.append(matching[0])
+                                elif note_chords:
+                                    bass_pattern.append(note_chords[0])
+                            return bass_pattern if bass_pattern else note_chords[:4]
+                    
+                    elif 'drum' in instrument.lower() or 'percussion' in instrument.lower():
+                        # For drums, use note files for rhythm
+                        note_chords = [c for c in available_chords if '_note' in c]
+                        if len(note_chords) >= 4:
+                            return [note_chords[0], note_chords[0], note_chords[2], note_chords[0]]  # Kick-kick-snare-kick pattern
+                        elif note_chords:
+                            return note_chords[:4]
+                    
+                    else:
+                        # For melodic instruments, prefer major/minor chords
+                        key_note = key.replace('#', 's')
+                        chord_pattern = []
+                        for chord_root in [key_note, 'F', 'G', key_note]:  # I-IV-V-I pattern
+                            # Try major first, then minor, then any chord
+                            for suffix in ['_major', '_minor', '_dom7']:
+                                candidate = f"{chord_root}{suffix}"
+                                if candidate in available_chords:
+                                    chord_pattern.append(candidate)
+                                    break
+                            else:
+                                # Fallback to any chord with this root
+                                matching = [c for c in available_chords if c.startswith(chord_root + '_')]
+                                if matching:
+                                    chord_pattern.append(matching[0])
+                                elif available_chords:
+                                    chord_pattern.append(available_chords[0])
+                        
+                        return chord_pattern if chord_pattern else available_chords[:4]
+                
+                # Original fallback if no chords found
+                if 'bass' in instrument.lower():
+                    return ["C_note", "G_note", "F_note", "G_note"]
+                elif 'piano' in instrument.lower():
+                    return ["C_major", "F_major", "G_major", "C_major"]
+                elif 'drum' in instrument.lower():
+                    return ["C_note", "C_note", "E_note", "C_note"]  # Kick-snare pattern
+                else:
+                    return ["C_major", "D_minor", "F_major", "G_major"]  # Simple chord progression
+                    
+            except Exception as e:
+                logger.warning(f"Error generating intelligent defaults for {instrument}: {e}")
+                # Ultimate fallback
+                return ["C_major", "F_major", "G_major", "C_major"]
 
 # Try to import the full utils (but we already have fallback)
 try:
@@ -98,6 +153,125 @@ except Exception as e:
     pass  # Keep using fallback
 
 logger = logging.getLogger(__name__)
+
+
+def get_available_instrument_chords(instrument_name: str, category: str = None) -> List[str]:
+    """Get available chords/notes for a specific instrument from the file system"""
+    try:
+        from pathlib import Path
+        
+        # Find the instrument in the instruments folder
+        current_file = Path(__file__).resolve()
+        project_root = current_file.parent.parent.parent.parent
+        instruments_root = project_root / 'frontend' / 'public' / 'instruments'
+        
+        # If category is provided, search in that category
+        if category:
+            categories_to_search = [category]
+        else:
+            # Search all categories
+            categories_to_search = [d.name for d in instruments_root.iterdir() if d.is_dir()]
+        
+        for cat in categories_to_search:
+            cat_dir = instruments_root / cat
+            if not cat_dir.exists():
+                continue
+                
+            # Look for the instrument directory (case-insensitive match)
+            for inst_dir in cat_dir.iterdir():
+                if inst_dir.is_dir() and inst_dir.name.lower() == instrument_name.lower():
+                    # Found the instrument, now get its chords
+                    chords = []
+                    
+                    # Check for mp3/wav directories
+                    for format_dir in ['mp3', 'wav']:
+                        format_path = inst_dir / format_dir
+                        if format_path.exists():
+                            for audio_file in format_path.iterdir():
+                                if audio_file.is_file() and audio_file.suffix.lower() in ['.mp3', '.wav']:
+                                    # Extract chord name (remove extension)
+                                    chord_name = audio_file.stem
+                                    chords.append(chord_name)
+                    
+                    if chords:
+                        logger.info(f"Found {len(chords)} chords for {instrument_name}: {chords[:10]}...")
+                        return sorted(list(set(chords)))  # Remove duplicates and sort
+        
+        logger.warning(f"No chords found for instrument: {instrument_name}")
+        return []
+        
+    except Exception as e:
+        logger.error(f"Error getting chords for {instrument_name}: {e}")
+        return []
+
+
+def map_notes_to_available_chords(notes: List[str], available_chords: List[str], key: str = "C") -> List[str]:
+    """Map note names like 'C4' to available chord names like 'C_major' or 'C_note'"""
+    if not available_chords:
+        return notes  # Return original if no mapping available
+    
+    mapped_chords = []
+    
+    for note in notes:
+        # Extract the note name (remove octave number)
+        note_name = note.replace('4', '').replace('3', '').replace('5', '').replace('2', '').replace('6', '')
+        
+        # Handle sharp notes (convert # to 's' for file naming)
+        if '#' in note_name:
+            note_name = note_name.replace('#', 's')
+        
+        # Try to find matching chord/note in available chords
+        best_match = None
+        
+        # Priority order: note file, major chord, minor chord, other chords
+        for suffix in ['_note', '_major', '_minor', '_dom7', '_maj7', '_min7', '_sus2', '_sus4', '_augmented', '_diminished']:
+            candidate = f"{note_name}{suffix}"
+            if candidate in available_chords:
+                best_match = candidate
+                break
+        
+        if best_match:
+            mapped_chords.append(best_match)
+        else:
+            # Fallback: use any available chord from the same root note
+            matching_chords = [c for c in available_chords if c.startswith(note_name + '_')]
+            if matching_chords:
+                mapped_chords.append(matching_chords[0])
+            else:
+                # Ultimate fallback: use a default chord in the key
+                key_note = key.replace('#', 's')
+                default_chord = f"{key_note}_major"
+                if default_chord in available_chords:
+                    mapped_chords.append(default_chord)
+                elif available_chords:
+                    mapped_chords.append(available_chords[0])  # Use any available chord
+                else:
+                    mapped_chords.append(note)  # Keep original if nothing else works
+    
+    return mapped_chords
+
+
+def generate_chord_sequence_from_key(key: str, num_chords: int = 4) -> List[str]:
+    """Generate a basic chord sequence in the specified key"""
+    # Basic chord progressions for common keys
+    key_progressions = {
+        'C': ['C_major', 'A_minor', 'F_major', 'G_major'],
+        'G': ['G_major', 'E_minor', 'C_major', 'D_major'],  
+        'F': ['F_major', 'D_minor', 'As_major', 'C_major'],  # As = Bb
+        'Am': ['A_minor', 'F_major', 'C_major', 'G_major'],
+        'Em': ['E_minor', 'C_major', 'G_major', 'D_major'],
+        'Dm': ['D_minor', 'As_major', 'F_major', 'C_major']
+    }
+    
+    # Get base progression or default
+    base_progression = key_progressions.get(key, key_progressions['C'])
+    
+    # Repeat/extend to match requested length
+    result = []
+    for i in range(num_chords):
+        result.append(base_progression[i % len(base_progression)])
+    
+    return result
 
 # Global LLM instances to avoid Flask context issues
 _global_openai_llm = None
@@ -2679,6 +2853,24 @@ JSON STRUCTURE REQUIRED:
         self._current_key = key
         self._current_style_tags = state.request.style_tags
         
+        # Get available chords for each planned instrument
+        available_instruments_with_chords = {}
+        for track in planned_instrument_tracks:
+            instrument = track.get('instrument', '')
+            category = track.get('category', '')
+            
+            # Get available chords for this instrument
+            available_chords = get_available_instrument_chords(instrument, category)
+            if available_chords:
+                available_instruments_with_chords[instrument] = {
+                    'category': category,
+                    'chords': available_chords[:20],  # Show first 20 chords
+                    'total_chords': len(available_chords)
+                }
+                logger.info(f"Found {len(available_chords)} chords for {instrument}")
+            else:
+                logger.warning(f"No chords found for {instrument} in category {category}")
+        
         # Pre-format method calls to avoid f-string nesting issues
         formatted_instruments = self.music_tools.format_instruments_for_prompt(state.available_instruments)
         formatted_samples = self.music_tools.format_samples_for_prompt(state.available_samples)
@@ -2686,6 +2878,20 @@ JSON STRUCTURE REQUIRED:
         formatted_styles = self._format_style_tags(state.request.style_tags)
         formatted_structure = json.dumps(structure, indent=2)
         formatted_planned_tracks = json.dumps(planned_instrument_tracks, indent=2)
+        
+        # Format available chords information
+        formatted_available_chords = ""
+        if available_instruments_with_chords:
+            formatted_available_chords = "\n🎼 AVAILABLE CHORDS/NOTES FOR SELECTED INSTRUMENTS:\n"
+            for instrument, info in available_instruments_with_chords.items():
+                formatted_available_chords += f"\n{instrument.upper()} ({info['category']}):\n"
+                formatted_available_chords += f"Available chords: {', '.join(info['chords'])}\n"
+                if info['total_chords'] > 20:
+                    formatted_available_chords += f"... and {info['total_chords'] - 20} more chords\n"
+                formatted_available_chords += f"Total: {info['total_chords']} chords available\n"
+            formatted_available_chords += "\nIMPORTANT: You MUST use ONLY these exact chord names in your chordSequence arrays!\n"
+            formatted_available_chords += "Do NOT use theoretical note names like 'C4', 'D4' - use the actual chord files like 'C_major', 'D_minor', etc.\n"
+        
         sample_stats = f"📊 Sample Library Statistics: {state.sample_metadata.get('total_count', 0)} total samples ({state.sample_metadata.get('user_count', 0)} user-uploaded, {state.sample_metadata.get('combined_count', 0)} default)" if state.sample_metadata else ""
         track_focus = "- INSTRUMENTAL FOCUS: Since this is an instrumental track, create rich, layered arrangements with prominent lead melodies, complex harmonies, and dynamic instrumental sections that compensate for the absence of vocals" if state.request.is_instrumental else "- VOCAL SUPPORT: Create arrangements that support and complement the vocal parts without overwhelming them"
         
@@ -2725,6 +2931,8 @@ MUSICAL DEPTH STRATEGIES:
 
 Available Instruments by Category:
 {formatted_instruments}
+
+{formatted_available_chords}
 
 Available Default Samples:
 {formatted_samples}
@@ -2770,9 +2978,9 @@ FOR MELODIC/HARMONIC INSTRUMENTS (piano, guitar, strings, synths):
             "volume": 0.7,
             "pan": 0.0,
             "effects": {{"reverb": 0.2, "delay": 0.1, "distortion": 0.0, "pitchShift": 0, "chorus": 0.2, "filter": 0.0, "bitcrush": 0.0}},
-            "notes": ["C4", "E4", "G4", "C5", "F4", "A4", "C5", "E4", "G4", "B4", "D5", "F4"],  // C major - F major - G major chord progression
-            "chordSequence": ["C_major", "F_major", "G_major"],  // Explicit chord names for frontend
-            "chordAnalysis": "I - IV - V progression in C major with clear chord tones",
+            "notes": ["C_major", "F_major", "G_major", "C_major"],  // Use actual chord names from available chords
+            "chordSequence": ["C_major", "F_major", "G_major", "C_major"],  // Explicit chord names for frontend
+            "chordAnalysis": "I - IV - V - I progression in C major with clear chord tones",
             "rhythmicPattern": "Arpeggiated chords with syncopated accents"
         }},
         {{
@@ -2785,7 +2993,7 @@ FOR MELODIC/HARMONIC INSTRUMENTS (piano, guitar, strings, synths):
             "volume": 0.6,
             "pan": 0.0,
             "effects": {{"reverb": 0.15, "delay": 0.05, "distortion": 0.0, "pitchShift": 0, "chorus": 0.15, "filter": 0.0, "bitcrush": 0.0}},
-            "notes": ["C4", "E4", "G4", "C4", "A3", "C4", "E4", "A3", "F3", "A3", "C4", "F3", "G3", "B3", "D4", "G3"],  // Clear chord progression: C - Am - F - G
+            "notes": ["C_major", "A_minor", "F_major", "G_major"],  // Use actual chord names from available chords
             "chordSequence": ["C_major", "A_minor", "F_major", "G_major"],  // vi-IV-I-V progression  
             "chordAnalysis": "I - vi - IV - V progression with clear chord tones and bass notes",
             "rhythmicPattern": "Block chords with melodic embellishments and bass movement"
@@ -2806,7 +3014,7 @@ FOR BASS INSTRUMENTS:
             "volume": 0.8,
             "pan": 0.0,
             "effects": {{"reverb": 0.05, "delay": 0.0, "distortion": 0.2, "pitchShift": 0, "chorus": 0.0, "filter": 0.1, "bitcrush": 0.0}},
-            "notes": ["C2", "C2", "G2", "C2", "A1", "A1", "E2", "A1", "F2", "F2", "C3", "F2", "G2", "G2", "D3", "G2"],  // Walking bass following chord progression
+            "notes": ["C_note", "C_note", "G_note", "C_note", "A_note", "A_note", "E_note", "A_note", "F_note", "F_note", "C_note", "F_note", "G_note", "G_note", "D_note", "G_note"],  // Walking bass using available note files
             "chordSequence": ["C_major", "A_minor", "F_major", "G_major"],  // Match harmonic instruments
             "chordAnalysis": "Root motion with passing tones supporting I-vi-IV-V progression",
             "rhythmicPattern": "Syncopated walking bass with chord tone emphasis and rhythmic variation"
@@ -2827,9 +3035,9 @@ FOR PERCUSSION/DRUMS:
             "volume": 0.6,
             "pan": 0.0,
             "effects": {{"reverb": 0.25, "delay": 0.1, "distortion": 0.1, "pitchShift": 0, "chorus": 0.0, "filter": 0.0, "bitcrush": 0.15}},
-            "notes": ["C4", "C4", "E4", "C4", "F#4", "E4", "C4", "E4", "C4", "G4", "E4", "C4", "F#4", "E4", "E4", "C4"],  // Complex drum pattern with fills
+            "notes": ["C_note", "C_note", "E_note", "C_note", "Fs_note", "E_note", "C_note", "E_note", "C_note", "G_note", "E_note", "C_note", "Fs_note", "E_note", "E_note", "C_note"],  // Complex drum pattern with available drum notes
             "chordSequence": ["percussion"],  // Drums don't follow harmonic progression
-            "chordAnalysis": "Rhythmic foundation with Kick (C4), Snare (E4), Hi-hat (F#4), Crash (G4) pattern",
+            "chordAnalysis": "Rhythmic foundation with Kick (C_note), Snare (E_note), Hi-hat (Fs_note), Crash (G_note) pattern",
             "rhythmicPattern": "Driving beat with ghost notes, accent variations, and dynamic fills"
         }}
     ]
@@ -2848,7 +3056,7 @@ FOR BASS INSTRUMENTS:
             "volume": 0.8,
             "pan": 0.0,
             "effects": {{"reverb": 0.05, "delay": 0, "distortion": 0}},
-            "notes": ["C2", "A1", "F2", "G2"]
+            "notes": ["C_note", "A_note", "F_note", "G_note"]  // Use available note/chord names from instrument
         }}
     ]
 }}
@@ -2891,10 +3099,17 @@ Critical Guidelines:
 
 🎼 CHORD SEQUENCE & HARMONY REQUIREMENTS:
 - MANDATORY: Include "chordSequence" field in ALL harmonic clips (piano, guitar, strings, etc.)
-- Use standard chord names: "C_major", "A_minor", "F_major", "G_major", "D_minor", "E_minor", etc.
-- Available chord types: major, minor, dom7, maj7, min7, augmented, diminished, sus2, sus4
-- Format: "[Root]_[type]" (e.g., "C_major", "A_minor", "G_dom7", "F_maj7")
-- Ensure notes array matches the chordSequence (use actual chord tones)
+- You MUST use ONLY the exact chord names from the available chords list above
+- DO NOT use theoretical note names like "C4", "D4" in chord sequences
+- Use the actual chord file names like "C_major", "A_minor", "F_major", etc.
+- For notes arrays, use the same chord names that exist in the file system
+- Ensure notes array contains ONLY chord names that exist for that instrument
+
+🚨 CRITICAL: INSTRUMENT CONSTRAINT ENFORCEMENT 🚨
+- The system will automatically map any invalid note names to available chords
+- However, please use the correct chord names from the start to avoid mapping issues
+- Each instrument only has specific chord/note files - you cannot use arbitrary note names
+- Check the available chords list above for each instrument before generating content
 - For common progressions:
   * I-V-vi-IV in C: ["C_major", "G_major", "A_minor", "F_major"]
   * vi-IV-I-V in C: ["A_minor", "F_major", "C_major", "G_major"] 
@@ -2924,7 +3139,7 @@ EXAMPLE CHORD PROGRESSIONS IN DIFFERENT KEYS:
 - Ensure bass and harmonic instruments use the SAME chordSequence for consistency
 - Calculate accurate timing: startTime and duration based on structure timing in seconds
 - CRITICAL SCHEMA COMPLIANCE: Follow the exact clip schema - put notes array directly in clip object, NOT inside musical_content
-- CORRECT clip structure: {{"id": "", "trackId": "", "startTime": 0, "duration": 4, "type": "synth", "instrument": "", "notes": ["C4", "E4", "G4", "C5"], "volume": 1.0, "effects": {{}}}}
+- CORRECT clip structure: {{"id": "", "trackId": "", "startTime": 0, "duration": 4, "type": "synth", "instrument": "", "notes": ["C_major", "F_major", "G_major", "C_major"], "volume": 1.0, "effects": {{}}}}
 - WRONG format (DO NOT USE): {{"musical_content": {{"notes": [...]}}, ...}} - This is invalid and will cause errors
 
 MUSICAL PATTERN GUIDELINES:
@@ -3031,6 +3246,29 @@ AVOID SIMPLE PATTERNS:
                     if 'notes' not in clip and clip.get('type') == 'synth':
                         clip['notes'] = generate_intelligent_default_notes(clip.get('instrument', 'piano'), state.song_key or 'C', 'pop')  # Intelligent default notes for synth clips
                         logger.debug(f"🔧 Added default notes to synth clip {clip['id']}")
+                    
+                    # Map notes to available chords for the instrument (but not for vocals)
+                    instrument = clip.get('instrument', '')
+                    if (instrument in available_instruments_with_chords and 
+                        'notes' in clip and 
+                        instrument not in ['vocals', 'voice', 'soprano01', 'alto01', 'tenor01', 'bass01']):
+                        
+                        available_chords = available_instruments_with_chords[instrument]['chords']
+                        original_notes = clip['notes']
+                        
+                        # Map theoretical notes to actual available chords
+                        mapped_chords = map_notes_to_available_chords(
+                            original_notes, 
+                            available_chords, 
+                            key.split()[0] if ' ' in key else key  # Extract key name (C from "C major")
+                        )
+                        
+                        if mapped_chords != original_notes:
+                            clip['notes'] = mapped_chords
+                            # Update chord sequence if it exists to match mapped chords
+                            if 'chordSequence' in clip:
+                                clip['chordSequence'] = mapped_chords[:len(clip.get('chordSequence', []))]
+                            logger.info(f"🎼 Mapped notes for {instrument} in clip {clip['id']}: {original_notes[:3]}... -> {mapped_chords[:3]}...")
                     
                     # Remove any remaining non-schema fields
                     non_schema_fields = ['category', 'role', 'pattern']
