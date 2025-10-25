@@ -27,7 +27,7 @@ jobs:
       with:
         node-version: 18
         cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
+        cache-dependency-path: 'frontend/package.json'
     
     - name: Install dependencies
       working-directory: ./frontend
@@ -63,7 +63,7 @@ jobs:
       with:
         node-version: 18
         cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
+        cache-dependency-path: 'frontend/package.json'
     
     - name: Install dependencies
       working-directory: ./frontend
@@ -95,7 +95,7 @@ jobs:
       with:
         node-version: 18
         cache: 'npm'
-        cache-dependency-path: frontend/package-lock.json
+        cache-dependency-path: 'frontend/package.json'
     
     - name: Install dependencies
       working-directory: ./frontend
