@@ -72,15 +72,42 @@ REM Upgrade pip first
 echo Upgrading pip...
 python -m pip install --upgrade pip
 
-REM Install compatible versions first
+REM Install core dependencies in the right order to avoid conflicts
 echo Installing core Python dependencies...
 pip install wheel setuptools
-pip install "numpy>=1.26.0,<2.0.0"
-pip install "tensorflow>=2.15.0"
 
-REM Install remaining requirements
-echo Installing remaining Python dependencies...
-pip install -r requirements.txt --upgrade
+REM Install minimal requirements first (faster startup)
+echo Installing minimal requirements for basic functionality...
+pip install -r requirements-minimal.txt
+
+REM Install scientific computing dependencies for audio analysis
+echo Installing scientific computing dependencies...
+pip install "numpy>=1.26.0,<2.0.0" "scipy==1.13.1" scikit-learn==1.5.2
+
+REM Install audio processing dependencies
+echo Installing audio processing dependencies...
+pip install librosa==0.10.2 soundfile==0.12.1 pydub>=0.25.1
+
+REM Install Redis and Celery for task processing
+echo Installing task processing dependencies...
+pip install redis==5.0.8 celery==5.3.6
+
+REM Install TensorFlow and ML dependencies (this may take a while)
+echo Installing TensorFlow and ML dependencies...
+pip install tensorflow==2.17.1 tensorflow-hub==0.16.1
+
+REM Install LangChain dependencies for AI features
+echo Installing LangChain AI dependencies...
+pip install langchain==0.2.16 langchain-openai==0.1.23 langchain-anthropic==0.1.23
+pip install langgraph==0.2.39 "langgraph-checkpoint>=2.1.0" "langgraph-sdk>=0.1.32,<0.2.0"
+
+REM Install development and testing tools
+echo Installing development tools...
+pip install pytest==8.3.3 pytest-flask==1.3.0 black==24.8.0 flake8==7.1.1 mypy==1.11.2
+
+echo.
+echo All core dependencies installed successfully!
+echo.
 
 REM Return to root directory
 cd ..
@@ -115,8 +142,11 @@ echo Setup Complete!
 echo ==================================================
 echo.
 echo To start development:
-echo   Frontend: npm run dev
-echo   Backend:  cd backend && venv\Scripts\activate && python run.py
-echo   Full:     npm run start
+echo   Frontend: cd frontend && npm run dev
+echo   Backend:  cd backend && venv\Scripts\python.exe app.py  
+echo   Full:     start.bat (starts both frontend and backend)
+echo.
+echo Frontend will be available at: http://localhost:5173/
+echo Backend API will be available at: http://localhost:5000/
 echo.
 pause
