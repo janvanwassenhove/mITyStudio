@@ -243,5 +243,37 @@
     "complete": "voltooid",
     "proceed": "Doorgaan",
     "close" : "Sluiten"
+  },
+  "albumCover": {
+    "title": "Albumhoes Genereren",
+    "description": "Beschrijving",
+    "descriptionPlaceholder": "Beschrijf je albumhoes (bijv. 'Een retro synthwave stad bij nacht')",
+    "helpText": "Geef een gedetailleerde beschrijving van de visuele stijl, kleuren, sfeer en elementen die je in je albumhoes wilt.",
+    "style": "Stijl",
+    "selectStyle": "Selecteer een stijl...",
+    "styles": {
+      "synthwave": "Synthwave/Retro",
+      "minimalist": "Minimalistisch",
+      "abstract": "Abstracte Kunst",
+      "vintage": "Vintage/Klassiek",
+      "modern": "Modern/Eigentijds",
+      "artistic": "Artistiek/Geschilderd",
+      "photographic": "Fotografisch",
+      "illustration": "Illustratie"
+    },
+    "currentCover": "Huidige Hoes",
+    "uploadImage": "Afbeelding Uploaden",
+    "generate": "Hoes Genereren",
+    "generating": "Hoes Genereren...",
+    "generateError": "Kon albumhoes niet genereren. Probeer het opnieuw.",
+    "steps": {
+      "preparing": "Generatie voorbereiden...",
+      "analyzing": "Beschrijving analyseren...",
+      "designing": "Ontwerpconcept creëren...",
+      "rendering": "Artwork renderen...",
+      "optimizing": "Afbeelding optimaliseren...",
+      "finishing": "Laatste hand leggen...",
+      "complete": "Albumhoes klaar!"
+    }
   }
 }

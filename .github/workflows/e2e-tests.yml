@@ -1,0 +1,117 @@
+name: E2E Tests - Album Cover Dialog
+
+on:
+  push:
+    branches: [main, dialog_album_image]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/e2e-tests.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+
+jobs:
+  test:
+    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        browser: [chromium, firefox, webkit]
+        
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+    
+    - name: Install Playwright Browsers
+      working-directory: ./frontend
+      run: npx playwright install --with-deps ${{ matrix.browser }}
+    
+    - name: Build frontend
+      working-directory: ./frontend
+      run: npm run build
+    
+    - name: Run Playwright tests
+      working-directory: ./frontend
+      run: npx playwright test --project=${{ matrix.browser }}
+    
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: playwright-report-${{ matrix.browser }}
+        path: frontend/playwright-report/
+        retention-days: 30
+
+  test-mobile:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+    
+    - name: Install Playwright Browsers
+      working-directory: ./frontend
+      run: npx playwright install --with-deps chromium
+    
+    - name: Run Mobile tests
+      working-directory: ./frontend
+      run: npx playwright test --project="Mobile Chrome" --project="Mobile Safari"
+    
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: playwright-report-mobile
+        path: frontend/playwright-report/
+        retention-days: 30
+
+  smoke-test:
+    timeout-minutes: 15
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 18
+        cache: 'npm'
+        cache-dependency-path: frontend/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./frontend
+      run: npm ci
+    
+    - name: Install Playwright Browsers
+      working-directory: ./frontend
+      run: npx playwright install --with-deps chromium
+    
+    - name: Run Smoke tests only
+      working-directory: ./frontend
+      run: npx playwright test album-cover-smoke.spec.ts --project=chromium
+    
+    - uses: actions/upload-artifact@v4
+      if: failure()
+      with:
+        name: playwright-report-smoke
+        path: frontend/playwright-report/
+        retention-days: 7

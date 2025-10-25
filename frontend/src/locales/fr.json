@@ -242,5 +242,37 @@
     "minutes": "minutes",
     "complete": "terminé",
     "proceed": "Continuer"
+  },
+  "albumCover": {
+    "title": "Générer une Pochette d'Album",
+    "description": "Description",
+    "descriptionPlaceholder": "Décrivez votre pochette d'album (ex. 'Une ville synthwave rétro la nuit')",
+    "helpText": "Fournissez une description détaillée du style visuel, des couleurs, de l'ambiance et des éléments que vous souhaitez dans votre pochette d'album.",
+    "style": "Style",
+    "selectStyle": "Sélectionner un style...",
+    "styles": {
+      "synthwave": "Synthwave/Rétro",
+      "minimalist": "Minimaliste",
+      "abstract": "Art Abstrait",
+      "vintage": "Vintage/Classique",
+      "modern": "Moderne/Contemporain",
+      "artistic": "Artistique/Peint",
+      "photographic": "Photographique",
+      "illustration": "Illustration"
+    },
+    "currentCover": "Pochette Actuelle",
+    "uploadImage": "Télécharger une Image",
+    "generate": "Générer la Pochette",
+    "generating": "Génération en cours...",
+    "generateError": "Échec de la génération de la pochette d'album. Veuillez réessayer.",
+    "steps": {
+      "preparing": "Préparation de la génération...",
+      "analyzing": "Analyse de la description...",
+      "designing": "Création du concept de design...",
+      "rendering": "Rendu de l'artwork...",
+      "optimizing": "Optimisation de l'image...",
+      "finishing": "Touches finales...",
+      "complete": "Pochette d'album prête !"
+    }
   }
 }

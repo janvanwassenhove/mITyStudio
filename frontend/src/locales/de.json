@@ -242,5 +242,37 @@
     "minutes": "Minuten",
     "complete": "vollständig",
     "proceed": "Fortfahren"
+  },
+  "albumCover": {
+    "title": "Albumcover Generieren",
+    "description": "Beschreibung",
+    "descriptionPlaceholder": "Beschreiben Sie Ihr Albumcover (z.B. 'Eine Retro-Synthwave-Stadt bei Nacht')",
+    "helpText": "Geben Sie eine detaillierte Beschreibung des visuellen Stils, der Farben, Stimmung und Elemente an, die Sie in Ihrem Albumcover möchten.",
+    "style": "Stil",
+    "selectStyle": "Stil auswählen...",
+    "styles": {
+      "synthwave": "Synthwave/Retro",
+      "minimalist": "Minimalistisch",
+      "abstract": "Abstrakte Kunst",
+      "vintage": "Vintage/Klassisch",
+      "modern": "Modern/Zeitgenössisch",
+      "artistic": "Künstlerisch/Gemalt",
+      "photographic": "Fotografisch",
+      "illustration": "Illustration"
+    },
+    "currentCover": "Aktuelles Cover",
+    "uploadImage": "Bild Hochladen",
+    "generate": "Cover Generieren",
+    "generating": "Cover wird generiert...",
+    "generateError": "Albumcover konnte nicht generiert werden. Bitte versuchen Sie es erneut.",
+    "steps": {
+      "preparing": "Generierung vorbereiten...",
+      "analyzing": "Beschreibung analysieren...",
+      "designing": "Design-Konzept erstellen...",
+      "rendering": "Artwork rendern...",
+      "optimizing": "Bild optimieren...",
+      "finishing": "Letzte Feinheiten...",
+      "complete": "Albumcover fertig!"
+    }
   }
 }

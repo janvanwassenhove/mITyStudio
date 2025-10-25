@@ -4,3 +4,7 @@
 /frontend/public/instruments/
 /.vscode/settings.json
 /.idea/.gitignore
+# Playwright reports and traces
+/frontend/playwright-report/
+/frontend/blob-report/
+/frontend/test-results/

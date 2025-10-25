@@ -88,8 +88,11 @@ import { useAudioStore } from '../stores/audioStore'
 const { t } = useI18n()
 const audioStore = useAudioStore()
 
-// Show dialog if audio is not initialized (manual control for dismissal)
-const showDialog = ref(!audioStore.isInitialized)
+// Check if we're in test mode to skip the welcome dialog
+const isTestMode = typeof localStorage !== 'undefined' && localStorage.getItem('test-mode') === 'true'
+
+// Show dialog if audio is not initialized (manual control for dismissal) - but skip in test mode
+const showDialog = ref(!isTestMode && !audioStore.isInitialized)
 const audioStatus = ref<'pending' | 'initializing' | 'success' | 'error'>('pending')
 
 // Watch for audio becoming uninitialized (e.g., after page refresh or context loss)

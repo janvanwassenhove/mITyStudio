@@ -314,5 +314,37 @@
     "fileSize": "File Size",
     "duration": "Duration",
     "sampleRate": "Sample Rate"
+  },
+  "albumCover": {
+    "title": "Generate Album Cover",
+    "description": "Description",
+    "descriptionPlaceholder": "Describe your album cover (e.g. 'A retro synthwave city at night')",
+    "helpText": "Provide a detailed description of the visual style, colors, mood, and elements you want in your album cover.",
+    "style": "Style",
+    "selectStyle": "Select a style...",
+    "styles": {
+      "synthwave": "Synthwave/Retro",
+      "minimalist": "Minimalist",
+      "abstract": "Abstract Art",
+      "vintage": "Vintage/Classic",
+      "modern": "Modern/Contemporary",
+      "artistic": "Artistic/Painted",
+      "photographic": "Photographic",
+      "illustration": "Illustration"
+    },
+    "currentCover": "Current Cover",
+    "uploadImage": "Upload Image",
+    "generate": "Generate Cover",
+    "generating": "Generating Cover...",
+    "generateError": "Failed to generate album cover. Please try again.",
+    "steps": {
+      "preparing": "Preparing generation...",
+      "analyzing": "Analyzing description...",
+      "designing": "Creating design concept...",
+      "rendering": "Rendering artwork...",
+      "optimizing": "Optimizing image...",
+      "finishing": "Finishing touches...",
+      "complete": "Album cover ready!"
+    }
   }
 }

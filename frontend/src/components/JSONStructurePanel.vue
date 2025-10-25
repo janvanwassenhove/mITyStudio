@@ -167,6 +167,13 @@
       </div>
     </div>
   </div>
+
+  <!-- Album Cover Dialog -->
+  <GenerateAlbumCoverDialog 
+    :show="showAlbumCoverDialog"
+    @close="showAlbumCoverDialog = false"
+    @cover-generated="onCoverGenerated"
+  />
 </template>
 
 <script setup lang="ts">
@@ -185,6 +192,7 @@ import {
   Upload,
   Sliders
 } from 'lucide-vue-next'
+import GenerateAlbumCoverDialog from './GenerateAlbumCoverDialog.vue'
 
 const audioStore = useAudioStore()
 const jsonEditor = ref<HTMLTextAreaElement>()
@@ -197,7 +205,7 @@ const isJSONExpanded = ref(false)
 const isLyricsExpanded = ref(false)
 const lyricsContent = ref('')
 const isGeneratingCover = ref(false)
-const generatingCover = ref(false)
+const showAlbumCoverDialog = ref(false)
 
 // Editable song info
 const songName = ref('')
@@ -461,67 +469,15 @@ const uploadCover = () => {
   input.click()
 }
 
-const generateCover = async () => {
-  const prompt = window.prompt('Describe your album cover (e.g. "A retro synthwave city at night")')
-  if (!prompt) return
-  generatingCover.value = true
-  try {
-    const response = await fetch('/api/ai/generate/image', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt })
-    })
-    const data = await response.json()
-    if (data.success && data.image_url) {
-      const updatedStructure = {
-        ...audioStore.songStructure,
-        albumCover: data.image_url
-      }
-      audioStore.loadSongStructure(updatedStructure)
-    } else {
-      alert(data.error || 'Failed to generate image')
-    }
-  } catch (e) {
-    alert('Failed to generate image')
-  } finally {
-    generatingCover.value = false
-  }
+const generateCover = () => {
+  showAlbumCoverDialog.value = true
 }
 
-const createCoverPrompt = () => {
-  const songName = audioStore.songStructure.name
-  const artist = (audioStore.songStructure as any).artist || 'Unknown Artist'
-  const key = audioStore.songStructure.key
-  const tempo = audioStore.songStructure.tempo
-  const lyrics = (audioStore.songStructure as any).lyrics || ''
-  
-  // Extract genre/mood from lyrics or use default
-  const genre = extractGenreFromLyrics(lyrics) || 'modern'
-  
-  return `Create an album cover for a song called "${songName}" by ${artist}. 
-    The song is in the key of ${key} with a tempo of ${tempo} BPM. 
-    Style: ${genre} music album cover, professional, artistic, high quality, 
-    suitable for digital music platforms. No text overlays.`
+const onCoverGenerated = (imageUrl: string) => {
+  console.log('Album cover generated:', imageUrl)
 }
 
-const extractGenreFromLyrics = (lyrics: string): string | null => {
-  const lyricsLower = lyrics.toLowerCase()
-  
-  // Simple genre detection based on common words/themes
-  if (lyricsLower.includes('rock') || lyricsLower.includes('guitar') || lyricsLower.includes('metal')) {
-    return 'rock'
-  } else if (lyricsLower.includes('love') || lyricsLower.includes('heart') || lyricsLower.includes('romance')) {
-    return 'romantic'
-  } else if (lyricsLower.includes('dance') || lyricsLower.includes('party') || lyricsLower.includes('beat')) {
-    return 'electronic dance'
-  } else if (lyricsLower.includes('country') || lyricsLower.includes('home') || lyricsLower.includes('family')) {
-    return 'country'
-  } else if (lyricsLower.includes('jazz') || lyricsLower.includes('smooth') || lyricsLower.includes('swing')) {
-    return 'jazz'
-  }
-  
-  return null
-}
+
 
 const updateAlbumCover = (imageUrl: string) => {
   const updatedStructure = {

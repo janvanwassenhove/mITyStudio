@@ -8,23 +8,28 @@
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "docs": "node scripts/generate-docs.js",
-    "test": "vitest"
+    "test": "vitest",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:debug": "playwright test --debug",
+    "test:install": "playwright install"
   },
   "dependencies": {
-    "vue": "^3.5.10",
-    "vue-i18n": "^9.8.0",
-    "tone": "^14.7.77",
-    "pinia": "^2.1.7",
+    "@vueuse/core": "^10.7.0",
     "axios": "^1.6.2",
     "lucide-vue-next": "^0.294.0",
-    "@vueuse/core": "^10.7.0"
+    "pinia": "^2.1.7",
+    "tone": "^14.7.77",
+    "vue": "^3.5.10",
+    "vue-i18n": "^9.8.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^20.10.5",
     "@vitejs/plugin-vue": "^5.1.4",
     "typescript": "^5.5.3",
     "vite": "^5.4.8",
-    "vue-tsc": "^2.1.6",
-    "@types/node": "^20.10.5",
-    "vitest": "^1.1.0"
+    "vitest": "^1.1.0",
+    "vue-tsc": "^2.1.6"
   }
 }
