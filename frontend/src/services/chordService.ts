@@ -369,6 +369,7 @@ export class ChordService {
 
     // Second priority: analyze notes to determine chords
     if (!notes || notes.length === 0) {
+      console.log('⚠️ No notes provided for analysis')
       return ['C_major'] // Default fallback
     }
 
@@ -399,11 +400,20 @@ export class ChordService {
       'sus4': [0, 5, 7]             // Root, Perfect 4th, Perfect 5th
     }
 
-    // Convert note names to semitone values
+    // Convert note names to semitone values (including enharmonic equivalents)
     const noteToSemitone: Record<string, number> = {
-      'C': 0, 'C#': 1, 'Db': 1, 'D': 2, 'D#': 3, 'Eb': 3, 'E': 4,
-      'F': 5, 'F#': 6, 'Gb': 6, 'G': 7, 'G#': 8, 'Ab': 8, 'A': 9,
-      'A#': 10, 'Bb': 10, 'B': 11
+      'C': 0, 'B#': 0,              // C and B# are enharmonically equivalent
+      'C#': 1, 'Db': 1,             // C# and Db are enharmonically equivalent
+      'D': 2, 
+      'D#': 3, 'Eb': 3,             // D# and Eb are enharmonically equivalent
+      'E': 4, 'Fb': 4,              // E and Fb are enharmonically equivalent
+      'F': 5, 'E#': 5,              // F and E# are enharmonically equivalent
+      'F#': 6, 'Gb': 6,             // F# and Gb are enharmonically equivalent
+      'G': 7, 
+      'G#': 8, 'Ab': 8,             // G# and Ab are enharmonically equivalent
+      'A': 9, 
+      'A#': 10, 'Bb': 10,          // A# and Bb are enharmonically equivalent
+      'B': 11, 'Cb': 11             // B and Cb are enharmonically equivalent
     }
 
     const semitoneToNote: Record<number, string> = {
@@ -485,20 +495,47 @@ export class ChordService {
           console.log(`🎵 Unknown interval (${interval} semitones), treating as interval: ${chordName}`)
         }
       }
-      // Multiple notes but no clear chord - analyze as note cluster
+      // Multiple notes but no clear chord - provide more descriptive analysis
       else {
-        // Instead of forcing a major chord, describe it as a note cluster
+        console.log(`🎵 Multiple notes with no exact chord match. Analyzing as interval structure...`)
+        
+        // Try to provide a meaningful description instead of defaulting to C major
         const sortedNotes = uniqueNotes.sort()
-        const chordName = `${sortedNotes[0]}_cluster`
-        detectedChords.push(chordName)
-        console.log(`🎵 Note cluster: ${sortedNotes.join('-')}, treating as ${chordName}`)
+        const rootNote = sortedNotes[0]  // Use alphabetically first note as reference
+        
+        // Check if it could be a partial chord or specific interval structure
+        if (noteSemitones.length === 3) {
+          // Three notes - check for common partial chords or specific intervals
+          const noteNames = sortedNotes.join('-')
+          console.log(`🎵 Three-note combination: ${noteNames}`)
+          
+          // Instead of forcing a chord name, describe it as an interval structure
+          const chordName = `${rootNote}_interval`
+          detectedChords.push(chordName)
+          console.log(`🎵 No exact chord match for ${noteNames}, treating as interval: ${chordName}`)
+        } else {
+          // Other combinations
+          const noteNames = sortedNotes.join('-')
+          const chordName = `${rootNote}_interval`
+          detectedChords.push(chordName)
+          console.log(`🎵 Note combination: ${noteNames}, treating as interval: ${chordName}`)
+        }
       }
     }
 
-    // Remove duplicates and return
+    // Remove duplicates and return - no default to C_major if no matches found
     const result = [...new Set(detectedChords)]
     console.log('Final detected chords:', result)
-    return result.length > 0 ? result : ['C_major']
+    
+    // Only return C_major if absolutely no analysis could be performed
+    if (result.length === 0) {
+      console.log('⚠️ CRITICAL: No chord analysis possible, using C_major fallback')
+      console.log('⚠️ This should NOT happen with our improved logic!')
+      return ['C_major']
+    }
+    
+    console.log('✅ CHORD ANALYSIS COMPLETE:', result)
+    return result
   }
 
   /**

@@ -53,28 +53,24 @@
             <label>Explicit Sequence:</label>
             <span class="chord-analysis explicit-sequence">{{ selectedClip.chordSequence.join(', ') }}</span>
           </div>
-          <div v-if="chordValidationInfo && chordValidationInfo.notesAnalysis" class="detail-row">
-            <label>Notes Analysis:</label>
-            <span class="chord-analysis notes-analysis">{{ chordValidationInfo.notesAnalysis.join(', ') }}</span>
+          <div v-if="selectedClip.chordSequence" class="detail-row">
+            <label>Original Sequence:</label>
+            <span class="chord-analysis explicit-sequence">{{ selectedClip.chordSequence.length }} items: {{ selectedClip.chordSequence.join(', ') }}</span>
           </div>
-          <div v-if="chordAnalysisInfo" class="detail-row">
-            <label>Final Chords:</label>
-            <span class="chord-analysis">{{ chordAnalysisInfo.detectedChords }} chords detected: {{ chordAnalysisInfo.detectedChordNames }}</span>
-          </div>
-          <div v-if="chordAnalysisInfo && chordAnalysisInfo.notePattern" class="detail-row">
-            <label>Note Pattern:</label>
-            <span class="chord-analysis">{{ chordAnalysisInfo.notePattern.description }}</span>
+          <div v-else-if="selectedClip.notes" class="detail-row">
+            <label>Original Notes:</label>
+            <span class="chord-analysis notes-sequence">{{ selectedClip.notes.length }} items: {{ selectedClip.notes.join(', ') }}</span>
           </div>
         </div>
       </div>
 
-    <!-- Chord Sequence Editor -->
-    <div v-if="selectedClip && selectedClip.notes" class="chord-editor">
+    <!-- Original Content Editor -->
+    <div v-if="selectedClip && (selectedClip.notes || selectedClip.chordSequence)" class="chord-editor">
       <div class="editor-header">
-        <h4>Chord Sequence</h4>
+        <h4>{{ selectedClip.chordSequence ? 'Chord Sequence' : 'Note Sequence' }}</h4>
         <div class="chord-controls">
           <button @click="addChord" class="btn btn-small btn-primary">
-            + Add Chord
+            + Add {{ selectedClip.chordSequence ? 'Chord' : 'Note' }}
           </button>
           <button @click="clearChords" class="btn btn-small btn-warning">
             Clear All
@@ -103,7 +99,18 @@
             ⋮⋮
           </div>
           <div class="chord-index">{{ index + 1 }}</div>
+          <!-- Note Input (for clips with notes) -->
+          <input 
+            v-if="!selectedClip.chordSequence"
+            v-model="chordSequence[index]"
+            @change="updateChordSequence"
+            class="chord-select note-input"
+            placeholder="Enter note (e.g., C4)"
+            list="noteOptions"
+          />
+          <!-- Chord Dropdown (for clips with chordSequence) -->
           <select 
+            v-else
             v-model="chordSequence[index]"
             @change="updateChordSequence"
             class="chord-select"
@@ -111,7 +118,7 @@
             <option value="" disabled>Select chord...</option>
             <optgroup label="Basic Chords">
               <option 
-                v-for="chord in availableChords.filter(c => c.category === 'basic')" 
+                v-for="chord in availableChords.filter((c: any) => c.category === 'basic')" 
                 :key="chord.value"
                 :value="chord.value"
                 :disabled="!chord.available"
@@ -121,7 +128,7 @@
             </optgroup>
             <optgroup label="Seventh Chords">
               <option 
-                v-for="chord in availableChords.filter(c => c.category === 'seventh')" 
+                v-for="chord in availableChords.filter((c: any) => c.category === 'seventh')" 
                 :key="chord.value"
                 :value="chord.value"
                 :disabled="!chord.available"
@@ -131,7 +138,7 @@
             </optgroup>
             <optgroup label="Suspended Chords">
               <option 
-                v-for="chord in availableChords.filter(c => c.category === 'suspended')" 
+                v-for="chord in availableChords.filter((c: any) => c.category === 'suspended')" 
                 :key="chord.value"
                 :value="chord.value"
                 :disabled="!chord.available"
@@ -141,7 +148,17 @@
             </optgroup>
             <optgroup label="Altered Chords">
               <option 
-                v-for="chord in availableChords.filter(c => c.category === 'altered')" 
+                v-for="chord in availableChords.filter((c: any) => c.category === 'altered')" 
+                :key="chord.value"
+                :value="chord.value"
+                :disabled="!chord.available"
+              >
+                {{ chord.displayName }}
+              </option>
+            </optgroup>
+            <optgroup label="Analysis Results">
+              <option 
+                v-for="chord in availableChords.filter((c: any) => c.category === 'analysis')" 
                 :key="chord.value"
                 :value="chord.value"
                 :disabled="!chord.available"
@@ -160,6 +177,11 @@
         </div>
       </div>
     </div>
+
+    <!-- Datalist for notes (used by note inputs) -->
+    <datalist id="noteOptions">
+      <option v-for="note in availableNotes" :key="note" :value="note" />
+    </datalist>
 
     <!-- Sample Duration Editor -->
     <div v-if="selectedClip" class="sample-duration-editor">
@@ -240,7 +262,6 @@
 import { ref, watch, computed } from 'vue'
 import { Music2 } from 'lucide-vue-next'
 import { useAudioStore } from '../stores/audioStore'
-import { ChordService } from '../services/chordService'
 
 const audioStore = useAudioStore()
 
@@ -251,7 +272,7 @@ const clipDuration = ref(4)
 
 // Chord validation state
 const chordValidationInfo = ref<{
-  status: 'valid' | 'mismatch' | 'unknown'
+  status: 'valid' | 'mismatch' | 'unknown' | 'original' | 'notes'
   message: string
   notesAnalysis?: string[]
 } | null>(null)
@@ -297,13 +318,16 @@ const availableChords = computed(() => {
     { value: 'sus2', display: 'sus2', category: 'suspended' },
     { value: 'sus4', display: 'sus4', category: 'suspended' },
     { value: 'augmented', display: 'aug', category: 'altered' },
-    { value: 'diminished', display: 'dim', category: 'altered' }
+    { value: 'diminished', display: 'dim', category: 'altered' },
+    // Add support for chord analysis results
+    { value: 'interval', display: 'interval', category: 'analysis' },
+    { value: 'cluster', display: 'cluster', category: 'analysis' }
   ]
   
   const chords = []
   
   // Group chords by category for better organization
-  const categories = ['basic', 'seventh', 'suspended', 'altered']
+  const categories = ['basic', 'seventh', 'suspended', 'altered', 'analysis']
   
   for (const category of categories) {
     const categoryTypes = chordTypes.filter(t => t.category === category)
@@ -326,76 +350,25 @@ const availableChords = computed(() => {
   return chords
 })
 
-// Format chord names for display
-const formatChordName = (chordName: string): string => {
-  if (!chordName || typeof chordName !== 'string') {
-    return 'Unknown'
-  }
+// Available notes for note input
+const availableNotes = computed(() => {
+  const notes = []
+  const noteNames = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+  const octaves = [0, 1, 2, 3, 4, 5, 6, 7, 8]
   
-  // Handle special chord types
-  if (chordName.includes('_cluster')) {
-    const root = chordName.split('_')[0]
-    return `${root} cluster`
-  }
-  
-  if (chordName.includes('_interval')) {
-    const root = chordName.split('_')[0]
-    return `${root} interval`
-  }
-  
-  // Handle standard chord names
-  if (chordName.includes('_')) {
-    const [root, type] = chordName.split('_')
-    
-    // Convert chord type to display format
-    const typeDisplayMap: Record<string, string> = {
-      'major': 'maj',
-      'minor': 'min',
-      'dom7': 'dom7',
-      'maj7': 'maj7',
-      'min7': 'min7',
-      'sus2': 'sus2',
-      'sus4': 'sus4',
-      'augmented': 'aug',
-      'diminished': 'dim'
+  for (const octave of octaves) {
+    for (const note of noteNames) {
+      notes.push(`${note}${octave}`)
     }
-    
-    const displayType = typeDisplayMap[type] || type
-    return `${root} ${displayType}`
   }
   
-  return chordName
-}
-
-// Analyze chord information for the selected clip
-const chordAnalysisInfo = computed(() => {
-  if (!selectedClip.value) {
-    return null
-  }
-
-  const clip = selectedClip.value
-  const detectedChords = chordSequence.value
-  
-  // Get detailed note pattern analysis
-  let notePattern = null
-  if (clip.notes && clip.notes.length > 0) {
-    notePattern = ChordService.analyzeNotePattern(clip.notes)
-  }
-
-  const analysis = {
-    hasChordSequence: !!clip.chordSequence,
-    chordSequenceLength: clip.chordSequence?.length || 0,
-    hasNotes: !!clip.notes,
-    notesLength: clip.notes?.length || 0,
-    detectedChords: detectedChords.length,
-    source: clip.chordSequence ? 'LangGraph Agent' : 'Note Analysis',
-    detectedChordNames: detectedChords.map(chord => formatChordName(chord)).join(', '),
-    notePattern: notePattern
-  }
-
-  return analysis
+  return notes
 })
 
+// Format chord names for display
+// Removed formatChordName function - no longer needed since we show original content
+
+// Analyze chord information for the selected clip
 // Watch for clip selection changes
 watch(
   [selectedClip, availableChords],
@@ -413,67 +386,31 @@ watch(
       const clipNotes = newClip.notes || []
       console.log('Analyzing chord sequence from clip notes:', clipNotes)
       
-      // VALIDATION: Check if explicit chordSequence matches the actual notes
-      if (newClip.chordSequence && newClip.chordSequence.length > 0 && clipNotes.length > 0) {
-        console.log('🔍 Validating chordSequence vs notes...')
-        
-        // Analyze what chords the notes actually represent
-        const notesOnlyChords = ChordService.analyzeNotesToChords(clipNotes) // No explicit sequence
-        const explicitChords = newClip.chordSequence
-        
-        console.log('📊 Chord Validation Results:')
-        console.log('  Clip Notes:', clipNotes)
-        console.log('  Notes Analysis:', notesOnlyChords)
-        console.log('  Explicit Sequence:', explicitChords)
-        
-        // Check for mismatch (simplified check for now)
-        const hasMismatch = explicitChords.some(chord => !notesOnlyChords.includes(chord))
-        
-        if (hasMismatch) {
-          console.warn('⚠️ MISMATCH DETECTED!')
-          console.warn('  The explicit chordSequence does not match the actual notes in the clip')
-          console.warn('  This indicates a data generation issue from LangGraph')
-          console.warn('  Using note analysis instead of explicit sequence')
-          
-          // Set validation info
-          chordValidationInfo.value = {
-            status: 'mismatch',
-            message: 'Explicit sequence doesn\'t match notes - using note analysis',
-            notesAnalysis: notesOnlyChords
-          }
-          
-          // Use note analysis instead of explicit sequence for mismatched data
-          const detectedChords = notesOnlyChords
-          chordSequence.value = [...detectedChords]
-        } else {
-          console.log('✅ Chord sequence and notes are consistent')
-          
-          // Set validation info
-          chordValidationInfo.value = {
-            status: 'valid',
-            message: 'Explicit sequence matches notes',
-            notesAnalysis: notesOnlyChords
-          }
-          
-          // Use explicit chordSequence as it matches the notes
-          const detectedChords = ChordService.analyzeNotesToChords(clipNotes, newClip.chordSequence)
-          chordSequence.value = [...detectedChords]
-        }
-      } else {
-        // No explicit sequence or no notes - use standard analysis
-        const detectedChords = ChordService.analyzeNotesToChords(clipNotes, newClip.chordSequence)
-        console.log('Detected chords:', detectedChords)
-        chordSequence.value = [...detectedChords]
+      // Display original clip content without analysis
+      if (newClip.chordSequence && newClip.chordSequence.length > 0) {
+        // Clip has explicit chord sequence - show it as-is
+        console.log('📋 Displaying original chord sequence:', newClip.chordSequence)
+        chordSequence.value = [...newClip.chordSequence]
         
         // Set validation info
-        if (clipNotes.length > 0) {
-          chordValidationInfo.value = {
-            status: 'unknown',
-            message: newClip.chordSequence ? 'Using explicit sequence' : 'Analyzed from notes only'
-          }
-        } else {
-          chordValidationInfo.value = null
+        chordValidationInfo.value = {
+          status: 'original',
+          message: 'Original chord sequence from clip data'
         }
+      } else if (clipNotes.length > 0) {
+        // Clip has only notes - show them as individual note entries
+        console.log('🎵 Displaying original notes as sequence:', clipNotes)
+        chordSequence.value = [...clipNotes]
+        
+        // Set validation info
+        chordValidationInfo.value = {
+          status: 'notes',
+          message: 'Original notes from clip data'
+        }
+      } else {
+        // No data available
+        chordSequence.value = []
+        chordValidationInfo.value = null
       }
       
       // Load sample duration - clamp to slider range
@@ -492,15 +429,15 @@ watch(
       
       clipDuration.value = clampedClipDuration
       
-      console.log('Loaded chord sequence:', chordSequence.value)
+      console.log('Loaded original content:', chordSequence.value)
       
-      // Validate chords if available
-      if (newChords.length > 0 && chordSequence.value.length > 0) {
+      // Only validate chord sequences, not note sequences
+      if (newClip.chordSequence && newChords.length > 0 && chordSequence.value.length > 0) {
         const availableValues = newChords.map(c => c.value)
         const hasInvalidChords = chordSequence.value.some(chord => !availableValues.includes(chord))
         
         if (hasInvalidChords) {
-          console.log('Found invalid chords, replacing with valid ones')
+          console.log('🔍 Found invalid chords in chord sequence, replacing with available chords')
           chordSequence.value = chordSequence.value.map(chord => {
             if (availableValues.includes(chord)) {
               return chord
@@ -511,6 +448,7 @@ watch(
           console.log('Final validated chord sequence:', chordSequence.value)
         }
       }
+      // For note sequences, no validation needed - show notes as-is
     } else {
       chordSequence.value = []
       sampleDuration.value = 1
@@ -520,11 +458,16 @@ watch(
   { immediate: true }
 )
 
-// Add a new chord to the sequence
+// Add a new item to the sequence (chord or note based on clip type)
 const addChord = () => {
-  // Get the first available chord or default to C_major
-  const defaultChord = availableChords.value.length > 0 ? availableChords.value[0].value : 'C_major'
-  chordSequence.value.push(defaultChord)
+  if (selectedClip.value?.chordSequence) {
+    // Clip has chords - add a chord
+    const defaultChord = availableChords.value.length > 0 ? availableChords.value[0].value : 'C_major'
+    chordSequence.value.push(defaultChord)
+  } else {
+    // Clip has notes - add a note
+    chordSequence.value.push('C4')
+  }
   updateChordSequence()
 }
 
@@ -548,10 +491,18 @@ const updateChordSequence = () => {
   for (const track of audioStore.songStructure.tracks) {
     const clip = track.clips.find(c => c.id === selectedClip.value!.id)
     if (clip) {
-      // Update the clip with new notes
-      audioStore.updateClip(track.id, clip.id, {
-        notes: [...chordSequence.value]
-      })
+      // Update based on clip type
+      if (selectedClip.value?.chordSequence) {
+        // Clip originally has chords - update chordSequence
+        audioStore.updateClip(track.id, clip.id, {
+          chordSequence: [...chordSequence.value]
+        })
+      } else {
+        // Clip originally has notes - update notes
+        audioStore.updateClip(track.id, clip.id, {
+          notes: [...chordSequence.value]
+        })
+      }
       break
     }
   }

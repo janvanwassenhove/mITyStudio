@@ -39,14 +39,14 @@ if not exist "frontend\node_modules" (
     cd ..
 )
 
-REM Check Python environment (PyTorch already confirmed working)
+REM Check Python environment (TensorFlow ready for audio analysis)
 if not exist "backend\venv" (
     echo [SETUP] Python virtual environment not found
     echo Please run setup.bat first to create the environment
     pause
     exit /b 1
 ) else (
-    echo [OK] Python virtual environment ready with PyTorch
+    echo [OK] Python virtual environment ready with TensorFlow
 )
 
 REM Check if .env file exists
@@ -73,14 +73,14 @@ echo.
 echo Frontend will be available at: http://localhost:5173
 echo Backend will be available at: http://localhost:5000
 echo.
-echo [RVC] Voice Cloning: PyTorch-powered neural networks ready!
+echo [AI] Audio Analysis: TensorFlow-powered neural networks ready!
 echo.
 echo Press Ctrl+C to stop both services
 echo.
 
 REM Start both frontend and backend concurrently
-echo [START] Starting backend with PyTorch support
-start "mITyStudio Backend" cmd /k "cd backend && venv\Scripts\activate && set PYTHONWARNINGS=ignore::SyntaxWarning:pydub && set TF_CPP_MIN_LOG_LEVEL=2 && set TF_ENABLE_ONEDNN_OPTS=0 && python run.py"
+echo [START] Starting backend with TensorFlow support
+start "mITyStudio Backend" cmd /k "cd backend && venv\Scripts\python.exe app.py"
 timeout /t 3 /nobreak >nul
 echo [START] Starting frontend
 start "mITyStudio Frontend" cmd /k "cd frontend && npm run dev"
