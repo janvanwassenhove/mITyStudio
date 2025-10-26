@@ -1,8 +1,32 @@
 # mITyStudio - Revolutionary AI Music Composition Studio
 
+## 📖 Table of Contents
+
+- [Why Choose mITyStudio?](#-why-choose-mitystudio)
+  - [Create Music Like Never Before](#create-music-like-never-before)
+  - [Perfect For Everyone](#perfect-for-everyone)
+  - [Key Benefits](#key-benefits)
+- [Get Started in 3 Simple Steps](#-get-started-in-3-simple-steps)
+  - [1. Quick Installation](#1-quick-installation)
+  - [2. Launch & Create](#2-launch--create)
+  - [3. Compose Your First Song](#3-compose-your-first-song)
+- [For Developers](#️-for-developers)
+  - [Features](#features)
+  - [Song Structure JSON Contract](#song-structure-json-contract)
+  - [Getting Started](#getting-started)
+  - [Project Structure](#️-project-structure)
+  - [Architecture](#-architecture)
+  - [AI Features](#-ai-features)
+  - [Environment Configuration](#-environment-configuration)
+  - [Development Scripts](#-development-scripts)
+  - [Contributing](#-contributing)
+
+---
 **Transform your musical ideas into professional compositions with the power of artificial intelligence.**
 
 mITyStudio is a complete AI-powered music production suite that empowers musicians, producers, and creators to compose, arrange, and produce high-quality music with unprecedented ease and creativity.
+
+![alt text](docs/assets/mITyStudio.png)
 
 ## 🎵 Why Choose mITyStudio?
 
@@ -23,21 +47,14 @@ mITyStudio is a complete AI-powered music production suite that empowers musicia
 - 🎯 **Professional Results**: Industry-standard audio quality and mixing
 - 🧠 **AI Learning**: The more you use it, the better it understands your style
 - 💰 **Cost Effective**: Replace expensive studio time and session musicians
-- 🌐 **Cross-Platform**: Works on Windows, Mac, and Linux
 
 ## 🚀 Get Started in 3 Simple Steps
 
 ### 1. **Quick Installation**
-Download and run our one-click installer - no technical setup required!
 
 **Windows:**
 ```bash
 setup.bat
-```
-
-**Mac/Linux:**
-```bash
-./setup.sh
 ```
 
 ### 2. **Launch & Create**
@@ -45,112 +62,36 @@ Start the application and begin composing immediately:
 
 ```bash
 start.bat    # Windows
-./start.sh   # Mac/Linux
 ```
 
 ### 3. **Compose Your First Song**
-- Choose a genre or mood
-- Let AI generate a foundation
-- Customize with your creative input
-- Export professional-quality audio
 
-## ✨ Powerful Features
+Choose your preferred creation method:
 
-### **AI-Powered Music Generation**
-- **Smart Chord Progressions**: Generate harmonically rich progressions in any style
-- **Melody Creation**: AI-composed melodies that fit your chord changes perfectly
-- **Rhythm & Beats**: Intelligent drum patterns and rhythmic elements
-- **Style Adaptation**: Create music in any genre from classical to electronic
+#### **🎨 Manual Composition**
+- Select instruments from our extensive library
+- Choose from AI-trained vocal models
+- Build your arrangement track by track
+- Fine-tune every detail to your vision
 
-### **Advanced Vocal Synthesis**
-- **Natural Voice Generation**: Convert text to singing with realistic vocal performances
-- **Multiple Voice Types**: Soprano, alto, tenor, bass - all professionally trained
-- **Harmony Generation**: Automatic background vocals and harmonies
-- **Phonetic Precision**: Advanced syllable mapping for perfect pronunciation
+#### **💬 Vibe-Based Creation with AI Chat**
+- Describe your musical vision to our AI assistant
+- Get real-time suggestions for chords, melodies, and arrangements
+- Collaborate naturally: "Make it more upbeat" or "Add a jazz influence"
+- Watch your ideas transform into music instantly
 
-### **Professional Production Tools**
-- **Real-Time Effects**: Reverb, delay, compression, and more
-- **Multi-Track Mixing**: Professional mixing console with unlimited tracks
-- **Audio Analysis**: AI-powered feedback on your mix and master
-- **Export Options**: High-quality WAV, MP3, and more formats
+#### **🤖 Full AI Song Generation**
+- Let our multi-agent system create complete compositions
+- Specify genre, mood, tempo, and key elements
+- AI handles melody, harmony, rhythm, and structure
+- Generate professional songs in minutes with minimal input
 
-### **Intelligent Song Structure**
-- **Section Management**: Organize verses, choruses, and bridges effortlessly
-- **Cross-Section Editing**: Seamlessly edit across song boundaries
-- **Template Library**: Start with professional song structures
-- **Visual Timeline**: See your entire composition at a glance
+#### **🎯 Export & Share**
+- Professional-quality audio rendering
+- Multiple format support (WAV, MP3, MIDI)
+- Stem separation for advanced mixing
+- Direct sharing to social platforms
 
-## 🎯 Perfect Use Cases
-
-### **Music Producers**
-- Quickly prototype song ideas
-- Generate reference tracks for clients
-- Create backing tracks and demos
-- Explore new musical styles
-
-### **Content Creators**
-- Generate royalty-free background music
-- Create custom themes and jingles
-- Match music to video content mood
-- Produce podcast intros and outros
-
-### **Educators & Students**
-- Interactive music theory learning
-- Composition assignments and exercises
-- Demonstrate musical concepts
-- Create practice tracks
-
-### **Songwriters**
-- Overcome writer's block with AI inspiration
-- Experiment with different arrangements
-- Develop rough ideas into full songs
-- Collaborate with AI co-writers
-
-## 🏆 What Makes Us Different
-
-### **Industry-Leading AI**
-Built on cutting-edge language models and music AI research, mITyStudio understands music theory, composition techniques, and production best practices.
-
-### **User-Friendly Design**
-No steep learning curve - if you can hum a melody, you can create professional music with mITyStudio.
-
-### **Constant Evolution**
-Regular updates bring new AI capabilities, instruments, and features based on user feedback.
-
-### **Professional Support**
-Comprehensive documentation, tutorials, and community support to help you succeed.
-
-## 💡 Quick Start Guide
-
-### **New to Music Production?**
-1. Choose a genre template
-2. Let AI generate a basic structure
-3. Add your lyrics or melody ideas
-4. Customize the arrangement
-5. Export your finished song
-
-### **Experienced Producer?**
-1. Import your existing project
-2. Use AI for creative suggestions
-3. Generate missing parts or variations
-4. Fine-tune with professional tools
-5. Export stems or final mix
-
-## 🔧 System Requirements
-
-- **Operating System**: Windows 10+, macOS 10.14+, or Linux Ubuntu 18.04+
-- **Memory**: 8GB RAM minimum (16GB recommended)
-- **Storage**: 2GB free space
-- **Audio**: Audio interface or sound card recommended
-- **Internet**: Required for AI features and updates
-
-## 📞 Support & Community
-
-- **Documentation**: Comprehensive guides and tutorials
-- **Community Forum**: Connect with other creators
-- **Video Tutorials**: Step-by-step learning resources
-- **Email Support**: Direct technical assistance
-- **Feature Requests**: Help shape the future of mITyStudio
 
 ---
 
