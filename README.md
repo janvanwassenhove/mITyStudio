@@ -405,33 +405,91 @@ npm run lint
 For questions or support, please contact mityjohn.com.
 
 ## 🏗️ Project Structure
-
 ```
 mITyStudio/
-├── frontend/           # Vue.js application
+├── README.md                   # Main project documentation
+├── LAUNCH_GUIDE.md            # Detailed launch script documentation
+├── package.json               # Root package.json (monorepo scripts)
+├── setup.bat / setup.sh       # First-time environment setup
+├── start.bat / start.sh       # Main application launcher
+├── dev.bat / dev.sh          # Development mode launcher
+├── desktop.bat               # Electron desktop app launcher
+├── build.bat                 # Production build script
+│
+├── frontend/                  # Vue.js application
 │   ├── src/
-│   │   ├── components/ # Vue components
-│   │   ├── stores/     # Pinia state management
-│   │   ├── assets/     # Static assets
-│   │   └── utils/      # Utility functions
-│   ├── public/         # Public assets
-│   ├── package.json    # Frontend dependencies
-│   └── vite.config.ts  # Vite configuration
-├── backend/            # Python Flask API
+│   │   ├── components/       # Vue components
+│   │   │   ├── audio/       # Audio-related components
+│   │   │   ├── chat/        # AI chat interface
+│   │   │   ├── mixer/       # Audio mixer controls
+│   │   │   ├── timeline/    # Timeline and sequencer
+│   │   │   └── vocals/      # Vocal synthesis components
+│   │   ├── stores/          # Pinia state management
+│   │   ├── assets/          # Static assets
+│   │   ├── utils/           # Utility functions
+│   │   └── services/        # API service layer
+│   ├── public/              # Public assets
+│   ├── package.json         # Frontend dependencies
+│   └── vite.config.ts       # Vite configuration
+│
+├── backend/                   # Python Flask API
 │   ├── app/
-│   │   ├── api/        # API routes
-│   │   ├── services/   # Business logic
-│   │   ├── models/     # Database models
-│   │   └── utils/      # Backend utilities
-│   ├── requirements.txt # Python dependencies
-│   ├── app.py          # Flask application
-│   └── run.py          # Development server
-├── electron/           # Electron desktop app
-│   ├── main.js         # Main process
-│   ├── preload.js      # Preload script
-│   └── package.json    # Electron dependencies
-├── package.json        # Root package.json (monorepo)
-└── README.md           # This file
+│   │   ├── api/             # API routes and blueprints
+│   │   │   ├── auth/       # Authentication endpoints
+│   │   │   ├── audio/      # Audio processing endpoints
+│   │   │   ├── chat/       # AI chat endpoints
+│   │   │   └── projects/   # Project management endpoints
+│   │   ├── services/        # Business logic
+│   │   │   ├── ai/         # AI service integrations
+│   │   │   ├── audio/      # Audio processing services
+│   │   │   └── langgraph/  # LangGraph workflow services
+│   │   ├── models/          # Database models
+│   │   ├── utils/           # Backend utilities
+│   │   └── workflows/       # LangGraph AI workflows
+│   ├── venv/               # Python virtual environment
+│   ├── uploads/            # File upload directory
+│   ├── requirements.txt    # Python dependencies
+│   ├── .env.example       # Environment variables template
+│   ├── .env               # Environment configuration (local)
+│   ├── app.py             # Flask application factory
+│   └── run.py             # Development server entry point
+│
+├── electron/                  # Electron desktop application
+│   ├── main.js              # Main process
+│   ├── preload.js           # Preload script with security
+│   ├── renderer/            # Renderer process files
+│   └── package.json         # Electron dependencies
+│
+├── docs/                      # Comprehensive documentation
+│   ├── assets/              # Documentation assets and examples
+│   │   ├── mITyStudio.png  # Main application screenshot
+│   │   ├── sample_songs/   # Example song files
+│   │   └── vocals/         # Vocal synthesis examples
+│   ├── SF2/                # SoundFont instrument files
+│   │   ├── 60sRockGuitar.SF2
+│   │   ├── Flute.sf2
+│   │   ├── IbanezElectricGuitar.SF2
+│   │   ├── Marimba.sf2
+│   │   ├── PaganWhistle.sf2
+│   │   ├── Snare.sf2
+│   │   └── Trumpets.sf2
+│   ├── LANGGRAPH_WORKFLOWS.md         # AI workflow documentation
+│   ├── LANGGRAPH_IMPLEMENTATION.md    # Technical implementation
+│   ├── LANGGRAPH_EFFECTS_ENHANCEMENT.md # Enhanced effects processing
+│   ├── EXTENDED_VOCAL_STRUCTURE.md    # Vocal synthesis documentation
+│   ├── MASTER_LYRIC_LANE.md          # Lyric visualization system
+│   ├── AI_CHAT_INSTRUMENT_AWARENESS.md # AI chat documentation
+│   └── extended_vocal_example.json    # Complete vocal structure example
+│
+├── tests/                     # Test suites
+│   ├── frontend/             # Frontend tests
+│   ├── backend/              # Backend tests
+│   └── e2e/                 # End-to-end tests
+│
+└── .github/                   # GitHub configuration
+  ├── workflows/            # CI/CD workflows
+  └── instructions/         # Development guidelines
+    └── mITyStudio.instructions.md
 ```
 
 ## 🚀 Getting Started
@@ -596,6 +654,66 @@ MAX_CONTENT_LENGTH=16777216
 3. Make your changes
 4. Add tests if applicable
 5. Submit a pull request
+
+---
+
+## 📚 Documentation Overview
+
+The `docs/` folder contains comprehensive technical and functional documentation for the mITyStudio project:
+
+### 🎵 Core Features & Workflows
+- **[LANGGRAPH_WORKFLOWS.md](docs/LANGGRAPH_WORKFLOWS.md)** - Multi-agent AI composition workflows with Mermaid diagrams
+- **[LANGGRAPH_IMPLEMENTATION.md](docs/LANGGRAPH_IMPLEMENTATION.md)** - Technical implementation details for LangGraph workflows
+- **[LANGGRAPH_EFFECTS_ENHANCEMENT.md](docs/LANGGRAPH_EFFECTS_ENHANCEMENT.md)** - Enhanced effects processing and musical depth
+
+### 🎤 Vocal & Lyric Systems
+- **[EXTENDED_VOCAL_STRUCTURE.md](docs/EXTENDED_VOCAL_STRUCTURE.md)** - Advanced vocal synthesis with syllable mapping and IPA phonemes
+- **[MASTER_LYRIC_LANE.md](docs/MASTER_LYRIC_LANE.md)** - Real-time karaoke highlighting and multi-speaker visualization
+- **[extended_vocal_example.json](docs/extended_vocal_example.json)** - Complete example of extended vocal structure implementation
+
+### 🤖 AI Intelligence
+- **[AI_CHAT_INSTRUMENT_AWARENESS.md](docs/AI_CHAT_INSTRUMENT_AWARENESS.md)** - Context-aware AI chat with instrument library integration
+
+### 🎹 Audio Assets & Samples
+- **[assets/](docs/assets/)** - Sample audio files, song generation examples, and vocal demonstrations
+- **[SF2/](docs/SF2/)** - SoundFont instrument samples (see SF2 section below)
+
+## 🎼 SoundFont (SF2) Instrument Simulation
+
+mITyStudio uses SoundFont 2.0 (SF2) files for high-quality instrument simulation and synthesis. SF2 files contain sampled audio data that recreates realistic instrument sounds.
+
+### What are SF2 Files?
+SoundFont files are a standardized format for storing digital audio samples and instrument definitions. They provide:
+- **Realistic Instrument Sounds**: Multi-sampled recordings across different pitches and velocities
+- **Dynamic Response**: Velocity-sensitive playback for expressive performance
+- **Articulation Support**: Different playing techniques (legato, staccato, tremolo, etc.)
+- **Efficient Storage**: Compressed audio samples with metadata
+
+### Available Instruments
+The `/docs/SF2/` folder includes example SoundFont files:
+- **60sRockGuitar.SF2** - Classic rock guitar tones
+- **Flute.sf2** - Expressive woodwind sounds
+- **IbanezElectricGuitar.SF2** - Electric guitar with multiple articulations
+- **Marimba.sf2** - Percussive mallet instrument
+- **PaganWhistle.sf2** - Unique atmospheric wind instrument
+- **Snare.sf2** - Drum samples for rhythm sections
+- **Trumpets.sf2** - Brass section sounds
+
+### Managing SF2 Files
+**Admin Upload**: Administrators can upload custom SF2 files through the admin section to expand the instrument library.
+
+**Supported Features**:
+- Real-time playback with MIDI control
+- Multiple velocity layers for dynamic expression
+- Pitch bend and modulation support
+- Integration with AI composition workflows
+
+**File Requirements**:
+- Format: SoundFont 2.0 (.sf2)
+- Size: Optimized for real-time performance
+- Quality: 44.1kHz sample rate recommended
+
+The SF2 system enables mITyStudio to provide professional-quality instrument sounds while maintaining the flexibility to add new instruments as needed for different musical styles and genres.
 
 ---
 
