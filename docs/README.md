@@ -2,6 +2,10 @@
 
 Welcome to the comprehensive documentation for mITyStudio - the AI-powered music composition and production studio.
 
+![mITyStudio Main Interface](assets/mITyStudio.png)
+
+*The main interface showcasing mITyStudio's comprehensive music production environment*
+
 ## 📖 Table of Contents
 
 ### 🎵 Core System Architecture
@@ -17,12 +21,44 @@ Welcome to the comprehensive documentation for mITyStudio - the AI-powered music
 ### 🤖 AI Intelligence Systems
 - **[AI_CHAT_INSTRUMENT_AWARENESS.md](AI_CHAT_INSTRUMENT_AWARENESS.md)** - Context-aware AI chat with dynamic instrument library integration
 
+### 🖼️ User Interface & Visual Guides
+- **[VISUAL_INTERFACE_GUIDE.md](VISUAL_INTERFACE_GUIDE.md)** - Complete visual walkthrough of all interface components with screenshots
+- **[INTERFACE_QUICK_REFERENCE.md](INTERFACE_QUICK_REFERENCE.md)** - Visual quick-reference guide for efficient workflow navigation
+
 ### 🎹 Audio Assets & Resources
-- **[assets/](assets/)** - Sample audio files, demonstration tracks, and vocal examples
+- **[assets/](assets/)** - Sample audio files, demonstration tracks, and visual documentation
   - `samples/` - Individual instrument and vocal samples
-  - `song_generation/` - Complete AI-generated song examples
+  - `song_generation/` - Complete AI-generated song examples with review interface
   - `vocals/` - Voice model demonstrations and training data
+  - `instruments/` - Visual guides for instrument selection and track management
 - **[SF2/](SF2/)** - SoundFont instrument library for realistic sound synthesis
+
+## 🖼️ Visual Feature Guide
+
+### Sample Library Management
+![Sample Library](assets/samples/TabSampleLibrary.png)
+
+The comprehensive sample library provides organized access to all audio resources, enabling quick browsing and auditioning of samples for your compositions.
+
+### Track-Based Sample Selection
+![Track Sample Selection](assets/samples/TrackSampleSelection.png)
+
+Each track allows for precise sample selection with real-time preview capabilities, making it easy to find the perfect sound for your arrangement.
+
+### Instrument Selection Interface
+![Instrument Selection](assets/instruments/TrackInstrumentsSelection.png)
+
+The instrument selection panel provides access to the full SoundFont library, with categories organized for efficient workflow and sound exploration.
+
+### Vocal Track Management
+![Vocal Selection](assets/vocals/TrackVocalSelection.png)
+
+Advanced vocal track management with support for custom voice models, harmonization, and real-time vocal synthesis.
+
+### AI Song Generation & Review
+![Song Generation Review](assets/song_generation/song_generation_review.png)
+
+The Multi-Agent System (MAS) provides comprehensive song generation with detailed review capabilities, allowing you to evaluate and refine AI-composed content before integration.
 
 ## 🔧 Technical Overview
 
@@ -70,6 +106,8 @@ Professional-quality instrument simulation using SoundFont 2.0 technology:
 ## 🚀 Getting Started
 
 For setup and installation instructions, see the main [README.md](../README.md) in the project root.
+
+**New to mITyStudio?** Start with the [Visual Interface Guide](VISUAL_INTERFACE_GUIDE.md) to see all features in action, or check the [Quick Reference](INTERFACE_QUICK_REFERENCE.md) for a rapid overview of key interfaces.
 
 For specific implementation details, refer to the individual documentation files listed above.
 

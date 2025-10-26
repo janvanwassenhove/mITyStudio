@@ -1,8 +1,12 @@
 # Extended JSON Song Definition for Vocal Parts
 
+![Vocal Track Management](assets/vocals/TrackVocalSelection.png)
+
+*The vocal track interface showcasing advanced voice model selection and real-time synthesis capabilities*
+
 ## Overview
 
-The extended JSON song definition for mITyStudio now includes enhanced vocal part support with syllables, section structure, and phonemes for better visualization and TTS/singing engine integration.
+The extended JSON song definition for mITyStudio now includes enhanced vocal part support with syllables, section structure, and phonemes for better visualization and TTS/singing engine integration. The vocal interface shown above demonstrates how these advanced features are accessible through an intuitive user interface.
 
 ## Key New Features
 

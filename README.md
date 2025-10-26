@@ -429,6 +429,16 @@ mITyStudio/
 │   │   ├── utils/           # Utility functions
 │   │   └── services/        # API service layer
 │   ├── public/              # Public assets
+│   ├── tests/               # Playwright E2E tests
+│   │   ├── e2e/            # End-to-end test scenarios
+│   │   │   ├── audio/      # Audio playback and processing tests
+│   │   │   ├── chat/       # AI chat interaction tests
+│   │   │   ├── composition/ # Music composition workflow tests
+│   │   │   ├── mixer/      # Audio mixer functionality tests
+│   │   │   └── vocals/     # Vocal synthesis tests
+│   │   ├── fixtures/        # Test data and mock files
+│   │   ├── utils/          # Test utility functions
+│   │   └── playwright.config.ts # Playwright configuration
 │   ├── package.json         # Frontend dependencies
 │   └── vite.config.ts       # Vite configuration
 │
@@ -480,12 +490,6 @@ mITyStudio/
 │   ├── MASTER_LYRIC_LANE.md          # Lyric visualization system
 │   ├── AI_CHAT_INSTRUMENT_AWARENESS.md # AI chat documentation
 │   └── extended_vocal_example.json    # Complete vocal structure example
-│
-├── tests/                     # Test suites
-│   ├── frontend/             # Frontend tests
-│   ├── backend/              # Backend tests
-│   └── e2e/                 # End-to-end tests
-│
 └── .github/                   # GitHub configuration
   ├── workflows/            # CI/CD workflows
   └── instructions/         # Development guidelines

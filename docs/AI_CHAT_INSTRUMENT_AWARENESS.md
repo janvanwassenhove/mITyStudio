@@ -1,7 +1,13 @@
 # AI Chat Instrument Awareness Enhancement
 
+![Instrument Selection Interface](assets/instruments/TrackInstrumentsSelection.png)
+
+*The instrument selection interface that provides the AI chat with real-time awareness of available instruments*
+
 ## Problem
 The AI chat was making instrument suggestions without knowing what instruments were actually available in the user's sample library. This led to suggestions for instruments that might not be available, making the action buttons less useful.
+
+The instrument selection interface shown above demonstrates the comprehensive SoundFont library that the AI system now has full awareness of, enabling context-specific suggestions.
 
 ## Solution Implemented
 

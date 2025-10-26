@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
+    "build:dev": "vue-tsc -p tsconfig.dev.json && vite build",
     "preview": "vite preview",
     "docs": "node scripts/generate-docs.js",
     "test": "vitest",

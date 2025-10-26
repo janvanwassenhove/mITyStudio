@@ -2,9 +2,13 @@
 
 This document provides comprehensive diagrams and explanations of the different LangGraph workflows used in the mITyStudio song generation system.
 
+![Song Generation Review Interface](assets/song_generation/song_generation_review.png)
+
+*The AI song generation review interface where LangGraph workflows produce comprehensive musical compositions*
+
 ## Overview
 
-The mITyStudio song generation system uses a sophisticated multi-agent workflow powered by LangGraph. The system intelligently routes between different workflows based on user preferences and includes conditional logic for optimal generation.
+The mITyStudio song generation system uses a sophisticated multi-agent workflow powered by LangGraph. The system intelligently routes between different workflows based on user preferences and includes conditional logic for optimal generation. The workflow results are presented in the comprehensive review interface shown above, allowing users to evaluate and refine AI-generated content.
 
 ## Table of Contents
 
