@@ -184,11 +184,27 @@
           @keydown="handleKeyDown"
           @input="adjustTextareaHeight"
           ref="messageInput"
-          placeholder="Ask me anything about music production..."
+          :placeholder="isListening ? 'Listening... Speak now!' : 'Ask me anything about music production...'"
           class="message-textarea"
+          :class="{ 'listening': isListening }"
           rows="1"
           :disabled="isTyping"
         ></textarea>
+        
+        <div v-if="isListening" class="voice-indicator">
+          <div class="voice-wave">
+            <span></span>
+            <span></span>
+            <span></span>
+          </div>
+          <span class="voice-text">
+            Listening... 
+            <span class="voice-lang">
+              {{ supportedLanguages.find(l => l.code === currentLanguage)?.flag }}
+              {{ supportedLanguages.find(l => l.code === currentLanguage)?.name }}
+            </span>
+          </span>
+        </div>
         
         <button 
           class="send-btn"
@@ -203,19 +219,50 @@
         <button 
           class="action-btn-small"
           @click="attachFile"
-          title="Attach file"
+          :class="{ 'uploading': isUploading }"
+          :title="isUploading ? 'Uploading scores...' : 'Attach musical scores or tablatures'"
+          :disabled="isUploading"
         >
-          <Paperclip class="icon" />
+          <Paperclip class="icon" :class="{ 'spinning': isUploading }" />
         </button>
         
-        <button 
-          class="action-btn-small"
-          @click="toggleVoiceInput"
-          :class="{ 'active': isListening }"
-          title="Voice input"
-        >
-          <Mic class="icon" />
-        </button>
+        <div class="voice-input-group">
+          <select 
+            v-model="currentLanguage" 
+            @change="setLanguage(currentLanguage)"
+            class="language-select"
+            :disabled="isListening"
+            title="Select voice input language (Ctrl+L to cycle)"
+          >
+            <option 
+              v-for="lang in supportedLanguages" 
+              :key="lang.code" 
+              :value="lang.code"
+            >
+              {{ lang.flag }} {{ lang.name }}
+            </option>
+          </select>
+          
+          <button 
+            class="action-btn-small detect-btn"
+            @click="detectLanguage"
+            :disabled="isListening || isDetectingLanguage"
+            title="Auto-detect language"
+          >
+            <span v-if="isDetectingLanguage" class="detect-spinner">⟳</span>
+            <Settings v-else class="icon detect-icon" />
+          </button>
+          
+          <button 
+            class="action-btn-small mic-btn"
+            @click="toggleVoiceInput"
+            :class="{ 'active': isListening, 'recording': isListening }"
+            :disabled="!speechSupported"
+            :title="speechSupported ? (isListening ? 'Stop voice input (Ctrl+;)' : 'Voice input (Ctrl+;)') : 'Voice input not supported in this browser'"
+          >
+            <Mic class="icon" />
+          </button>
+        </div>
         
         <button 
           class="action-btn-small"
@@ -240,6 +287,43 @@
           </button>
         </div>
       </div>
+      
+      <!-- Uploaded Scores Display -->
+      <div v-if="uploadedScores.length > 0" class="uploaded-scores">
+        <h5>📜 Uploaded Musical Scores</h5>
+        <div class="score-items">
+          <div 
+            v-for="score in uploadedScores" 
+            :key="score.file_id" 
+            class="score-item"
+            :class="{ 'error': score.status === 'error', 'success': score.status === 'success' }"
+          >
+            <div class="score-info">
+              <span class="score-name">{{ score.filename }}</span>
+              <span class="score-category">{{ score.category }}</span>
+              <span class="score-status" :class="score.status">
+                {{ score.status === 'success' ? '✓' : score.status === 'error' ? '✗' : '⏳' }}
+              </span>
+            </div>
+            <div v-if="score.analysis && score.status === 'success'" class="score-details">
+              <span v-if="score.analysis.estimated_key" class="detail">Key: {{ score.analysis.estimated_key }}</span>
+              <span v-if="score.analysis.estimated_tempo" class="detail">{{ score.analysis.estimated_tempo }} BPM</span>
+              <span v-if="score.analysis.difficulty_level" class="detail">{{ score.analysis.difficulty_level }}</span>
+            </div>
+            <button 
+              class="remove-score-btn"
+              @click="removeUploadedScore(score.file_id)"
+              title="Remove score"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+        <div class="scores-help">
+          <small>The AI assistant will consider these scores in its responses</small>
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
@@ -250,6 +334,7 @@ import { useAudioStore } from '../stores/audioStore'
 import { useAIStore } from '../stores/aiStore'
 import { useSampleStore } from '../stores/sampleStore'
 import { checkApiKeyStatus as apiCheckApiKeyStatus, getAllSampleInstruments } from '../utils/api'
+import { ScoreService, type ScoreFile } from '../services/scoreService'
 import { 
   Bot, User, Trash2, Send, Paperclip, Mic, Lightbulb, Key,
   Music, Play, Plus, Download, Upload, Settings, Volume2, Mic2, Pause, Square
@@ -273,12 +358,32 @@ const isListening = ref(false)
 const showSuggestions = ref(false)
 const messagesContainer = ref<HTMLElement>()
 const messageInput = ref<HTMLTextAreaElement>()
+const currentLyricsJSON = ref<any>(null) // Store current lyrics JSON for Apply button
+
+// Voice recognition state
+const recognition = ref<any>(null) // Using any to avoid TypeScript issues with SpeechRecognition
+const speechSupported = ref(false)
+const currentLanguage = ref('en-US')
+const supportedLanguages = ref([
+  { code: 'en-US', name: 'English', flag: '🇺🇸' },
+  { code: 'nl-NL', name: 'Dutch', flag: '🇳🇱' },
+  { code: 'fr-FR', name: 'French', flag: '🇫🇷' },
+  { code: 'de-DE', name: 'German', flag: '🇩🇪' },
+  { code: 'it-IT', name: 'Italian', flag: '🇮🇹' }
+])
+const isDetectingLanguage = ref(false)
+const detectedLanguage = ref('')
 
 // Sample playback state
 const playingSampleId = ref<string | null>(null)
 const currentAudio = ref<HTMLAudioElement | null>(null)
 const sampleWaveformCanvases = ref<Record<string, HTMLCanvasElement>>({})
 const samplePlayProgress = ref<Record<string, number>>({})
+
+// File upload state
+const fileInput = ref<HTMLInputElement>()
+const uploadedScores = ref<ScoreFile[]>([])
+const isUploading = ref(false)
 
 // Computed properties from AI store
 const messages = computed(() => aiStore.messages.map(msg => ({
@@ -297,7 +402,8 @@ const quickSuggestions = [
   "Help me create a chord progression",
   "What's a good drum pattern for house music?",
   "How do I make my bass sound fuller?",
-  "Suggest some effects for vocals"
+  "Suggest some effects for vocals",
+  "Generate full song lyrics with syllables and phonemes"
 ]
 
 // Contextual suggestions based on current project
@@ -736,10 +842,136 @@ const addLyricsFromJSONAction = (encodedJSON: string) => {
   try {
     const jsonContent = decodeURIComponent(encodedJSON)
     const lyricsData = JSON.parse(jsonContent)
-    addLyricsFromJSON({ json: lyricsData })
+    
+    // Set currentLyricsJSON so we can use the merged addVocalTrackAction logic
+    currentLyricsJSON.value = lyricsData
+    
+    // Call the merged action that creates vocal track AND applies to song structure
+    addVocalTrackAction()
   } catch (error) {
     console.error('Error adding lyrics from JSON:', error)
     sendMessage('❌ Error adding lyrics. Please check the JSON format.')
+  }
+}
+
+// Enhanced action functions for lyrics
+const addVocalTrackFromJSON = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const lyricsData = JSON.parse(jsonContent)
+    
+    console.log('Adding vocal track from JSON:', lyricsData)
+    
+    // Create or find vocals track
+    let vocalsTrack = audioStore.songStructure.tracks.find(t => t.instrument === 'vocals')
+    let trackId = vocalsTrack?.id
+
+    if (!trackId) {
+      // Create new vocals track
+      trackId = audioStore.addTrack('Lyrics & Vocals', 'vocals')
+      if (trackId) {
+        audioStore.updateTrack(trackId, {
+          volume: 0.8,
+          pan: 0,
+          effects: { 
+            reverb: 0, 
+            delay: 0, 
+            distortion: 0, 
+            pitchShift: 0, 
+            chorus: 0, 
+            filter: 0, 
+            bitcrush: 0 
+          }
+        })
+      }
+    }
+
+    if (trackId) {
+      // Handle different JSON structures
+      if (lyricsData.clips && Array.isArray(lyricsData.clips)) {
+        // Complete track with clips
+        for (const clip of lyricsData.clips) {
+          audioStore.addClip(trackId, {
+            ...clip,
+            trackId: trackId
+          })
+        }
+        sendMessage(`🎤 Added vocal track with ${lyricsData.clips.length} clips! Ready to record your vocals.`)
+      } else if (lyricsData.voices || lyricsData.type === 'lyrics') {
+        // Single clip
+        audioStore.addClip(trackId, {
+          ...lyricsData,
+          trackId: trackId
+        })
+        const voiceCount = lyricsData.voices?.length || 1
+        sendMessage(`🎤 Added vocal track with ${voiceCount} voice part(s)! Your melody awaits lyrics.`)
+      }
+    }
+  } catch (error) {
+    console.error('Error adding vocal track from JSON:', error)
+    sendMessage('❌ Error adding vocal track. Please check the JSON format.')
+  }
+}
+
+const addLyricsToSongStructure = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const lyricsData = JSON.parse(jsonContent)
+    
+    console.log('Adding lyrics to song structure:', lyricsData)
+    
+    // Extract lyrics text from the JSON structure
+    let extractedLyricsText = ''
+    
+    // Handle different structures
+    if (lyricsData.clips && Array.isArray(lyricsData.clips)) {
+      for (const clip of lyricsData.clips) {
+        if (clip.voices) {
+          for (const voice of clip.voices) {
+            if (voice.lyrics) {
+              for (const lyric of voice.lyrics) {
+                if (lyric.text) {
+                  extractedLyricsText += lyric.text + ' '
+                }
+              }
+              extractedLyricsText += '\n'
+            }
+          }
+        }
+      }
+    } else if (lyricsData.voices) {
+      for (const voice of lyricsData.voices) {
+        if (voice.lyrics) {
+          for (const lyric of voice.lyrics) {
+            if (lyric.text) {
+              extractedLyricsText += lyric.text + ' '
+            }
+          }
+          extractedLyricsText += '\n'
+        }
+      }
+    }
+    
+    // Update song structure with lyrics
+    if (extractedLyricsText.trim()) {
+      const currentLyrics = audioStore.songStructure.lyrics || ''
+      const updatedLyrics = currentLyrics ? currentLyrics + '\n\n' + extractedLyricsText.trim() : extractedLyricsText.trim()
+      
+      audioStore.loadSongStructure({
+        ...audioStore.songStructure,
+        lyrics: updatedLyrics,
+        updatedAt: new Date().toISOString()
+      })
+      
+      const lyricsWordCount = extractedLyricsText.trim().split(/\s+/).length
+      sendMessage(`📝 Added ${lyricsWordCount} words to the lyrics section! Check the Song tab to see your lyrics.`)
+    } else {
+      sendMessage('❌ No lyrics text found in the JSON structure.')
+    }
+    
+  } catch (error) {
+    console.error('Error adding lyrics to song structure:', error)
+    sendMessage('❌ Error adding lyrics to song structure. Please check the JSON format.')
   }
 }
 
@@ -797,9 +1029,538 @@ const applyMixFromJSON = (encodedJSON: string) => {
   }
 }
 
+// Add vocal track action from footer buttons
+const addVocalTrackAction = () => {
+  if (!currentLyricsJSON.value) {
+    aiStore.addMessage({
+      role: 'assistant',
+      content: '❌ No lyrics to apply. Please generate lyrics first.',
+      id: Date.now().toString()
+    })
+    return
+  }
+  
+  try {
+    const jsonData = currentLyricsJSON.value
+    
+    // Create a new vocal track using the proper addTrack method
+    const trackId = audioStore.addTrack('Vocals', 'vocals', undefined, 'vocal')
+    
+    if (!trackId) {
+      throw new Error('Failed to create vocal track')
+    }
+    
+    // Process lyrics data and create clips
+    if (jsonData.clips && Array.isArray(jsonData.clips)) {
+      // Handle multiple clips structure
+      jsonData.clips.forEach((clipData: any, index: number) => {
+        // Ensure proper lyric structure for Master Lyrics display
+        const processedVoices = clipData.voices?.map((voice: any) => ({
+          ...voice,
+          lyrics: voice.lyrics?.map((lyric: any, lyricIndex: number) => ({
+            text: lyric.text || '',
+            notes: lyric.notes || [],
+            start: lyric.start !== undefined ? lyric.start : lyricIndex * 2, // Default 2-second intervals
+            duration: lyric.duration || lyric.durations?.reduce((a: number, b: number) => a + b, 0) || 2,
+            syllables: lyric.syllables || [],
+            phonemes: lyric.phonemes || []
+          })) || []
+        })) || []
+        
+        const clip = {
+          startTime: clipData.startTime !== undefined ? clipData.startTime : index * 8,
+          duration: clipData.duration || 8,
+          type: 'lyrics' as const,
+          instrument: 'vocals',
+          volume: 0.8,
+          effects: {
+            reverb: 0.3,
+            delay: 0.2,
+            distortion: 0,
+            pitchShift: 0,
+            chorus: 0.1,
+            filter: 0,
+            bitcrush: 0
+          },
+          voices: processedVoices,
+          lyrics: processedVoices[0]?.lyrics || [] // Also set direct lyrics for compatibility
+        }
+        
+        console.log(`Adding clip ${index}:`, clip)
+        const clipId = audioStore.addClip(trackId, clip)
+        console.log('Clip added with ID:', clipId)
+      })
+    } else if (jsonData.voices) {
+      // Single clip structure
+      const processedVoices = jsonData.voices.map((voice: any) => ({
+        ...voice,
+        lyrics: voice.lyrics?.map((lyric: any, lyricIndex: number) => ({
+          text: lyric.text || '',
+          notes: lyric.notes || [],
+          start: lyric.start !== undefined ? lyric.start : lyricIndex * 2,
+          duration: lyric.duration || lyric.durations?.reduce((a: number, b: number) => a + b, 0) || 2,
+          syllables: lyric.syllables || [],
+          phonemes: lyric.phonemes || []
+        })) || []
+      }))
+      
+      const clip = {
+        startTime: 0,
+        duration: 8,
+        type: 'lyrics' as const,
+        instrument: 'vocals', 
+        volume: 0.8,
+        effects: {
+          reverb: 0.3,
+          delay: 0.2,
+          distortion: 0,
+          pitchShift: 0,
+          chorus: 0.1,
+          filter: 0,
+          bitcrush: 0
+        },
+        voices: processedVoices,
+        lyrics: processedVoices[0]?.lyrics || []
+      }
+      
+      console.log('Adding single clip:', clip)
+      const clipId = audioStore.addClip(trackId, clip)
+      console.log('Single clip added with ID:', clipId)
+    }
+    
+    // Step 2: Apply to song structure as well
+    try {
+      // Extract clean lyrics text for Song tab integration
+      const lyricsLines = []
+      
+      // Handle different structures
+      if (jsonData.clips && Array.isArray(jsonData.clips)) {
+        for (const clip of jsonData.clips) {
+          if (clip.voices) {
+            for (const voice of clip.voices) {
+              if (voice.lyrics) {
+                for (const lyric of voice.lyrics) {
+                  if (lyric.text && lyric.text.trim()) {
+                    lyricsLines.push(lyric.text.trim())
+                  }
+                }
+              }
+            }
+          }
+        }
+      } else if (jsonData.voices) {
+        for (const voice of jsonData.voices) {
+          if (voice.lyrics) {
+            for (const lyric of voice.lyrics) {
+              if (lyric.text && lyric.text.trim()) {
+                lyricsLines.push(lyric.text.trim())
+              }
+            }
+          }
+        }
+      }
+      
+      // Format as structured lyrics (one line per lyric)
+      const extractedLyricsText = lyricsLines.join('\n')
+      
+      // Update song structure with lyrics
+      if (extractedLyricsText.trim()) {
+        const currentLyrics = audioStore.songStructure.lyrics || ''
+        const updatedLyrics = currentLyrics ? currentLyrics + '\n\n' + extractedLyricsText.trim() : extractedLyricsText.trim()
+        
+        audioStore.loadSongStructure({
+          ...audioStore.songStructure,
+          lyrics: updatedLyrics,
+          updatedAt: new Date().toISOString()
+        })
+        console.log('Song structure updated with lyrics')
+      }
+    } catch (structureError) {
+      console.warn('Could not update song structure:', structureError)
+      // Don't fail the whole operation if structure update fails
+    }
+    
+    // Show success notification
+    sendMessage('✅ Vocal track successfully added and integrated! 🎤\n\n📝 **Lyrics are now available in:**\n• **Master Lyrics** - Timeline view for karaoke-style singing\n• **Song Tab** - Lyrics section in your project structure\n• **Timeline Editor** - Visual lyrics display\n\n🎵 Your song is ready for vocal performance and mixing!')
+    
+    // Clear current lyrics
+    currentLyricsJSON.value = null
+    
+    console.log('Added vocal track with ID:', trackId)
+  } catch (error) {
+    console.error('Error adding vocal track:', error)
+    sendMessage('❌ Error adding vocal track. Please try again.')
+  }
+}
+
+// Apply current lyrics from the chat
+const applyCurrentLyrics = () => {
+  if (!currentLyricsJSON.value) {
+    sendMessage('❌ No lyrics to apply. Please generate lyrics first.')
+    return
+  }
+  
+  try {
+    console.log('Applying current lyrics:', currentLyricsJSON.value)
+    
+    // Step 1: Extract lyrics text for Song tab
+    let extractedLyricsText = ''
+    const lyricsData = currentLyricsJSON.value
+    
+    // Handle different structures
+    if (lyricsData.clips && Array.isArray(lyricsData.clips)) {
+      for (const clip of lyricsData.clips) {
+        if (clip.voices) {
+          for (const voice of clip.voices) {
+            if (voice.lyrics) {
+              for (const lyric of voice.lyrics) {
+                if (lyric.text) {
+                  extractedLyricsText += lyric.text + ' '
+                }
+              }
+              extractedLyricsText += '\n'
+            }
+          }
+        }
+      }
+    } else if (lyricsData.voices) {
+      for (const voice of lyricsData.voices) {
+        if (voice.lyrics) {
+          for (const lyric of voice.lyrics) {
+            if (lyric.text) {
+              extractedLyricsText += lyric.text + ' '
+            }
+          }
+          extractedLyricsText += '\n'
+        }
+      }
+    }
+    
+    // Step 2: Create or find vocals track
+    let vocalsTrack = audioStore.songStructure.tracks.find(t => t.instrument === 'vocals')
+    let trackId = vocalsTrack?.id
+
+    if (!trackId) {
+      // Create new vocals track
+      trackId = audioStore.addTrack('Lyrics & Vocals', 'vocals')
+      if (trackId) {
+        audioStore.updateTrack(trackId, {
+          volume: 0.8,
+          pan: 0,
+          effects: { 
+            reverb: 0, 
+            delay: 0, 
+            distortion: 0, 
+            pitchShift: 0, 
+            chorus: 0, 
+            filter: 0, 
+            bitcrush: 0 
+          }
+        })
+      }
+    }
+
+    // Step 3: Add clips to vocal track
+    if (trackId) {
+      if (lyricsData.clips && Array.isArray(lyricsData.clips)) {
+        // Complete track with clips
+        for (const clip of lyricsData.clips) {
+          audioStore.addClip(trackId, {
+            ...clip,
+            trackId: trackId
+          })
+        }
+      } else if (lyricsData.voices || lyricsData.type === 'lyrics') {
+        // Single clip
+        audioStore.addClip(trackId, {
+          ...lyricsData,
+          trackId: trackId
+        })
+      }
+    }
+    
+    // Step 4: Update song structure with lyrics text
+    if (extractedLyricsText.trim()) {
+      const currentLyrics = audioStore.songStructure.lyrics || ''
+      const updatedLyrics = currentLyrics ? currentLyrics + '\n\n' + extractedLyricsText.trim() : extractedLyricsText.trim()
+      
+      audioStore.loadSongStructure({
+        ...audioStore.songStructure,
+        lyrics: updatedLyrics,
+        updatedAt: new Date().toISOString()
+      })
+    }
+    
+    const lyricsWordCount = extractedLyricsText.trim().split(/\s+/).length
+    const voiceCount = lyricsData.voices?.length || (lyricsData.clips?.reduce((acc: number, clip: any) => acc + (clip.voices?.length || 0), 0)) || 1
+    
+    sendMessage(`🎵 Successfully applied lyrics to song! Added ${lyricsWordCount} words with ${voiceCount} voice part(s). Check the Song tab and timeline.`)
+    
+    // Clear the current lyrics JSON after applying
+    currentLyricsJSON.value = null
+    
+  } catch (error) {
+    console.error('Error applying current lyrics:', error)
+    sendMessage('❌ Error applying lyrics to song. Please try again.')
+  }
+}
+
+// Unified function to apply lyrics to song (both structure and vocal track)
+const applyLyricsToSong = (encodedJSON: string) => {
+  try {
+    const jsonContent = decodeURIComponent(encodedJSON)
+    const lyricsData = JSON.parse(jsonContent)
+    
+    console.log('Applying lyrics to song:', lyricsData)
+    
+    // Step 1: Add lyrics to song structure
+    let extractedLyricsText = ''
+    
+    // Handle different structures
+    if (lyricsData.clips && Array.isArray(lyricsData.clips)) {
+      for (const clip of lyricsData.clips) {
+        if (clip.voices) {
+          for (const voice of clip.voices) {
+            if (voice.lyrics) {
+              for (const lyric of voice.lyrics) {
+                if (lyric.text) {
+                  extractedLyricsText += lyric.text + ' '
+                }
+              }
+              extractedLyricsText += '\n'
+            }
+          }
+        }
+      }
+    } else if (lyricsData.voices) {
+      for (const voice of lyricsData.voices) {
+        if (voice.lyrics) {
+          for (const lyric of voice.lyrics) {
+            if (lyric.text) {
+              extractedLyricsText += lyric.text + ' '
+            }
+          }
+          extractedLyricsText += '\n'
+        }
+      }
+    }
+    
+    // Step 2: Create or find vocals track
+    let vocalsTrack = audioStore.songStructure.tracks.find(t => t.instrument === 'vocals')
+    let trackId = vocalsTrack?.id
+
+    if (!trackId) {
+      // Create new vocals track
+      trackId = audioStore.addTrack('Lyrics & Vocals', 'vocals')
+      if (trackId) {
+        audioStore.updateTrack(trackId, {
+          volume: 0.8,
+          pan: 0,
+          effects: { 
+            reverb: 0, 
+            delay: 0, 
+            distortion: 0, 
+            pitchShift: 0, 
+            chorus: 0, 
+            filter: 0, 
+            bitcrush: 0 
+          }
+        })
+      }
+    }
+
+    // Step 3: Add clips to vocal track
+    if (trackId) {
+      if (lyricsData.clips && Array.isArray(lyricsData.clips)) {
+        // Complete track with clips
+        for (const clip of lyricsData.clips) {
+          audioStore.addClip(trackId, {
+            ...clip,
+            trackId: trackId
+          })
+        }
+      } else if (lyricsData.voices || lyricsData.type === 'lyrics') {
+        // Single clip
+        audioStore.addClip(trackId, {
+          ...lyricsData,
+          trackId: trackId
+        })
+      }
+    }
+    
+    // Step 4: Update song structure with lyrics text
+    if (extractedLyricsText.trim()) {
+      const currentLyrics = audioStore.songStructure.lyrics || ''
+      const updatedLyrics = currentLyrics ? currentLyrics + '\n\n' + extractedLyricsText.trim() : extractedLyricsText.trim()
+      
+      audioStore.loadSongStructure({
+        ...audioStore.songStructure,
+        lyrics: updatedLyrics,
+        updatedAt: new Date().toISOString()
+      })
+    }
+    
+    const lyricsWordCount = extractedLyricsText.trim().split(/\s+/).length
+    const voiceCount = lyricsData.voices?.length || (lyricsData.clips?.reduce((acc: number, clip: any) => acc + (clip.voices?.length || 0), 0)) || 1
+    
+    sendMessage(`🎵 Successfully applied lyrics to song! Added ${lyricsWordCount} words with ${voiceCount} voice part(s). Check the Song tab and timeline.`)
+    
+  } catch (error) {
+    console.error('Error applying lyrics to song:', error)
+    sendMessage('❌ Error applying lyrics to song. Please check the JSON format.')
+  }
+}
+
+// New lyrics action functions
+const addVocalTrackFromLyrics = (encodedJsonContent: string) => {
+  try {
+    const jsonData = JSON.parse(decodeURIComponent(encodedJsonContent))
+    
+    // Create a new vocal track with the lyrics
+    const vocalTrack = {
+      id: `vocal-${Date.now()}`,
+      name: 'Vocals',
+      instrument: 'vocals',
+      type: 'vocal',
+      category: 'vocals',
+      volume: 0.8,
+      pan: 0,
+      muted: false,
+      solo: false,
+      clips: []
+    }
+    
+    // Process lyrics data and create clips
+    if (jsonData.clips && Array.isArray(jsonData.clips)) {
+      vocalTrack.clips = jsonData.clips.map((clip: any, index: number) => ({
+        ...clip,
+        id: `vocal-clip-${Date.now()}-${index}`,
+        trackId: vocalTrack.id,
+        type: 'lyrics'
+      }))
+    } else if (jsonData.voices) {
+      // Single clip structure
+      vocalTrack.clips = [{
+        id: `vocal-clip-${Date.now()}`,
+        trackId: vocalTrack.id,
+        startTime: 0,
+        duration: 8, // Default duration
+        type: 'lyrics',
+        voices: jsonData.voices,
+        lyrics: jsonData.lyrics || []
+      }]
+    }
+    
+    // Add track to the audio store
+    audioStore.addTrack(vocalTrack)
+    
+    // Show success notification
+    aiStore.addMessage({
+      role: 'assistant',
+      content: '✅ Vocal track added successfully! You can now see it in the Song tab with the generated lyrics.',
+      id: Date.now().toString()
+    })
+    
+    console.log('Added vocal track:', vocalTrack)
+  } catch (error) {
+    console.error('Error adding vocal track:', error)
+    aiStore.addMessage({
+      role: 'assistant', 
+      content: '❌ Error adding vocal track. Please try again.',
+      id: Date.now().toString()
+    })
+  }
+}
+
+const applyToSong = (encodedJsonContent: string) => {
+  try {
+    const jsonData = JSON.parse(decodeURIComponent(encodedJsonContent))
+    
+    // Update the song structure with lyrics information
+    if (audioStore.songStructure) {
+      // Add lyrics to the song structure
+      audioStore.songStructure.lyrics = jsonData
+      
+      // Also create a vocal track if one doesn't exist
+      const existingVocalTrack = audioStore.tracks.find(track => track.instrument === 'vocals')
+      if (!existingVocalTrack) {
+        addVocalTrackFromLyrics(encodedJsonContent)
+      } else {
+        // Update existing vocal track with new lyrics
+        existingVocalTrack.clips = []
+        
+        if (jsonData.clips && Array.isArray(jsonData.clips)) {
+          existingVocalTrack.clips = jsonData.clips.map((clip: any, index: number) => ({
+            ...clip,
+            id: `vocal-clip-${Date.now()}-${index}`,
+            trackId: existingVocalTrack.id,
+            type: 'lyrics'
+          }))
+        } else if (jsonData.voices) {
+          existingVocalTrack.clips = [{
+            id: `vocal-clip-${Date.now()}`,
+            trackId: existingVocalTrack.id,
+            startTime: 0,
+            duration: 8,
+            type: 'lyrics',
+            voices: jsonData.voices,
+            lyrics: jsonData.lyrics || []
+          }]
+        }
+        
+        aiStore.addMessage({
+          role: 'assistant',
+          content: '✅ Lyrics applied to song structure and existing vocal track updated!',
+          id: Date.now().toString()
+        })
+      }
+    } else {
+      // Create new song structure with lyrics
+      audioStore.songStructure = {
+        title: 'New Song',
+        artist: 'Artist',
+        key: 'C',
+        timeSignature: '4/4',
+        tempo: 120,
+        lyrics: jsonData
+      }
+      
+      // Also add vocal track
+      addVocalTrackFromLyrics(encodedJsonContent)
+    }
+    
+    console.log('Applied lyrics to song:', audioStore.songStructure)
+  } catch (error) {
+    console.error('Error applying lyrics to song:', error)
+    aiStore.addMessage({
+      role: 'assistant',
+      content: '❌ Error applying lyrics to song. Please try again.',
+      id: Date.now().toString()
+    })
+  }
+}
+
+// Watch uploadedScores for debugging
+watch(uploadedScores, (newScores) => {
+  console.log('[AIChat] uploadedScores changed:', {
+    count: newScores.length,
+    scores: newScores.map(s => ({
+      file_id: s.file_id,
+      filename: s.filename,
+      status: s.status,
+      category: s.category
+    }))
+  })
+}, { deep: true, immediate: true })
+
 onMounted(() => {
   // Focus the input
   messageInput.value?.focus()
+  
+  console.log('[AIChat] Component mounted, checking initial scores state:', {
+    uploadedScores: uploadedScores.value,
+    length: uploadedScores.value.length
+  })
   
   // Make toggle function globally available for onclick handlers
   ;(window as any).toggleJsonBlock = toggleJsonBlock
@@ -812,11 +1573,38 @@ onMounted(() => {
   ;(window as any).addBassLineFromJSON = addBassLineFromJSON
   ;(window as any).addMelodyFromJSON = addMelodyFromJSON
   ;(window as any).addLyricsFromJSONAction = addLyricsFromJSONAction
+  ;(window as any).addVocalTrackFromJSON = addVocalTrackFromJSON
+  ;(window as any).addLyricsToSongStructure = addLyricsToSongStructure
+  ;(window as any).applyLyricsToSong = applyLyricsToSong
   ;(window as any).applyEffectsFromJSON = applyEffectsFromJSON
   ;(window as any).applyMixFromJSON = applyMixFromJSON
   
+  // New lyrics action functions
+  ;(window as any).addVocalTrackFromLyrics = addVocalTrackFromLyrics
+  ;(window as any).applyToSong = applyToSong
+  
   // Load available instruments on component mount
   loadAvailableInstruments()
+  
+  // Initialize speech recognition
+  initializeSpeechRecognition()
+  
+  // Auto-detect language based on browser settings
+  if (speechSupported.value) {
+    const browserLang = navigator.language || (navigator as any).languages?.[0] || 'en-US'
+    
+    // Find best matching language (inline for now)
+    let detectedLang = supportedLanguages.value.find(lang => lang.code === browserLang)
+    if (!detectedLang) {
+      const langCode = browserLang.split('-')[0]
+      detectedLang = supportedLanguages.value.find(lang => lang.code.startsWith(langCode))
+    }
+    
+    if (detectedLang) {
+      currentLanguage.value = detectedLang.code
+      console.log(`Auto-selected language: ${detectedLang.name} based on browser locale`)
+    }
+  }
 })
 
 // Available instruments management
@@ -1539,10 +2327,34 @@ const generateContextualActions = (responseContent: string): ChatAction[] => {
       params: { sections: suggestions.sections }
     })
   } else if (content.includes('structure') || content.includes('arrangement')) {
+    // Try to extract JSON structure from the content
+    let songStructure = null
+    try {
+      const jsonMatches = content.match(/```json\s*([\s\S]*?)\s*```/g)
+      if (jsonMatches) {
+        for (const jsonMatch of jsonMatches) {
+          const jsonContent = jsonMatch.replace(/```json\s*/, '').replace(/\s*```/, '')
+          try {
+            const jsonData = JSON.parse(jsonContent)
+            // Check if this looks like a song structure (has tracks)
+            if (jsonData.tracks || jsonData.clips || jsonData.voices) {
+              songStructure = jsonData
+              break
+            }
+          } catch (e) {
+            // Not valid JSON, continue
+          }
+        }
+      }
+    } catch (e) {
+      console.log('No JSON structure found in content')
+    }
+    
     actions.push({
       label: 'Apply Structure',
       icon: Upload,
-      action: 'apply_song_structure'
+      action: 'apply_song_structure',
+      params: { songStructure: songStructure }
     })
   }
   
@@ -1580,18 +2392,59 @@ const sendMessage = async (content: string) => {
   scrollToBottom()
   
   try {
-    // Use the regular AI chat service that we know works
-    const result = await aiStore.sendMessage(content)
-    console.log('AI response received:', result)
-    console.log('Result structure:', {
-      hasResult: !!result,
-      hasContent: !!result?.content,
-      hasResponse: !!result?.response,
-      resultKeys: result ? Object.keys(result).slice(0, 10) : 'no result',
-      resultType: typeof result,
-      isString: typeof result === 'string'
+    // Check if we have uploaded scores to include in context
+    const scoreFileIds = uploadedScores.value
+      .filter(score => score.status === 'success')
+      .map(score => score.file_id)
+    
+    console.log('[AIChat] DEBUG: Current uploadedScores state:', {
+      uploadedScoresValue: uploadedScores.value,
+      uploadedScoresLength: uploadedScores.value.length,
+      allScoreStatuses: uploadedScores.value.map(s => ({id: s.file_id, status: s.status})),
+      scoreFileIds: scoreFileIds,
+      scoreFileIdsLength: scoreFileIds.length
     })
     
+    console.log('[AIChat] Sending message with uploaded scores:', {
+      message: content.substring(0, 100) + (content.length > 100 ? '...' : ''),
+      uploadedScoresCount: uploadedScores.value.length,
+      successfulScores: scoreFileIds.length,
+      scoreFileIds
+    })
+    
+    // Use score-aware messaging if scores are uploaded, otherwise regular chat
+    let result
+    if (scoreFileIds.length > 0) {
+      result = await sendMessageWithScores(content, scoreFileIds)
+      console.log('AI response received:', result)
+      console.log('Result structure:', {
+        hasResult: !!result,
+        hasContent: !!result?.content,
+        hasResponse: !!result?.response,
+        resultKeys: result ? Object.keys(result).slice(0, 10) : 'no result',
+        resultType: typeof result,
+        isString: typeof result === 'string'
+      })
+      
+      // Extract the response content
+      let responseContent = null
+      if (typeof result === 'string') {
+        responseContent = result
+      } else if (result?.content) {
+        responseContent = result.content
+      } else if (result?.response) {
+        responseContent = result.response
+      }
+      
+      // Add the AI response to chat messages (sendMessageWithScores doesn't do this automatically)
+      if (responseContent) {
+        console.log('[AIChat] Adding AI response to messages:', responseContent.substring(0, 100) + '...')
+        aiStore.addMessage('assistant', responseContent)
+      }
+    } else {
+      result = await aiStore.sendMessage(content)
+    }
+
     // Generate contextual action buttons based on the AI response
     let responseContent = null
     if (typeof result === 'string') {
@@ -1601,11 +2454,69 @@ const sendMessage = async (content: string) => {
       responseContent = result.content
     } else if (result?.response) {
       responseContent = result.response
-    }
-    
-    if (responseContent) {
+    }    if (responseContent) {
       console.log('Generating actions for content:', responseContent.substring(0, 100) + '...')
+      
+      // Check for lyrics in text format and convert to JSON
+      const hasTextLyrics = detectAndConvertTextLyrics(responseContent)
+      
+      // Also check for JSON format with vocals/lyrics
+      let hasJSONLyrics = false
+      try {
+        // Look for JSON blocks in the response - handle both ```json and `json formats
+        const jsonMatches = responseContent.match(/```json\s*([\s\S]*?)\s*```/g) || 
+                           responseContent.match(/`json\s*([\s\S]*?)(?=`[^`]|$)/g)
+        
+        if (jsonMatches) {
+          for (const jsonMatch of jsonMatches) {
+            let jsonContent = jsonMatch
+              .replace(/```json\s*/, '')
+              .replace(/\s*```/, '')
+              .replace(/`json\s*/, '')
+              .replace(/`$/, '')
+            
+            // If JSON appears to be truncated, try to parse what we have
+            if (!jsonContent.trim().endsWith('}')) {
+              console.log('⚠️ JSON appears truncated, attempting to parse partial JSON')
+              // Try to find the last complete object/array
+              const lastBrace = jsonContent.lastIndexOf('}')
+              if (lastBrace > 0) {
+                jsonContent = jsonContent.substring(0, lastBrace + 1)
+              }
+            }
+            
+            try {
+              const jsonData = JSON.parse(jsonContent)
+              if (isLyricsJSON(jsonData)) {
+                console.log('✅ Detected lyrics in JSON format:', jsonData)
+                currentLyricsJSON.value = jsonData
+                hasJSONLyrics = true
+                break
+              }
+            } catch (e) {
+              console.log('❌ JSON parse error:', e.message, 'Content:', jsonContent.substring(0, 100) + '...')
+              // Not valid JSON, continue
+            }
+          }
+        }
+      } catch (e) {
+        console.log('No JSON blocks found')
+      }
+      
       const actions = generateContextualActions(responseContent)
+      
+      // Add vocal track action if lyrics were detected (either text or JSON format)
+      if ((hasTextLyrics || hasJSONLyrics) && currentLyricsJSON.value) {
+        console.log('✅ Detected lyrics, adding vocal track action. currentLyricsJSON:', currentLyricsJSON.value)
+        actions.push({
+          label: 'Add Vocal Track & Apply to Song',
+          action: 'add_vocal_track',
+          icon: Mic
+        })
+      } else {
+        console.log('❌ No lyrics detected. hasTextLyrics:', hasTextLyrics, 'hasJSONLyrics:', hasJSONLyrics, 'currentLyricsJSON:', currentLyricsJSON.value)
+      }
+      
       if (actions.length > 0) {
         console.log('Generated actions:', actions)
         // Update the last message with generated actions
@@ -1658,7 +2569,7 @@ const executeAction = (action: ChatAction) => {
       addBassTrack(action.params?.type)
       break
     case 'add_vocal_track':
-      addVocalTrack()
+      addVocalTrackAction()
       break
     case 'add_melody':
       addMelodyTrack(action.params?.instrument || 'synth')
@@ -2236,15 +3147,24 @@ const addLyricsFromJSON = (lyricsData: any) => {
             trackId: trackId
           })
           
-          // Extract lyrics text from clip
+          // Extract lyrics text from clip with enhanced structure support
           if (clip.voices) {
             for (const voice of clip.voices) {
               if (voice.lyrics) {
                 for (const lyric of voice.lyrics) {
                   if (lyric.text) {
-                    extractedLyricsText += lyric.text + '\n'
+                    extractedLyricsText += lyric.text + ' '
+                    
+                    // Log enhanced structure if available
+                    if (lyric.syllables) {
+                      console.log('Syllable breakdown:', lyric.syllables)
+                    }
+                    if (lyric.phonemes) {
+                      console.log('Phonemes:', lyric.phonemes)
+                    }
                   }
                 }
+                extractedLyricsText += '\n'
               }
             }
           }
@@ -2284,15 +3204,24 @@ const addLyricsFromJSON = (lyricsData: any) => {
           trackId: trackId
         })
 
-        // Extract lyrics text from single clip
+        // Extract lyrics text from single clip with enhanced structure support
         if (lyricsJSON.voices) {
           for (const voice of lyricsJSON.voices) {
             if (voice.lyrics) {
               for (const lyric of voice.lyrics) {
                 if (lyric.text) {
-                  extractedLyricsText += lyric.text + '\n'
+                  extractedLyricsText += lyric.text + ' '
+                  
+                  // Log enhanced structure if available
+                  if (lyric.syllables) {
+                    console.log('Syllable breakdown for:', lyric.text, lyric.syllables)
+                  }
+                  if (lyric.phonemes) {
+                    console.log('Phonemes for:', lyric.text, lyric.phonemes)
+                  }
                 }
               }
+              extractedLyricsText += '\n'
             }
           }
         }
@@ -2422,6 +3351,18 @@ const handleKeyDown = (event: KeyboardEvent) => {
     event.preventDefault()
     sendCurrentMessage()
   }
+  
+  // Voice input shortcut: Ctrl + ; (semicolon)
+  if (event.ctrlKey && event.key === ';') {
+    event.preventDefault()
+    toggleVoiceInput()
+  }
+  
+  // Language cycling shortcut: Ctrl + L
+  if (event.ctrlKey && event.key === 'l') {
+    event.preventDefault()
+    cycleLanguage()
+  }
 }
 
 const adjustTextareaHeight = () => {
@@ -2444,18 +3385,92 @@ const formatMessage = (content: string | undefined): string => {
     return ''
   }
   
-  // First handle JSON code blocks (```json...```) and make them collapsible with action buttons
+  // First handle JSON code blocks (```json...``` or `json...) and detect if they contain lyrics
   content = content.replace(/```json\n?([\s\S]*?)```/g, (_, jsonContent) => {
     const uniqueId = 'json-' + Math.random().toString(36).substr(2, 9)
-    const actionButtons = generateActionButtonsFromJSON(jsonContent.trim())
     
+    try {
+      const jsonData = JSON.parse(jsonContent.trim())
+      
+      // Check if this is lyrics JSON
+      if (isLyricsJSON(jsonData)) {
+        console.log('✅ Detected lyrics JSON in formatMessage:', jsonData)
+        // Store the lyrics JSON for the Apply button
+        currentLyricsJSON.value = jsonData
+        
+        const formattedLyrics = formatLyricsFromJSON(jsonData)
+        
+        return `<div class="lyrics-display">
+          <div class="lyrics-header">
+            <span class="lyrics-icon">🎤</span>
+            <span class="lyrics-title">Generated Lyrics</span>
+          </div>
+          <div class="lyrics-content">
+            ${formattedLyrics}
+          </div>
+        </div>`
+      }
+    } catch (error) {
+      // If parsing fails, fall back to regular JSON display
+    }
+    
+    // Regular JSON display (non-lyrics) - no action buttons
     return `<div class="json-code-block">
       <div class="json-header" onclick="toggleJsonBlock('${uniqueId}')">
         <span class="json-label">JSON Structure</span>
         <span class="json-toggle" id="toggle-${uniqueId}">›</span>
       </div>
       <pre class="json-content" id="${uniqueId}" style="display: none;"><code>${jsonContent.trim()}</code></pre>
-      ${actionButtons}
+    </div>`
+  })
+  
+  // Also handle single backtick JSON format (`json...)
+  content = content.replace(/`json\s*([\s\S]*?)(?=`[^`]|$)/g, (_, jsonContent) => {
+    const uniqueId = 'json-' + Math.random().toString(36).substr(2, 9)
+    
+    // Remove trailing backtick if present
+    jsonContent = jsonContent.replace(/`$/, '')
+    
+    try {
+      // If JSON appears to be truncated, try to parse what we have
+      if (!jsonContent.trim().endsWith('}')) {
+        console.log('⚠️ Single backtick JSON appears truncated, attempting to parse partial JSON')
+        const lastBrace = jsonContent.lastIndexOf('}')
+        if (lastBrace > 0) {
+          jsonContent = jsonContent.substring(0, lastBrace + 1)
+        }
+      }
+      
+      const jsonData = JSON.parse(jsonContent.trim())
+      
+      // Check if this is lyrics JSON
+      if (isLyricsJSON(jsonData)) {
+        console.log('✅ Detected lyrics JSON in single backtick format:', jsonData)
+        currentLyricsJSON.value = jsonData
+        
+        const formattedLyrics = formatLyricsFromJSON(jsonData)
+        
+        return `<div class="lyrics-display">
+          <div class="lyrics-header">
+            <span class="lyrics-icon">🎤</span>
+            <span class="lyrics-title">Generated Lyrics</span>
+          </div>
+          <div class="lyrics-content">
+            ${formattedLyrics}
+          </div>
+        </div>`
+      }
+    } catch (error: any) {
+      console.log('❌ Single backtick JSON parse error:', error.message)
+    }
+    
+    // Regular JSON display (non-lyrics)
+    return `<div class="json-code-block">
+      <div class="json-header" onclick="toggleJsonBlock('${uniqueId}')">
+        <span class="json-label">JSON Structure</span>
+        <span class="json-toggle" id="toggle-${uniqueId}">›</span>
+      </div>
+      <pre class="json-content" id="${uniqueId}" style="display: none;"><code>${jsonContent.trim()}</code></pre>
     </div>`
   })
   
@@ -2470,6 +3485,201 @@ const formatMessage = (content: string | undefined): string => {
     .replace(/\*(.*?)\*/g, '<em>$1</em>')
     .replace(/`(.*?)`/g, '<code>$1</code>')
     .replace(/\n/g, '<br>')
+}
+
+const isLyricsJSON = (jsonData: any): boolean => {
+  const result = (
+    jsonData.instrument === 'vocals' || 
+    jsonData.type === 'lyrics' || 
+    jsonData.voices || 
+    (jsonData.clips && jsonData.clips.some && jsonData.clips.some((c: any) => c.voices))
+  )
+  
+  console.log('🔍 isLyricsJSON check:', {
+    hasInstrumentVocals: jsonData.instrument === 'vocals',
+    hasTypeLyrics: jsonData.type === 'lyrics', 
+    hasVoices: !!jsonData.voices,
+    hasClipsWithVoices: !!(jsonData.clips && jsonData.clips.some && jsonData.clips.some((c: any) => c.voices)),
+    result: result,
+    jsonKeys: Object.keys(jsonData || {})
+  })
+  
+  return result
+}
+
+// Function to detect lyrics in text format and convert to JSON
+const detectAndConvertTextLyrics = (messageContent: string): boolean => {
+  // Look for lyrics patterns in text
+  const lyricsPatterns = [
+    /###?\s*(?:verse|chorus|bridge|pre-?chorus|outro|intro)/i,
+    /####?\s*(?:verse|chorus|bridge|pre-?chorus|outro|intro)/i,
+    /(?:verse|chorus|bridge|pre-?chorus|outro|intro)\s*\d*/i,
+    /generated\s+lyrics/i,
+    /song\s+structure/i
+  ]
+  
+  const hasLyricsPattern = lyricsPatterns.some(pattern => pattern.test(messageContent))
+  
+  if (hasLyricsPattern) {
+    // Extract only actual lyrics, not AI explanations or metadata
+    const lines = messageContent.split('\n')
+    const lyricsLines = []
+    let inLyricsSection = false
+    
+    for (const line of lines) {
+      const trimmed = line.trim()
+      
+      // Skip empty lines
+      if (!trimmed) continue
+      
+      // Skip AI explanatory text and instructions
+      if (trimmed.toLowerCase().includes('here\'s') ||
+          trimmed.toLowerCase().includes('i\'ll') ||
+          trimmed.toLowerCase().includes('certainly') ||
+          trimmed.toLowerCase().includes('to create') ||
+          trimmed.toLowerCase().includes('inspired by') ||
+          trimmed.toLowerCase().includes('style') ||
+          trimmed.toLowerCase().includes('provide') ||
+          trimmed.toLowerCase().includes('format') ||
+          trimmed.toLowerCase().includes('view json') ||
+          trimmed.toLowerCase().includes('generated lyrics')) {
+        continue
+      }
+      
+      // Detect section headers
+      if (trimmed.startsWith('#') || /^(verse|chorus|bridge|pre-?chorus|outro|intro)/i.test(trimmed)) {
+        inLyricsSection = true
+        continue // Skip the header itself
+      }
+      
+      // If we're in a lyrics section and this looks like actual lyrics
+      if (inLyricsSection && 
+          trimmed.length > 0 && 
+          !trimmed.startsWith('#') &&
+          !trimmed.startsWith('```') &&
+          !/^(verse|chorus|bridge|pre-?chorus|outro|intro)/i.test(trimmed)) {
+        
+        // This looks like actual lyrics content
+        lyricsLines.push(trimmed)
+      }
+    }
+    
+    if (lyricsLines.length > 0) {
+      // Create JSON structure
+      const lyricsJSON = {
+        instrument: 'vocals',
+        type: 'lyrics',
+        voices: [
+          {
+            voice_id: 'lead',
+            lyrics: lyricsLines.map((line, index) => ({
+              text: line.trim(),
+              start: index * 4, // 4 seconds per line
+              duration: 4,
+              syllables: []
+            }))
+          }
+        ]
+      }
+      
+      // Set the current lyrics JSON for action buttons
+      currentLyricsJSON.value = lyricsJSON
+      return true
+    }
+  }
+  
+  return false
+}
+
+const formatLyricsFromJSON = (jsonData: any): string => {
+  let formattedLyrics = ''
+  
+  console.log('🎵 formatLyricsFromJSON called with:', jsonData)
+  
+  try {
+    // Handle different JSON structures
+    if (jsonData.clips && Array.isArray(jsonData.clips)) {
+      // Multiple clips structure
+      jsonData.clips.forEach((clip: any, clipIndex: number) => {
+        if (clip.voices) {
+          formattedLyrics += `<div class="lyrics-section">`
+          if (jsonData.clips.length > 1) {
+            formattedLyrics += `<div class="lyrics-section-title">Section ${clipIndex + 1}</div>`
+          }
+          
+          clip.voices.forEach((voice: any, voiceIndex: number) => {
+            if (voice.lyrics && voice.lyrics.length > 0) {
+              if (clip.voices.length > 1) {
+                formattedLyrics += `<div class="lyrics-voice">Voice ${voiceIndex + 1} (${voice.voice_id || 'Unknown'})</div>`
+              }
+              
+              const lyricsLine = voice.lyrics.map((lyric: any) => lyric.text || '').join(' ')
+              formattedLyrics += `<div class="lyrics-line">${lyricsLine}</div>`
+              
+              // Add syllable breakdown if available
+              if (voice.lyrics.some((l: any) => l.syllables && l.syllables.length > 0)) {
+                formattedLyrics += `<div class="lyrics-syllables">`
+                voice.lyrics.forEach((lyric: any) => {
+                  if (lyric.syllables && lyric.syllables.length > 0) {
+                    const syllableText = lyric.syllables.map((s: any) => s.t || s.text || s).join('-')
+                    formattedLyrics += `<span class="syllable-group">${lyric.text}: ${syllableText}</span> `
+                  }
+                })
+                formattedLyrics += `</div>`
+              }
+            }
+          })
+          formattedLyrics += `</div>`
+        }
+      })
+    } else if (jsonData.voices) {
+      // Single clip structure
+      jsonData.voices.forEach((voice: any, voiceIndex: number) => {
+        if (voice.lyrics && voice.lyrics.length > 0) {
+          if (jsonData.voices.length > 1) {
+            formattedLyrics += `<div class="lyrics-voice">Voice ${voiceIndex + 1} (${voice.voice_id || 'Unknown'})</div>`
+          }
+          
+          const lyricsLine = voice.lyrics.map((lyric: any) => lyric.text || '').join(' ')
+          formattedLyrics += `<div class="lyrics-line">${lyricsLine}</div>`
+          
+          // Add syllable breakdown if available
+          if (voice.lyrics.some((l: any) => l.syllables && l.syllables.length > 0)) {
+            formattedLyrics += `<div class="lyrics-syllables">`
+            voice.lyrics.forEach((lyric: any) => {
+              if (lyric.syllables && lyric.syllables.length > 0) {
+                const syllableText = lyric.syllables.map((s: any) => s.t || s.text || s).join('-')
+                formattedLyrics += `<span class="syllable-group">${lyric.text}: ${syllableText}</span> `
+              }
+            })
+            formattedLyrics += `</div>`
+          }
+        }
+      })
+    }
+  } catch (error) {
+    console.warn('Error formatting lyrics:', error)
+    formattedLyrics = '<div class="lyrics-error">Error formatting lyrics</div>'
+  }
+  
+  // Store the current lyrics JSON for actions (will show buttons in footer)
+  currentLyricsJSON.value = jsonData
+  
+  // Add collapsible JSON section
+  const jsonId = 'lyrics-json-' + Math.random().toString(36).substr(2, 9)
+  const jsonSection = `
+    <div class="lyrics-json-section">
+      <div class="lyrics-json-header" onclick="toggleJsonBlock('${jsonId}')">
+        <span class="lyrics-json-label">📄 View JSON Structure</span>
+        <span class="lyrics-json-toggle" id="toggle-${jsonId}">›</span>
+      </div>
+      <pre class="lyrics-json-content" id="${jsonId}" style="display: none;"><code>${JSON.stringify(jsonData, null, 2)}</code></pre>
+    </div>
+  `
+  
+  const finalLyrics = formattedLyrics || '<div class="lyrics-empty">No lyrics content found</div>'
+  console.log('🎵 formatLyricsFromJSON result:', { formattedLyrics, finalLyrics })
+  return finalLyrics + jsonSection
 }
 
 const generateActionButtonsFromJSON = (jsonContent: string): string => {
@@ -2525,11 +3735,13 @@ const generateActionButtonsFromJSON = (jsonContent: string): string => {
       </button>`)
     }
     
-    // Lyrics/vocals
+    // Lyrics/vocals - Merged action for vocal track creation and song integration
     if (jsonData.instrument === 'vocals' || jsonData.type === 'lyrics' || jsonData.voices || 
         (jsonData.clips && jsonData.clips.some && jsonData.clips.some((c: any) => c.voices))) {
-      buttons.push(`<button class="json-action-btn" onclick="addLyricsFromJSONAction('${encodeURIComponent(jsonContent)}')">
-        <span class="action-icon">🎤</span> Add Lyrics & Vocals
+      
+      // Single comprehensive action that creates track AND applies to song structure
+      buttons.push(`<button class="json-action-btn primary" onclick="addLyricsFromJSONAction('${encodeURIComponent(jsonContent)}')">
+        <span class="action-icon">🎤</span> Add Vocal Track & Apply to Song
       </button>`)
     }
     
@@ -2581,14 +3793,466 @@ const formatTime = (date: Date): string => {
 }
 
 const attachFile = () => {
-  // File attachment functionality
   console.log('Attach file clicked')
+  
+  // Create file input element if not exists
+  if (!fileInput.value) {
+    console.log('Creating new file input')
+    const input = document.createElement('input')
+    input.type = 'file'
+    input.multiple = true
+    input.accept = '.pdf,.png,.jpg,.jpeg,.tiff,.bmp,.svg,.gtp,.gpx,.gp5,.gp4,.ptb,.tef,.xml,.musicxml,.mxl,.mid,.midi,.abc,.ly,.txt,.tab'
+    input.style.display = 'none'
+    input.addEventListener('change', handleFileSelection)
+    document.body.appendChild(input)
+    fileInput.value = input
+    console.log('File input created and added to DOM')
+  }
+  
+  console.log('Clicking file input')
+  fileInput.value?.click()
 }
 
-const toggleVoiceInput = () => {
-  isListening.value = !isListening.value
-  // Voice input functionality would go here
-  console.log('Voice input toggled:', isListening.value)
+const handleFileSelection = async (event: Event) => {
+  console.log('File selection event triggered', event)
+  const input = event.target as HTMLInputElement
+  const files = input.files
+  
+  console.log('Files selected:', files?.length, Array.from(files || []).map(f => f.name))
+  
+  if (!files || files.length === 0) {
+    console.log('No files selected')
+    return
+  }
+  
+  // Validate files using ScoreService
+  const validFiles: File[] = []
+  const errors: string[] = []
+  
+  for (const file of Array.from(files)) {
+    console.log('Validating file:', file.name)
+    const validation = ScoreService.validateFile(file)
+    
+    console.log('Validation result:', validation)
+    
+    if (!validation.valid) {
+      errors.push(`${file.name}: ${validation.error}`)
+      continue
+    }
+    
+    validFiles.push(file)
+  }
+  
+  if (errors.length > 0) {
+    console.warn('File validation errors:', errors)
+    alert('File validation errors: ' + errors.join(', '))
+  }
+  
+  if (validFiles.length === 0) {
+    console.log('No valid files to upload')
+    return
+  }
+  
+  console.log('Valid files to upload:', validFiles.map(f => f.name))
+  
+  // Upload valid files
+  await uploadScoreFiles(validFiles)
+  
+  // Reset input
+  input.value = ''
+}
+
+const uploadScoreFiles = async (files: File[]) => {
+  isUploading.value = true
+  
+  try {
+    console.log('Uploading score files:', files.map(f => f.name))
+    const result = await ScoreService.uploadScores(files)
+    
+    console.log('Upload result:', result)
+    
+    // Add uploaded scores to state
+    uploadedScores.value.push(...result.results)
+    
+    console.log('Successfully uploaded score files:', result.results)
+    console.log('Current uploaded scores:', uploadedScores.value)
+    
+  } catch (error) {
+    console.error('Score upload error:', error)
+    // Show error to user
+    alert(`Failed to upload scores: ${error instanceof Error ? error.message : String(error)}`)
+  } finally {
+    isUploading.value = false
+  }
+}
+
+const sendMessageWithScores = async (message: string, scoreFileIds: string[]) => {
+  console.log('[AIChat] sendMessageWithScores called:', {
+    message: message.substring(0, 100) + (message.length > 100 ? '...' : ''),
+    scoreFileIds,
+    provider: selectedProvider.value.toLowerCase(),
+    model: selectedModel.value
+  })
+
+  try {
+    const result = await ScoreService.chatWithScores(
+      message,
+      scoreFileIds,
+      selectedProvider.value.toLowerCase(),
+      selectedModel.value,
+      {
+        tracks: audioStore.songStructure.tracks,
+        tempo: audioStore.songStructure.tempo,
+        key: audioStore.songStructure.key,
+        song_structure: audioStore.songStructure
+      }
+    )
+    
+    console.log('[AIChat] Score-aware response received:', {
+      hasResult: !!result,
+      hasResponse: !!result?.response,
+      hasContent: !!result?.content,
+      responseLength: result?.response?.length || result?.content?.length || 0
+    })
+    
+    return result.response || result.content
+    
+  } catch (error) {
+    console.error('[AIChat] Error sending message with scores:', error)
+    console.log('[AIChat] Falling back to regular AI message')
+    // Fallback to regular message if score-aware fails
+    return await aiStore.sendMessage(message)
+  }
+}
+
+const removeUploadedScore = (fileId: string) => {
+  uploadedScores.value = uploadedScores.value.filter(score => score.file_id !== fileId)
+}
+
+// Voice recognition functions
+const initializeSpeechRecognition = () => {
+  // Check if speech recognition is supported
+  const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+  
+  if (!SpeechRecognition) {
+    speechSupported.value = false
+    console.warn('Speech recognition not supported in this browser')
+    return
+  }
+  
+  speechSupported.value = true
+  recognition.value = new SpeechRecognition()
+  
+  // Configure recognition for single utterance to prevent duplicates
+  recognition.value.continuous = false
+  recognition.value.interimResults = true
+  recognition.value.lang = currentLanguage.value
+  recognition.value.maxAlternatives = 1 // Reduced to prevent confusion
+  
+  // State tracking for preventing duplicates (closure variables)
+  let lastProcessedResultIndex = -1
+  let baseTextBeforeRecognition = ''
+  
+  // Expose reset function for external access
+  ;(recognition.value as any).resetTracking = () => {
+    lastProcessedResultIndex = -1
+    baseTextBeforeRecognition = currentMessage.value.trim()
+  }
+  
+  // Handle results
+  recognition.value.onresult = (event: any) => {
+    let finalTranscript = ''
+    let interimTranscript = ''
+    
+    // Process only new results to avoid duplicates
+    for (let i = Math.max(event.resultIndex, lastProcessedResultIndex + 1); i < event.results.length; i++) {
+      const transcript = event.results[i][0].transcript
+      
+      if (event.results[i].isFinal) {
+        finalTranscript += transcript
+        lastProcessedResultIndex = i
+      } else {
+        interimTranscript += transcript
+      }
+    }
+    
+    // Handle interim results (preview)
+    if (interimTranscript && !finalTranscript) {
+      // Show interim results by appending to base text
+      const currentText = baseTextBeforeRecognition
+      currentMessage.value = currentText + (currentText ? ' ' : '') + interimTranscript
+    }
+    
+    // Handle final results (commit)
+    if (finalTranscript) {
+      const trimmed = finalTranscript.trim()
+      if (trimmed) {
+        // Build the expected new text
+        const newText = baseTextBeforeRecognition + (baseTextBeforeRecognition ? ' ' : '') + trimmed
+        const currentText = currentMessage.value.trim()
+        
+        // Only update if the new text is different and doesn't create duplicates
+        const words = trimmed.split(' ')
+        const currentWords = currentText.split(' ')
+        
+        // Check if these words are already at the end of current text
+        let isDuplicate = false
+        if (currentWords.length >= words.length) {
+          const lastWords = currentWords.slice(-words.length)
+          isDuplicate = words.every((word, index) => 
+            lastWords[index] && lastWords[index].toLowerCase() === word.toLowerCase()
+          )
+        }
+        
+        if (!isDuplicate && newText !== currentText) {
+          currentMessage.value = newText
+          baseTextBeforeRecognition = newText // Update base for next recognition
+        }
+        
+        // Check recognition confidence
+        const result = event.results[event.results.length - 1]
+        if (result && result[0]) {
+          const confidence = result[0].confidence
+          const currentLangName = supportedLanguages.value.find(l => l.code === currentLanguage.value)?.name
+          
+          // Log recognition confidence for debugging
+          console.log(`Speech recognized in ${currentLangName}: "${trimmed}" (confidence: ${confidence?.toFixed(2) || 'unknown'})`)
+          
+          // If confidence is very low, suggest language detection
+          if (confidence && confidence < 0.3) {
+            console.warn(`Low confidence (${confidence.toFixed(2)}) - consider checking language setting`)
+          }
+        }
+        
+        // Adjust textarea height after adding text
+        nextTick(() => {
+          adjustTextareaHeight()
+        })
+      }
+    }
+  }
+  
+  // Handle errors
+  recognition.value.onerror = (event: any) => {
+    console.error('Speech recognition error:', event.error)
+    isListening.value = false
+    
+    // Show user-friendly error messages
+    switch (event.error) {
+      case 'no-speech':
+        console.warn('No speech detected. Please try again.')
+        break
+      case 'audio-capture':
+        console.error('Microphone access denied or not available.')
+        break
+      case 'not-allowed':
+        console.error('Microphone permission denied. Please allow microphone access.')
+        break
+      default:
+        console.error('Speech recognition failed. Please try again.')
+    }
+  }
+  
+  // Handle end of recognition
+  recognition.value.onend = () => {
+    isListening.value = false
+    // Reset tracking variables for next session
+    lastProcessedResultIndex = -1
+    baseTextBeforeRecognition = ''
+  }
+  
+  // Handle start of recognition
+  recognition.value.onstart = () => {
+    isListening.value = true
+  }
+}
+
+// Language detection functionality
+const detectLanguage = async () => {
+  if (!speechSupported.value || !recognition.value) return
+
+  isDetectingLanguage.value = true
+  
+  try {
+    // Use browser's language preferences as starting point
+    const browserLang = navigator.language || navigator.languages?.[0] || 'en-US'
+    const detectedLang = findBestMatchingLanguage(browserLang)
+    
+    if (detectedLang) {
+      currentLanguage.value = detectedLang.code
+      detectedLanguage.value = detectedLang.name
+      
+      if (recognition.value) {
+        recognition.value.lang = currentLanguage.value
+      }
+      
+      console.log(`Auto-detected language: ${detectedLang.name} based on browser settings`)
+    } else {
+      // Fallback to interactive detection
+      await performInteractiveDetection()
+    }
+  } catch (error) {
+    console.error('Language detection failed:', error)
+  } finally {
+    isDetectingLanguage.value = false
+  }
+}
+
+const findBestMatchingLanguage = (browserLang: string) => {
+  // Direct match
+  const directMatch = supportedLanguages.value.find(lang => lang.code === browserLang)
+  if (directMatch) return directMatch
+  
+  // Language code match (e.g., 'en' matches 'en-US')
+  const langCode = browserLang.split('-')[0]
+  const langMatch = supportedLanguages.value.find(lang => lang.code.startsWith(langCode))
+  if (langMatch) return langMatch
+  
+  return null
+}
+
+const performInteractiveDetection = async () => {
+  // Show user-friendly detection prompt
+  const userConfirm = confirm(
+    'Voice language detection requires you to speak a few words. Click OK to start, then say something in your preferred language.'
+  )
+  
+  if (!userConfirm) {
+    isDetectingLanguage.value = false
+    return
+  }
+  
+  try {
+    const detectedLang = await listenForLanguageDetection()
+    if (detectedLang) {
+      currentLanguage.value = detectedLang
+      const langName = supportedLanguages.value.find(l => l.code === detectedLang)?.name || 'Unknown'
+      console.log(`Detected language: ${langName}`)
+    }
+  } catch (error) {
+    console.error('Interactive language detection failed:', error)
+  }
+}
+
+const listenForLanguageDetection = (): Promise<string> => {
+  return new Promise((resolve) => {
+    const detectionRecognition = new ((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition)()
+    
+    // Try multiple languages and see which one gives the best result
+    let attempts = 0
+    const maxAttempts = supportedLanguages.value.length
+    let bestResult = { lang: 'en-US', confidence: 0 }
+    
+    const tryNextLanguage = () => {
+      if (attempts >= maxAttempts) {
+        resolve(bestResult.lang)
+        return
+      }
+      
+      const currentLang = supportedLanguages.value[attempts]
+      detectionRecognition.lang = currentLang.code
+      
+      let hasResult = false
+      const timeout = setTimeout(() => {
+        if (!hasResult) {
+          hasResult = true
+          detectionRecognition.stop()
+          attempts++
+          tryNextLanguage()
+        }
+      }, 3000)
+      
+      detectionRecognition.onresult = (event: any) => {
+        if (!hasResult) {
+          hasResult = true
+          clearTimeout(timeout)
+          
+          const confidence = event.results[0][0].confidence || 0
+          if (confidence > bestResult.confidence) {
+            bestResult = { lang: currentLang.code, confidence }
+          }
+          
+          attempts++
+          tryNextLanguage()
+        }
+      }
+      
+      detectionRecognition.onerror = () => {
+        if (!hasResult) {
+          hasResult = true
+          clearTimeout(timeout)
+          attempts++
+          tryNextLanguage()
+        }
+      }
+      
+      try {
+        detectionRecognition.start()
+      } catch (error) {
+        attempts++
+        tryNextLanguage()
+      }
+    }
+    
+    tryNextLanguage()
+  })
+}
+
+const setLanguage = (langCode: string) => {
+  currentLanguage.value = langCode
+  if (recognition.value) {
+    recognition.value.lang = langCode
+  }
+  
+  const selectedLang = supportedLanguages.value.find(l => l.code === langCode)
+  if (selectedLang) {
+    console.log(`Voice input language changed to: ${selectedLang.name}`)
+  }
+}
+
+const cycleLanguage = () => {
+  if (isListening.value) return // Don't cycle while listening
+  
+  const currentIndex = supportedLanguages.value.findIndex(l => l.code === currentLanguage.value)
+  const nextIndex = (currentIndex + 1) % supportedLanguages.value.length
+  const nextLang = supportedLanguages.value[nextIndex]
+  
+  setLanguage(nextLang.code)
+  
+  // Show brief notification
+  console.log(`Switched to ${nextLang.flag} ${nextLang.name} (Ctrl+L to cycle)`)
+}
+
+const toggleVoiceInput = async () => {
+  if (!speechSupported.value) {
+    console.warn('Speech recognition is not supported in this browser')
+    return
+  }
+  
+  if (!recognition.value) {
+    initializeSpeechRecognition()
+    return
+  }
+  
+  if (isListening.value) {
+    // Stop listening
+    recognition.value.stop()
+    isListening.value = false
+  } else {
+    // Start listening with current language
+    try {
+      // Reset tracking to prevent duplicates
+      if (recognition.value.resetTracking) {
+        recognition.value.resetTracking()
+      }
+      
+      recognition.value.lang = currentLanguage.value
+      recognition.value.start()
+    } catch (error) {
+      console.error('Failed to start speech recognition:', error)
+      isListening.value = false
+    }
+  }
 }
 
 // Sample-related functions
@@ -2604,7 +4268,6 @@ const extractedSamples = (content: string) => {
   let match
   
   while ((match = sampleRegex.exec(content)) !== null) {
-    const sampleName = match[1]
     const sampleId = match[2]
     
     // Find the actual sample in the sample store
@@ -3163,6 +4826,48 @@ watch(currentAudio, (audio) => {
   gap: 0.5rem;
   align-items: flex-end;
   margin-bottom: 0.5rem;
+  position: relative;
+}
+
+.voice-indicator {
+  position: absolute;
+  right: 60px;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 6px 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  font-size: 0.75rem;
+  z-index: 10;
+  backdrop-filter: blur(4px);
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.15);
+}
+
+.voice-wave {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.voice-wave span {
+  width: 2px;
+  height: 8px;
+  background: #ef4444;
+  border-radius: 1px;
+  animation: voice-wave 1.2s infinite ease-in-out;
+}
+
+.voice-wave span:nth-child(1) { animation-delay: -1.1s; }
+.voice-wave span:nth-child(2) { animation-delay: -1.0s; }
+.voice-wave span:nth-child(3) { animation-delay: -0.9s; }
+
+@keyframes voice-wave {
+  0%, 40%, 100% { transform: scaleY(0.4); }
+  20% { transform: scaleY(1.0); }
 }
 
 .message-textarea {
@@ -3182,6 +4887,11 @@ watch(currentAudio, (audio) => {
 .message-textarea:focus {
   outline: none;
   border-color: var(--primary);
+}
+
+.message-textarea.listening {
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.1);
 }
 
 .message-textarea:disabled {
@@ -3224,6 +4934,8 @@ watch(currentAudio, (audio) => {
   display: flex;
   gap: 0.5rem;
   justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .action-btn-small {
@@ -3249,6 +4961,139 @@ watch(currentAudio, (audio) => {
   background: var(--primary);
   border-color: var(--primary);
   color: white;
+}
+
+.action-btn-small.recording {
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+  70% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.action-btn-small:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.action-btn-small:disabled:hover {
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+.voice-input-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px 4px;
+  height: 32px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+.voice-input-group::after {
+  content: '';
+  position: absolute;
+  right: -0.75rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+  opacity: 0.5;
+}
+
+.voice-input-group:hover {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px rgba(var(--primary-rgb), 0.1);
+}
+
+.voice-input-group:focus-within {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.1);
+}
+
+.language-select {
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 0.8rem;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: 90px;
+  max-width: 110px;
+  height: 24px;
+  line-height: 1;
+  outline: none;
+}
+
+.language-select:focus {
+  background: var(--background);
+  box-shadow: 0 0 0 1px var(--primary);
+}
+
+.language-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.detect-btn {
+  width: 24px;
+  height: 24px;
+  border: none !important;
+  background: transparent !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  transition: all 0.2s ease;
+}
+
+.detect-btn:hover {
+  background: var(--surface) !important;
+  color: var(--primary);
+}
+
+.detect-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.detect-btn:disabled:hover {
+  background: transparent !important;
+  color: var(--text-secondary);
+}
+
+.detect-icon {
+  width: 12px;
+  height: 12px;
+}
+
+.detect-spinner {
+  display: inline-block;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.voice-lang {
+  font-size: 0.65rem;
+  opacity: 0.8;
+  margin-left: 0.25rem;
+}
+
+.mic-btn {
+  margin-left: 0.25rem;
 }
 
 .action-btn-small .icon {
@@ -3823,5 +5668,597 @@ watch(currentAudio, (audio) => {
 .sample-action-btn .icon {
   width: 14px;
   height: 14px;
+}
+
+/* Lyrics Display Styles */
+.lyrics-display {
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border: 2px solid var(--primary);
+  border-radius: 12px;
+  margin: 16px 0 0 0;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.lyrics-header {
+  background: var(--primary);
+  color: white;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.lyrics-icon {
+  font-size: 18px;
+}
+
+.lyrics-title {
+  flex: 1;
+}
+
+.lyrics-content {
+  padding: 20px;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.lyrics-section {
+  margin-bottom: 16px;
+}
+
+.lyrics-section:last-child {
+  margin-bottom: 0;
+}
+
+.lyrics-section-title {
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+.lyrics-voice {
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-size: 14px;
+}
+
+.lyrics-line {
+  font-size: 16px;
+  line-height: 1.8;
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.7);
+  border-radius: 8px;
+  border-left: 4px solid var(--primary);
+}
+
+.lyrics-line:last-child {
+  margin-bottom: 0;
+}
+
+.lyrics-error {
+  color: var(--danger);
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+.lyrics-empty {
+  color: var(--text-secondary);
+  font-style: italic;
+  text-align: center;
+  padding: 20px;
+}
+
+/* Enhanced action button for lyrics */
+.json-action-btn.primary {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+  font-weight: 600;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
+}
+
+.json-action-btn.primary:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+  transform: scale(1.08) translateY(-2px);
+  box-shadow: 0 6px 20px rgba(var(--primary-rgb), 0.4);
+}
+
+.json-action-btn.primary .action-icon {
+  font-size: 16px;
+}
+
+/* Lyrics Footer Actions */
+.lyrics-footer-actions {
+  display: flex;
+  gap: 12px;
+  padding: 16px 0;
+  margin: 12px 0;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  animation: slideInUp 0.3s ease-out;
+}
+
+.lyrics-footer-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 140px;
+  justify-content: center;
+  font-family: inherit;
+}
+
+.lyrics-footer-btn .icon {
+  width: 16px;
+  height: 16px;
+}
+
+.lyrics-footer-btn.primary {
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-dark, #6d28d9) 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.2);
+}
+
+.lyrics-footer-btn.primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(var(--primary-rgb), 0.3);
+}
+
+.lyrics-footer-btn.secondary {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(16, 185, 129, 0.2);
+}
+
+.lyrics-footer-btn.secondary:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.3);
+}
+
+.lyrics-footer-btn:active {
+  transform: translateY(0);
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Lyrics JSON section styling */
+.lyrics-json-section {
+  margin-top: 0px;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 8px;
+  margin-bottom: -16px;
+}
+
+.lyrics-json-header {
+  background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+  padding: 10px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: all 0.2s ease;
+  font-size: 13px;
+  border: 1px solid #cbd5e1;
+}
+
+.lyrics-json-header:hover {
+  background: linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.lyrics-json-label {
+  color: #475569;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lyrics-json-toggle {
+  color: #64748b;
+  font-weight: bold;
+  transition: transform 0.2s ease;
+  font-size: 12px;
+}
+
+.lyrics-json-toggle.expanded {
+  transform: rotate(90deg);
+}
+
+.lyrics-json-content {
+  background: #1e293b;
+  color: #e2e8f0;
+  border: 1px solid #374151;
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.lyrics-json-content code {
+  color: #e2e8f0;
+}
+
+/* Lyrics action buttons styling - High specificity */
+.chat-messages .message.ai .message-content .lyrics-actions,
+.lyrics-actions {
+  margin: 16px 0 !important;
+  display: flex !important;
+  gap: 12px !important;
+  flex-wrap: wrap !important;
+  justify-content: flex-start !important;
+}
+
+.chat-messages .message.ai .message-content .lyrics-action-btn,
+.message-content .lyrics-action-btn,
+.lyrics-action-btn,
+button.lyrics-action-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 10px 16px !important;
+  border: none !important;
+  border-radius: 20px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif !important;
+  cursor: pointer !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  text-decoration: none !important;
+  min-height: 36px !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
+  outline: none !important;
+  position: relative !important;
+  overflow: hidden !important;
+  background: none !important;
+}
+
+.lyrics-action-btn::before,
+.message-content .lyrics-action-btn::before,
+button.lyrics-action-btn::before {
+  content: '' !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  background: linear-gradient(45deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0)) !important;
+  opacity: 0 !important;
+  transition: opacity 0.2s ease !important;
+}
+
+.lyrics-action-btn:hover::before,
+.message-content .lyrics-action-btn:hover::before,
+button.lyrics-action-btn:hover::before {
+  opacity: 1 !important;
+}
+
+.chat-messages .message.ai .message-content .lyrics-action-btn.primary,
+.lyrics-action-btn.primary,
+.message-content .lyrics-action-btn.primary,
+button.lyrics-action-btn.primary {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+  color: white !important;
+}
+
+.chat-messages .message.ai .message-content .lyrics-action-btn.primary:hover,
+.lyrics-action-btn.primary:hover,
+.message-content .lyrics-action-btn.primary:hover,
+button.lyrics-action-btn.primary:hover {
+  background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 16px rgba(139, 92, 246, 0.4) !important;
+}
+
+.chat-messages .message.ai .message-content .lyrics-action-btn.secondary,
+.lyrics-action-btn.secondary,
+.message-content .lyrics-action-btn.secondary,
+button.lyrics-action-btn.secondary {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+  color: white !important;
+}
+
+.chat-messages .message.ai .message-content .lyrics-action-btn.secondary:hover,
+.lyrics-action-btn.secondary:hover,
+.message-content .lyrics-action-btn.secondary:hover,
+button.lyrics-action-btn.secondary:hover {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 16px rgba(16, 185, 129, 0.4) !important;
+}
+
+.lyrics-action-btn .action-icon,
+.message-content .lyrics-action-btn .action-icon,
+button.lyrics-action-btn .action-icon {
+  font-size: 14px !important;
+  flex-shrink: 0 !important;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.2)) !important;
+}
+
+.lyrics-action-btn:active,
+.message-content .lyrics-action-btn:active,
+button.lyrics-action-btn:active {
+  transform: translateY(0) !important;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2) !important;
+}
+
+.lyrics-action-btn:focus,
+.message-content .lyrics-action-btn:focus,
+button.lyrics-action-btn:focus {
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.3) !important;
+}
+
+/* Lyrics sections styling */
+.lyrics-response {
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  border-radius: 12px;
+  padding: 20px;
+  margin: 16px 0 0 0;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.lyrics-display h4 {
+  margin: 0 0 16px 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lyrics-section {
+  background: white;
+  border-radius: 8px;
+  padding: 16px;
+  margin: 12px 0;
+  border-left: 4px solid var(--primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.lyrics-section-title {
+  font-weight: 600;
+  color: var(--primary);
+  margin-bottom: 8px;
+  font-size: 14px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.lyrics-voice {
+  font-weight: 500;
+  color: #64748b;
+  margin-bottom: 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.lyrics-line {
+  font-size: 16px;
+  line-height: 1.8;
+  margin-bottom: 12px;
+  color: #1e293b;
+  font-weight: 500;
+}
+
+.lyrics-syllables {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 10px;
+  border-radius: 6px;
+}
+
+.syllable-group {
+  display: inline-block;
+  margin-right: 16px;
+  margin-bottom: 6px;
+  font-size: 11px;
+  color: #64748b;
+  font-style: italic;
+  font-family: Monaco, monospace;
+  background: white;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid #e2e8f0;
+}
+
+.lyrics-empty {
+  color: #64748b;
+  font-style: italic;
+  text-align: center;
+  padding: 30px 20px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 2px dashed #cbd5e1;
+}
+
+.lyrics-error {
+  color: #dc2626;
+  font-style: italic;
+  text-align: center;
+  padding: 30px 20px;
+  background: #fef2f2;
+  border-radius: 8px;
+  border: 2px dashed #fca5a5;
+}
+
+/* Uploaded Scores Styles */
+.uploaded-scores {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border: 1px solid var(--border);
+}
+
+.uploaded-scores h5 {
+  margin: 0 0 0.75rem 0;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.score-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.score-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem;
+  background: var(--background);
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.score-item.success {
+  border-color: #10b981;
+  background: rgba(16, 185, 129, 0.05);
+}
+
+.score-item.error {
+  border-color: #ef4444;
+  background: rgba(239, 68, 68, 0.05);
+}
+
+.score-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex: 1;
+}
+
+.score-name {
+  font-weight: 500;
+  color: var(--text);
+  font-size: 0.875rem;
+}
+
+.score-category {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+}
+
+.score-status {
+  font-size: 0.875rem;
+  font-weight: 600;
+  margin-left: 0.5rem;
+}
+
+.score-status.success {
+  color: #10b981;
+}
+
+.score-status.error {
+  color: #ef4444;
+}
+
+.score-status.uploading {
+  color: #f59e0b;
+}
+
+.score-details {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+  flex-wrap: wrap;
+}
+
+.score-details .detail {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  padding: 0.125rem 0.375rem;
+  background: var(--surface);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.remove-score-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 0.25rem;
+  border-radius: 4px;
+  font-size: 1.125rem;
+  line-height: 1;
+  transition: all 0.2s ease;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-score-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.scores-help {
+  margin-top: 0.75rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.scores-help small {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+/* Upload button states */
+.action-btn-small.uploading {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.icon.spinning {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 </style>

@@ -56,13 +56,18 @@ def create_app(config_name='development'):
         "http://localhost:3000",  # Frontend dev server
         "http://localhost:5173",  # Vite dev server
         "http://localhost:5174",  # Vite dev server (alternate port)
+        "http://localhost:5175",  # Vite dev server (alternate port)
+        "http://localhost:5176",  # Vite dev server (alternate port)
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:5174",  # Vite dev server (alternate port)
+        "http://127.0.0.1:5175",  # Vite dev server (alternate port)
+        "http://127.0.0.1:5176",  # Vite dev server (alternate port)
     ])
     
     # Register blueprints
     from app.api import ai_bp, audio_bp, project_bp, auth_bp, voice_bp, sample_bp
+    from app.api.score_routes import score_bp
     
     app.register_blueprint(ai_bp, url_prefix='/api/ai')
     app.register_blueprint(audio_bp, url_prefix='/api/audio')
@@ -70,6 +75,7 @@ def create_app(config_name='development'):
     app.register_blueprint(auth_bp, url_prefix='/api/auth')
     app.register_blueprint(voice_bp, url_prefix='/api/voice')
     app.register_blueprint(sample_bp, url_prefix='/api/samples')
+    app.register_blueprint(score_bp, url_prefix='/api/scores')
     
     # Health check endpoint
     @app.route('/health')

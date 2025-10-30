@@ -108,6 +108,7 @@ export interface SongStructure {
   key: string
   tracks: Track[]
   duration: number
+  lyrics?: string // Optional lyrics text for the song
   createdAt: string
   updatedAt: string
 }

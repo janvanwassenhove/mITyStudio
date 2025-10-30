@@ -83,6 +83,94 @@ def chat():
         }), 503
 
 
+@ai_bp.route('/chat-with-scores', methods=['POST'])
+@handle_errors
+def chat_with_scores():
+    """
+    Handle AI chat interactions with musical score sheet attachments
+    """
+    data = request.get_json()
+    message = data.get('message', '')
+    provider = data.get('provider', 'anthropic')
+    model = data.get('model', 'claude-sonnet-4')
+    context = data.get('context', {})
+    score_file_ids = data.get('score_file_ids', [])  # List of uploaded score file IDs
+    
+    if not message:
+        return jsonify({'error': 'Message is required'}), 400
+    
+    # Enhance context with available instruments
+    try:
+        available_instruments = get_all_available_instruments()
+        context['available_instruments'] = available_instruments
+        current_app.logger.info(f"Added {len(available_instruments)} available instruments to AI context")
+    except Exception as e:
+        current_app.logger.warning(f"Could not load available instruments for AI context: {str(e)}")
+        context['available_instruments'] = []
+    
+    # Add score sheet analysis to context if provided
+    if score_file_ids:
+        try:
+            from app.services.score_service import ScoreService
+            score_service = ScoreService()
+            
+            score_analyses = []
+            for file_id in score_file_ids:
+                analysis = score_service.get_score_analysis(file_id)
+                if analysis:
+                    score_analyses.append({
+                        'file_id': file_id,
+                        'filename': analysis.get('original_filename', 'Unknown'),
+                        'category': analysis.get('category', 'unknown'),
+                        'analysis': analysis.get('analysis', {})
+                    })
+            
+            if score_analyses:
+                context['uploaded_scores'] = score_analyses
+                current_app.logger.info(f"Added {len(score_analyses)} score analyses to AI context")
+        
+        except Exception as e:
+            current_app.logger.warning(f"Could not load score analyses for AI context: {str(e)}")
+    
+    ai_service = AIService()
+    
+    try:
+        response = ai_service.chat_completion(
+            message=message,
+            provider=provider,
+            model=model,
+            context=context
+        )
+        
+        # Build enhanced response
+        result = {
+            'response': response['content'],
+            'provider': provider,
+            'model': model,
+            'actions': response.get('actions', []),
+            'timestamp': response.get('timestamp'),
+            'success': response.get('success', True),
+            'score_files_processed': len(score_file_ids)
+        }
+        
+        # Include additional fields if present
+        if 'updated_song_structure' in response:
+            result['updated_song_structure'] = response['updated_song_structure']
+        
+        if 'tools_used' in response:
+            result['tools_used'] = response['tools_used']
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        current_app.logger.error(f"AI Chat with scores error: {str(e)}")
+        return jsonify({
+            'error': 'AI service temporarily unavailable',
+            'success': False,
+            'fallback_response': 'I apologize, but I\'m having trouble processing your request with the score sheets right now. Please try again in a moment.'
+        }), 503
+
+
 @ai_bp.route('/generate/chord-progression', methods=['POST'])
 @handle_errors
 def generate_chord_progression():

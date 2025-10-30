@@ -274,6 +274,43 @@ class AIService:
                 if structure.get('sections'):
                     sections = [section.get('name', 'Unknown') for section in structure.get('sections', [])]
                     base_prompt += f"\n- Song sections: {', '.join(sections)}"
+            
+            # Add uploaded score sheet context
+            if context.get('uploaded_scores'):
+                uploaded_scores = context.get('uploaded_scores', [])
+                base_prompt += f"\n\nUPLOADED MUSICAL SCORES ({len(uploaded_scores)} files):"
+                
+                for score in uploaded_scores:
+                    filename = score.get('filename', 'Unknown')
+                    category = score.get('category', 'unknown')
+                    analysis = score.get('analysis', {})
+                    
+                    base_prompt += f"\n\nFile: {filename} (Type: {category})"
+                    
+                    if analysis.get('estimated_key'):
+                        base_prompt += f"\n- Estimated Key: {analysis['estimated_key']}"
+                    if analysis.get('estimated_tempo'):
+                        base_prompt += f"\n- Estimated Tempo: {analysis['estimated_tempo']} BPM"
+                    if analysis.get('time_signature'):
+                        base_prompt += f"\n- Time Signature: {analysis['time_signature']}"
+                    if analysis.get('instruments'):
+                        instruments = analysis['instruments']
+                        if isinstance(instruments, list):
+                            base_prompt += f"\n- Instruments: {', '.join(instruments)}"
+                    if analysis.get('suggested_instruments'):
+                        suggested = analysis['suggested_instruments']
+                        if isinstance(suggested, list):
+                            base_prompt += f"\n- Suggested Instruments: {', '.join(suggested)}"
+                    if analysis.get('difficulty_level'):
+                        base_prompt += f"\n- Difficulty: {analysis['difficulty_level']}"
+                    if analysis.get('chord_progressions'):
+                        base_prompt += f"\n- Chord Progressions: {analysis['chord_progressions']}"
+                    if analysis.get('detected_elements'):
+                        elements = analysis['detected_elements']
+                        if isinstance(elements, dict):
+                            base_prompt += f"\n- Musical Elements Detected: {', '.join(elements.keys())}"
+                
+                base_prompt += "\n\nIMPORTANT: Use the information from these uploaded scores to provide relevant suggestions for recreating or adapting the music in mITyStudio. Consider the detected key, tempo, instruments, and musical elements when generating responses."
 
         base_prompt += """
 
@@ -321,13 +358,31 @@ LYRICS CLIP STRUCTURE (REQUIRED FORMAT):
           "text": "Shine",
           "notes": ["E4", "F4"],
           "start": 0.0,
-          "durations": [0.4, 0.4]
+          "durations": [0.4, 0.4],
+          "syllables": [
+            {
+              "t": "Shine",
+              "noteIdx": [0, 1],
+              "dur": 0.8,
+              "melisma": true
+            }
+          ],
+          "phonemes": ["ʃ", "aɪ", "n"]
         },
         {
           "text": "on", 
           "notes": ["G4"],
           "start": 1.0,
-          "duration": 0.6
+          "duration": 0.6,
+          "syllables": [
+            {
+              "t": "on",
+              "noteIdx": [0],
+              "dur": 0.6,
+              "melisma": false
+            }
+          ],
+          "phonemes": ["ɒ", "n"]
         }
       ]
     }
@@ -342,10 +397,18 @@ IMPORTANT RULES FOR LYRICS:
 - Each lyric fragment has "text", "notes", "start", and either "duration" (single note) OR "durations" (multiple notes)
 - For single notes: use "duration" (number)
 - For multiple notes: use "durations" (array of numbers)
+- ALWAYS include "syllables" array with syllable breakdown:
+  - "t": syllable text
+  - "noteIdx": array of note indices this syllable spans
+  - "dur": duration of the syllable
+  - "melisma": true if syllable spans multiple notes, false otherwise
+- ALWAYS include "phonemes" array with IPA phonetic notation for pronunciation
 - Always set effects to { "reverb": 0, "delay": 0, "distortion": 0 } unless specified
 - Use proper voice_ids like "soprano01", "alto01", "tenor01", "bass01"
 - Generate appropriate musical notes (e.g., C4, D4, E4, F4, G4, A4, B4) based on the song key
-- Calculate start times and durations that make musical sense"""
+- Calculate start times and durations that make musical sense
+- When creating syllables, consider natural speech patterns and musical phrasing
+- Use common IPA phonemes for English pronunciation (e.g., /aɪ/, /ɒ/, /ʃ/, /n/, /t/, etc.)"""
         
         if context and context.get('tempo'):
             base_prompt += f"\n- Use the current tempo ({context['tempo']} BPM) to calculate appropriate durations for lyrics timing."

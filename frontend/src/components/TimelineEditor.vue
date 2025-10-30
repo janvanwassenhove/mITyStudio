@@ -1097,6 +1097,8 @@ const vocalTracks = computed(() => {
 
 const updateMasterLyrics = () => {
   const lyrics: MasterLyricWord[] = []
+  console.log('Updating master lyrics, vocalTracks:', vocalTracks.value)
+  
   const tracksToProcess = selectedVocalTrack.value === 'all' 
     ? vocalTracks.value
     : selectedVocalTrack.value === 'lead'
@@ -1105,10 +1107,17 @@ const updateMasterLyrics = () => {
         track.name.toLowerCase().includes('main')
       ).slice(0, 1) // Take only the first lead track
     : vocalTracks.value.filter(track => track.id === selectedVocalTrack.value)
+  
+  console.log('Tracks to process:', tracksToProcess)
 
   tracksToProcess.forEach(track => {
+    console.log(`Processing track ${track.name}:`, track)
     track.clips.forEach(clip => {
-      if (clip.type !== 'lyrics') return
+      console.log(`Processing clip:`, clip)
+      if (clip.type !== 'lyrics') {
+        console.log(`Skipping clip with type: ${clip.type}`)
+        return
+      }
 
       // Determine speaker type based on track name and voice
       let speakerType: 'lead' | 'harmony' | 'choir' = 'lead'
@@ -1122,11 +1131,15 @@ const updateMasterLyrics = () => {
       // Process both new structure (voices array) and legacy structure (lyrics array)
       const lyricSources = []
       if (clip.voices && clip.voices.length > 0) {
+        console.log('Found clip.voices:', clip.voices)
         clip.voices.forEach(voice => lyricSources.push(...voice.lyrics))
       }
       if (clip.lyrics && clip.lyrics.length > 0) {
+        console.log('Found clip.lyrics:', clip.lyrics)
         lyricSources.push(...clip.lyrics)
       }
+      
+      console.log('Lyric sources for this clip:', lyricSources)
 
       lyricSources.forEach((lyric) => {
         const words = lyric.text.split(/\s+/).filter(word => word.length > 0)
@@ -1155,6 +1168,7 @@ const updateMasterLyrics = () => {
 
   // Sort by start time
   lyrics.sort((a, b) => a.startTime - b.startTime)
+  console.log('Final master lyrics:', lyrics)
   masterLyrics.value = lyrics
   
   // Update the per-track lyrics
