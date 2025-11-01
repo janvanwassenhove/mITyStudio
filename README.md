@@ -516,15 +516,35 @@ mITyStudio/
    ```bash
    npm run install:all
    ```
+  3. **Set up environment variables:**
+     
+     **Option 1: Environment File (Local Development)**
+     ```bash
+     # Copy the example environment file
+     cp backend/.env.example backend/.env
+     
+     # Edit the .env file with your API keys
+     # Add your OpenAI, Anthropic, and Google API keys
+     ```
 
-3. **Set up environment variables:**
-   ```bash
-   # Copy the example environment file
-   cp backend/.env.example backend/.env
-   
-   # Edit the .env file with your API keys
-   # Add your OpenAI, Anthropic, and Google API keys
-   ```
+     **Option 2: System Environment Variables (Recommended)**
+     ```bash
+     # Set API keys as system environment variables (more secure)
+     export OPENAI_API_KEY="your-openai-api-key"
+     export ANTHROPIC_API_KEY="your-anthropic-api-key"
+     export GOOGLE_API_KEY="your-google-api-key"
+     export SECRET_KEY="your-secret-key"
+     ```
+
+     **Windows (PowerShell):**
+     ```powershell
+     $env:OPENAI_API_KEY="your-openai-api-key"
+     $env:ANTHROPIC_API_KEY="your-anthropic-api-key"
+     $env:GOOGLE_API_KEY="your-google-api-key"
+     $env:SECRET_KEY="your-secret-key"
+     ```
+
+     > **Note:** System environment variables are recommended for production and security. They override any values in the `.env` file.
 
 ### Development
 
