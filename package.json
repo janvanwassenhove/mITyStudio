@@ -1,6 +1,6 @@
 {
   "name": "mitystudio",
-  "version": "1.0.0",
+  "version": "1.0.0-beta",
   "description": "AI-powered music composition studio with frontend, backend, and desktop application",
   "private": true,
   "workspaces": [

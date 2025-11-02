@@ -1,6 +1,6 @@
 {
   "name": "mitystudio-backend",
-  "version": "1.0.0",
+  "version": "1.0.0-beta",
   "description": "Python Flask backend for mITyStudio",
   "scripts": {
     "dev": "python run.py",
