@@ -148,6 +148,55 @@ def _fx_compressor(data: np.ndarray, rate: int, params: dict) -> np.ndarray:
     return data * per_sample[:, None]
 
 
+def _fx_robot(data: np.ndarray, rate: int, params: dict) -> np.ndarray:
+    """Classic robot voice: ring modulation with a carrier + light
+    quantization. carrier_hz 20-200 sets the metallic character."""
+    carrier_hz = float(np.clip(params.get("carrier_hz", 55.0), 10, 400))
+    mix = float(np.clip(params.get("mix", 1.0), 0.0, 1.0))
+    crush = float(np.clip(params.get("crush", 0.15), 0.0, 1.0))
+    t = np.arange(len(data)) / rate
+    carrier = np.sin(2 * np.pi * carrier_hz * t)[:, None]
+    wet = data * carrier
+    if crush > 0:
+        levels = 2 ** (12 - int(8 * crush))  # 12-bit .. 4-bit
+        wet = np.round(wet * levels) / levels
+    return (data * (1 - mix) + wet * mix).astype(np.float32)
+
+
+def _fx_telephone(data: np.ndarray, rate: int, params: dict) -> np.ndarray:
+    """Narrow band-pass (300-3400 Hz style) via FFT — old phone / megaphone."""
+    low = float(np.clip(params.get("low_freq", 300.0), 50, 2000))
+    high = float(np.clip(params.get("high_freq", 3400.0), 1000, 10000))
+    drive = float(np.clip(params.get("drive", 1.5), 1.0, 10.0))
+    n = len(data)
+    freqs = np.fft.rfftfreq(n, 1 / rate)
+    logf = np.log2(np.maximum(freqs, 1.0))
+    curve = (1 / (1 + np.exp(-6.0 * (logf - np.log2(low))))
+             * 1 / (1 + np.exp(6.0 * (logf - np.log2(high)))))
+    out = np.empty_like(data)
+    for ch in range(data.shape[1]):
+        spec = np.fft.rfft(data[:, ch])
+        out[:, ch] = np.fft.irfft(spec * curve, n=n)
+    return (np.tanh(out * drive) / np.tanh(drive)).astype(np.float32)
+
+
+def _fx_chorus(data: np.ndarray, rate: int, params: dict) -> np.ndarray:
+    """Chorus: 2 modulated delay taps (5-25 ms) summed with the dry signal."""
+    depth_ms = float(np.clip(params.get("depth_ms", 8.0), 1, 20))
+    rate_hz = float(np.clip(params.get("rate_hz", 0.8), 0.05, 8.0))
+    mix = float(np.clip(params.get("mix", 0.5), 0.0, 1.0))
+    n = len(data)
+    t = np.arange(n)
+    base = int(0.015 * rate)
+    wet = np.zeros_like(data)
+    for phase in (0.0, np.pi / 2):
+        mod = base + (depth_ms / 1000 * rate) * (
+            0.5 + 0.5 * np.sin(2 * np.pi * rate_hz * t / rate + phase))
+        idx = np.clip(t - mod.astype(int), 0, n - 1)
+        wet += data[idx] * 0.5
+    return (data * (1 - mix * 0.5) + wet * mix).astype(np.float32)
+
+
 _PROCESSORS = {
     "gain": _fx_gain,
     "pan": _fx_pan,
@@ -156,6 +205,9 @@ _PROCESSORS = {
     "delay": _fx_delay,
     "reverb": _fx_reverb,
     "distortion": _fx_distortion,
+    "robot": _fx_robot,
+    "telephone": _fx_telephone,
+    "chorus": _fx_chorus,
 }
 
 

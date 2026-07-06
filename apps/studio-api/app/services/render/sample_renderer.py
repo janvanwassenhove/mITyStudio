@@ -32,6 +32,14 @@ def _render_clip(project: SongProject, clip: Clip, out: np.ndarray,
         return
     data = to_stereo(data)
     data = resample_linear(data, rate, SAMPLE_RATE)
+    if clip.source_offset_seconds > 0:
+        offset = int(clip.source_offset_seconds * SAMPLE_RATE)
+        if clip.loop and len(data) > 0:
+            offset %= len(data)   # loops keep phase across a split
+        data = data[offset:]
+        if len(data) == 0:
+            warnings.append(f"clip {clip.id}: offset beyond sample end, skipped")
+            return
 
     start = int(timing.beats_to_seconds(project, clip.start_beat) * SAMPLE_RATE)
     slot = int(timing.beats_to_seconds(project, clip.duration_beats) * SAMPLE_RATE)

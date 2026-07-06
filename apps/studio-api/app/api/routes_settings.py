@@ -54,3 +54,50 @@ def test_llm() -> dict:
     s = llm_settings.load_settings()
     ok, message = get_provider(s).test_connection()
     return {"ok": ok, "message": message}
+
+
+_FALLBACK_MODELS = {
+    "anthropic": ["claude-fable-5", "claude-sonnet-5", "claude-opus-4-8",
+                  "claude-haiku-4-5-20251001"],
+    "openai": ["gpt-5.2", "gpt-5.2-mini", "gpt-4.1", "gpt-4o", "gpt-4o-mini"],
+    "custom": [],
+}
+
+
+@router.get("/llm/models")
+def list_models(provider: str, base_url: str = "") -> dict:
+    """Models for a provider: fetched live from the provider's models API
+    when a key is available, curated fallback otherwise."""
+    if provider not in PROVIDERS:
+        raise HTTPException(422, f"unknown provider {provider!r}")
+    if provider == "mock":
+        return {"models": ["mock"], "source": "static"}
+
+    key = llm_settings.get_api_key(provider, base_url)
+    fallback = {"models": _FALLBACK_MODELS.get(provider, []),
+                "source": "fallback"}
+    if not key and not (provider == "custom" and base_url):
+        return fallback
+    try:
+        if provider == "anthropic":
+            import anthropic
+            client = anthropic.Anthropic(api_key=key)
+            models = [m.id for m in client.models.list(limit=50)]
+        else:
+            from openai import OpenAI
+            client = OpenAI(api_key=key or "not-needed",
+                            base_url=base_url.strip() or None, timeout=15)
+            models = [m.id for m in client.models.list()]
+        if not models:
+            return fallback
+        # chat-capable first: filter obvious non-chat artifacts for openai
+        if provider == "openai":
+            models = [m for m in models
+                      if not any(x in m for x in ("embedding", "whisper",
+                                                  "tts", "dall-e", "audio",
+                                                  "image", "moderation",
+                                                  "realtime", "transcribe"))]
+        return {"models": sorted(models), "source": "live"}
+    except Exception as e:
+        fallback["error"] = str(e)[:200]
+        return fallback

@@ -52,7 +52,8 @@ Key params per operation:
 - update_track: track (name or id), name? (rename), volume? (0-2), pan? (-1..1), mute?, solo?
 - assign_soundfont: track (name or id), soundfont_asset_id
 - select_sample: sample_asset_id, track?, section?, start_beat?, duration_beats?, loop?
-- generate_drums/generate_bassline/generate_chords/generate_melody: section (name or id), track?
+- generate_drums/generate_bassline/generate_chords/generate_melody: section (name, id, or "all" for every section), track? (created if missing)
+  → to create a FULL SONG: create_song, then add_section per section, then generate_* with section "all" (or per section) for each instrument, then rewrite_lyrics + generate_melody with track_type lead_vocal
 - rewrite_lyrics: lines (list of strings), section?, language?
 - change_key: key; change_tempo: bpm (number, or "+10"/"-10")
 - add_effect: track, effect_type (gain|pan|eq|compressor|reverb|delay|distortion), params

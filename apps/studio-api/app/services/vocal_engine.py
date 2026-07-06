@@ -228,12 +228,140 @@ def build_lyrics_alignment(project: SongProject, track: Track) -> list[dict]:
     return alignment
 
 
-def get_engine(engine_name: str = "mock") -> SingingVoiceEngine:
-    """Factory for singing engines. Real engines register here in Phase 23."""
+class RecordingVoiceEngine(SingingVoiceEngine):
+    """AI-voice simulation from a consented voice profile: takes a voiced
+    segment of the profile's source recording and pitch-shifts it to every
+    melody note (resampling-based, so timbre follows the singer's voice).
+    Crude but genuinely 'sings' with the recorded voice's character. Requires
+    a voice profile with consent — enforced at assignment time and re-checked
+    here."""
+
+    def __init__(self, profile) -> None:
+        self.profile = profile
+
+    def _load_source(self) -> tuple[np.ndarray, int, float] | None:
+        """Returns (voiced segment mono, rate, fundamental_hz) or None."""
+        from . import asset_repo
+        from .audio_io import AudioReadError, read_audio
+        from .sample_analysis import _estimate_pitch
+        for rid in self.profile.source_recording_ids:
+            asset = asset_repo.get_asset(rid)
+            if asset is None or asset.is_missing:
+                continue
+            try:
+                data, rate = read_audio(Path(asset.original_path))
+            except AudioReadError:
+                continue
+            mono = data.mean(axis=1)
+            note, freq = _estimate_pitch(mono, rate)
+            if freq is None:
+                continue
+            # loudest ~0.4 s window = the sustained voiced part
+            win = min(len(mono), int(0.4 * rate))
+            if win < rate // 10:
+                continue
+            hop = max(1, (len(mono) - win) // 16)
+            starts = range(0, max(len(mono) - win, 1), hop)
+            best = max(starts, key=lambda s: float(np.abs(mono[s:s + win]).mean()))
+            seg = mono[best:best + win].astype(np.float32)
+            # loopable segment: fade edges to avoid clicks when tiling
+            edge = max(int(0.01 * rate), 1)
+            seg[:edge] *= np.linspace(0, 1, edge)
+            seg[-edge:] *= np.linspace(1, 0, edge)
+            return seg, rate, freq
+        return None
+
+    def render(self, project: SongProject, track: Track,
+               out_path: Path) -> VocalRenderResult:
+        if not self.profile.consent_confirmed:
+            raise PermissionError(
+                "voice profile has no confirmed consent — refusing to render")
+        source = self._load_source()
+        if source is None:
+            result = MockSingingVoiceEngine().render(project, track, out_path)
+            result.warnings.append(
+                f"voice profile {self.profile.name!r}: no usable pitched "
+                "source recording — fell back to the formant engine")
+            return result
+        seg, src_rate, src_freq = source
+
+        result = VocalRenderResult(stem_path=None)
+        total = max(int(project.duration_seconds() * SAMPLE_RATE), SAMPLE_RATE)
+        out = np.zeros(total, dtype=np.float32)
+        notes_rendered = 0
+        for clip in track.clips:
+            if clip.clip_type == "sample":
+                continue
+            for n in clip.note_events:
+                t0 = timing.beats_to_seconds(project, clip.start_beat + n.start_beat)
+                dur = timing.beats_to_seconds(project, n.duration_beats)
+                i0 = int(t0 * SAMPLE_RATE)
+                count = min(int(dur * SAMPLE_RATE), total - i0)
+                if count <= 0:
+                    continue
+                # pitch shift by resampling: ratio > 1 → higher pitch
+                ratio = _note_freq(n.midi_note) / src_freq
+                ratio *= src_rate / SAMPLE_RATE
+                idx = np.arange(count) * ratio
+                tile = np.take(seg, (idx.astype(np.int64)) % len(seg))
+                attack = min(int(0.015 * SAMPLE_RATE), count)
+                release = min(int(0.05 * SAMPLE_RATE), max(count - attack, 1))
+                env = np.ones(count, dtype=np.float32)
+                env[:attack] = np.linspace(0, 1, attack)
+                env[-release:] *= np.linspace(1, 0, release)
+                out[i0:i0 + count] += tile * env * (n.velocity / 127) * 0.9
+                notes_rendered += 1
+
+        peak = float(np.max(np.abs(out))) if out.size else 0.0
+        if peak > 1.0:
+            out /= peak
+        write_wav(out_path, np.repeat(out[:, None], 2, axis=1), SAMPLE_RATE)
+        result.stem_path = out_path
+        result.render_log.append(
+            f"recording-voice engine ({self.profile.name!r}, source ≈"
+            f"{src_freq:.0f} Hz) rendered {notes_rendered} notes")
+        if notes_rendered == 0:
+            result.warnings.append(
+                f"vocal track {track.name!r} has no melody notes")
+        result.alignment = build_lyrics_alignment(project, track)
+        return result
+
+
+def get_engine(engine_name: str = "mock", profile=None) -> SingingVoiceEngine:
+    """Factory for singing engines. A consented voice profile with source
+    recordings selects the recording-based engine; real neural engines
+    register here later (Phase 23 contract)."""
+    if profile is not None and profile.consent_confirmed \
+            and profile.source_recording_ids:
+        return RecordingVoiceEngine(profile)
     if engine_name == "mock":
         return MockSingingVoiceEngine()
     raise ValueError(f"unknown singing voice engine {engine_name!r} "
                      "(only 'mock' is available in v1)")
+
+
+def _mix_recorded_takes(project: SongProject, track: Track,
+                        stem_path: Path, result: VocalRenderResult) -> None:
+    """Vocal tracks can carry sample clips (live-recorded takes). Mix them
+    into the rendered vocal stem at their timeline position."""
+    sample_clips = [c for c in track.clips if c.clip_type == "sample"]
+    if not sample_clips:
+        return
+    import soundfile as sf
+
+    from .render.sample_renderer import _render_clip
+    data, rate = sf.read(str(stem_path), dtype="float32", always_2d=True)
+    total = max(int(project.duration_seconds() * SAMPLE_RATE), SAMPLE_RATE)
+    if len(data) < total:
+        data = np.vstack([data, np.zeros((total - len(data), 2), np.float32)])
+    for clip in sample_clips:
+        _render_clip(project, clip, data, result.warnings)
+    peak = float(np.max(np.abs(data)))
+    if peak > 1.0:
+        data /= peak
+    write_wav(stem_path, data, SAMPLE_RATE)
+    result.render_log.append(
+        f"mixed {len(sample_clips)} recorded take(s) into {stem_path.name}")
 
 
 def render_vocal_stems(project: SongProject) -> dict:
@@ -249,14 +377,19 @@ def render_vocal_stems(project: SongProject) -> dict:
         results["skipped"].append("no vocal tracks")
         return results
 
-    engine = get_engine("mock")
     all_alignment: list[dict] = []
     from .midi_export import _safe_name
     for track in vocal_tracks:
+        profile = None
+        if track.voice_profile_id:
+            from . import voice_profiles
+            profile = voice_profiles.get_profile(track.voice_profile_id)
+        engine = get_engine("mock", profile)
         fp = track_fingerprint(project, track)
         out_path = cfg.stems_dir / project.id / f"vocal_{_safe_name(track.name)}_{track.id[:8]}.wav"
         try:
             r = engine.render(project, track, out_path)
+            _mix_recorded_takes(project, track, out_path, r)
         except Exception as e:
             results["errors"].append(f"{track.name}: {e}")
             continue

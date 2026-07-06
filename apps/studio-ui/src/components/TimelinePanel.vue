@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
-import type { ClipTiming, ManifestTrack, NoteTiming } from '../api/types'
+import type { Clip, Track } from '../api/types'
 
 const studio = useStudioStore()
 const playback = usePlaybackStore()
@@ -29,42 +29,6 @@ const bars = computed(() => {
   return out
 })
 
-const playheadX = computed(() => {
-  const m = manifest.value
-  if (!m) return 0
-  return ((playback.playhead * m.bpm) / 60) * pxPerBeat.value
-})
-
-function clipsFor(t: ManifestTrack): ClipTiming[] {
-  return manifest.value?.clips.filter((c) => c.track_id === t.track_id) ?? []
-}
-function notesFor(c: ClipTiming): NoteTiming[] {
-  return manifest.value?.midi_note_metadata.filter((n) => n.clip_id === c.clip_id) ?? []
-}
-function noteRange(notes: NoteTiming[]): [number, number] {
-  if (!notes.length) return [48, 72]
-  let lo = 127, hi = 0
-  for (const n of notes) { lo = Math.min(lo, n.midi_note); hi = Math.max(hi, n.midi_note) }
-  return [Math.max(0, lo - 1), Math.min(127, hi + 1)]
-}
-function waveformFor(trackId: string): number[] | null {
-  const w = manifest.value?.waveform_metadata.find((x) => x.track_id === trackId)
-  return w?.peaks ?? null
-}
-function waveformPath(peaks: number[], w: number, h: number): string {
-  const mid = h / 2
-  let d = `M 0 ${mid}`
-  peaks.forEach((p, i) => {
-    const x = (i / (peaks.length - 1 || 1)) * w
-    d += ` L ${x.toFixed(1)} ${(mid - p * mid * 0.9).toFixed(1)}`
-  })
-  for (let i = peaks.length - 1; i >= 0; i--) {
-    const x = (i / (peaks.length - 1 || 1)) * w
-    d += ` L ${x.toFixed(1)} ${(mid + peaks[i] * mid * 0.9).toFixed(1)}`
-  }
-  return d + ' Z'
-}
-
 const TRACK_COLORS: Record<string, string> = {
   drums: '#e6a23c', bass: '#f2555a', guitar: '#f78fb3', keys: '#4f9cf9',
   synth: '#9d6ff2', strings: '#3ecf8e', brass: '#e0c341', sample: '#41c9e0',
@@ -72,13 +36,213 @@ const TRACK_COLORS: Record<string, string> = {
 }
 const color = (t: string) => TRACK_COLORS[t] ?? '#8d96a8'
 
+// ------- precomputed layout (rebuilt only when manifest/zoom change) -------
+interface NoteRect { x: number; y: number; w: number; o: number }
+interface ClipLayout {
+  clipId: string; type: string; x: number; w: number
+  notes: NoteRect[]; wavePath: string | null
+}
+interface TrackLayout { track: { track_id: string; name: string; track_type: string }; clips: ClipLayout[] }
+
+function wavePathFor(peaks: number[], w: number, h: number): string {
+  const mid = h / 2
+  const n = peaks.length - 1 || 1
+  let top = '', bottom = ''
+  for (let i = 0; i < peaks.length; i++) {
+    const x = ((i / n) * w).toFixed(1)
+    top += ` L ${x} ${(mid - peaks[i] * mid * 0.9).toFixed(1)}`
+    bottom = ` L ${x} ${(mid + peaks[i] * mid * 0.9).toFixed(1)}` + bottom
+  }
+  return `M 0 ${mid}${top}${bottom} Z`
+}
+
+const layout = computed<TrackLayout[]>(() => {
+  const m = manifest.value
+  if (!m) return []
+  const ppb = pxPerBeat.value
+  const noteH = TRACK_H - 6
+  const notesByClip = new Map<string, typeof m.midi_note_metadata>()
+  for (const n of m.midi_note_metadata) {
+    const arr = notesByClip.get(n.clip_id)
+    if (arr) arr.push(n)
+    else notesByClip.set(n.clip_id, [n])
+  }
+  const waveByTrack = new Map(m.waveform_metadata.map((w) => [w.track_id, w.peaks]))
+  return m.tracks.map((t) => {
+    const clips: ClipLayout[] = m.clips
+      .filter((c) => c.track_id === t.track_id)
+      .map((c) => {
+        const w = Math.max((c.end_beat - c.start_beat) * ppb, 4)
+        const notes: NoteRect[] = []
+        let wavePath: string | null = null
+        const clipNotes = notesByClip.get(c.clip_id) ?? []
+        if (clipNotes.length) {
+          let lo = 127, hi = 0
+          for (const n of clipNotes) { lo = Math.min(lo, n.midi_note); hi = Math.max(hi, n.midi_note) }
+          lo = Math.max(0, lo - 1); hi = Math.min(127, hi + 1)
+          const range = hi - lo || 1
+          for (const n of clipNotes) {
+            notes.push({
+              x: (n.start_beat - c.start_beat) * ppb,
+              y: noteH * (1 - (n.midi_note - lo) / range) - 2,
+              w: Math.max((n.end_beat - n.start_beat) * ppb - 0.5, 1),
+              o: 0.4 + (n.velocity / 127) * 0.6,
+            })
+          }
+        } else if (c.clip_type === 'sample') {
+          const peaks = waveByTrack.get(t.track_id)
+          if (peaks) wavePath = wavePathFor(peaks, 200, noteH)
+        }
+        return { clipId: c.clip_id, type: c.clip_type, x: c.start_beat * ppb, w, notes, wavePath }
+      })
+    return { track: t, clips }
+  })
+})
+
+// ------- playhead: zero Vue re-renders, direct DOM transform -------
+const playheadEl = ref<HTMLElement | null>(null)
+const scrollEl = ref<HTMLElement | null>(null)
+let followScroll = true
+
+const stopWatch = watch(
+  () => playback.playhead,
+  (seconds) => {
+    const m = manifest.value
+    const el = playheadEl.value
+    if (!m || !el) return
+    const x = LABEL_W + ((seconds * m.bpm) / 60) * pxPerBeat.value
+    el.style.transform = `translateX(${x}px)`
+    const sc = scrollEl.value
+    if (sc && followScroll && playback.playing) {
+      const view = sc.clientWidth
+      if (x < sc.scrollLeft + LABEL_W || x > sc.scrollLeft + view - 80) {
+        sc.scrollLeft = Math.max(0, x - LABEL_W - view * 0.25)
+      }
+    }
+  },
+  { flush: 'sync' },
+)
+watch([pxPerBeat, manifest], () => {
+  // reposition after zoom/manifest changes
+  const m = manifest.value
+  const el = playheadEl.value
+  if (m && el) {
+    el.style.transform = `translateX(${LABEL_W + ((playback.playhead * m.bpm) / 60) * pxPerBeat.value}px)`
+  }
+})
+onBeforeUnmount(stopWatch)
+
 function seekAt(e: MouseEvent) {
   const m = manifest.value
   if (!m) return
-  const el = e.currentTarget as HTMLElement
-  const x = e.clientX - el.getBoundingClientRect().left + el.scrollLeft
-  const beats = x / pxPerBeat.value
-  playback.seek((beats * 60) / m.bpm)
+  const lane = e.currentTarget as HTMLElement
+  const x = e.clientX - lane.getBoundingClientRect().left
+  playback.seek(((x / pxPerBeat.value) * 60) / m.bpm)
+}
+
+// ------- editing: add track, select clip, split / duplicate / delete -------
+const newTrackType = ref('keys')
+const TRACK_TYPES = ['drums', 'bass', 'guitar', 'keys', 'synth', 'strings',
+  'brass', 'sample', 'lead_vocal', 'backing_vocal', 'fx']
+const selectedClip = ref<{ trackId: string; clipId: string } | null>(null)
+const saving = ref(false)
+
+const uid = () => crypto.randomUUID().replace(/-/g, '')
+
+async function save() {
+  saving.value = true
+  try { await studio.saveProject() } finally { saving.value = false }
+}
+
+function findClip(): { track: Track; clip: Clip; index: number } | null {
+  const p = studio.project
+  if (!p || !selectedClip.value) return null
+  const track = p.tracks.find((t) => t.id === selectedClip.value!.trackId)
+  if (!track) return null
+  const index = track.clips.findIndex((c) => c.id === selectedClip.value!.clipId)
+  if (index < 0) return null
+  return { track, clip: track.clips[index], index }
+}
+
+async function addTrack() {
+  const p = studio.project
+  if (!p) return
+  const type = newTrackType.value
+  const count = p.tracks.filter((t) => t.track_type === type).length
+  p.tracks.push({
+    id: uid(),
+    name: type.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()) + (count ? ` ${count + 1}` : ''),
+    track_type: type,
+    instrument_config: { soundfont_asset_id: null, program: 0, is_drum_kit: type === 'drums', bank: 0 },
+    clips: [], effects: { effects: [] },
+    volume: 1, pan: 0, mute: false, solo: false, voice_profile_id: null,
+  })
+  await save()
+}
+
+function playheadBeat(): number {
+  const m = manifest.value
+  return m ? (playback.playhead * m.bpm) / 60 : 0
+}
+
+async function splitClip() {
+  const found = findClip()
+  const m = manifest.value
+  if (!found || !m) return
+  const { track, clip, index } = found
+  const at = playheadBeat()
+  const rel = at - clip.start_beat
+  if (rel <= 0.01 || rel >= clip.duration_beats - 0.01) return
+  const second: Clip = JSON.parse(JSON.stringify(clip))
+  second.id = uid()
+  second.start_beat = clip.start_beat + rel
+  second.duration_beats = clip.duration_beats - rel
+  second.fade_in_seconds = 0
+  clip.fade_out_seconds = 0
+  if (clip.clip_type === 'sample') {
+    second.source_offset_seconds = (clip.source_offset_seconds ?? 0) + (rel * 60) / m.bpm
+    second.note_events = []
+  } else {
+    // notes before the cut stay in the first clip (truncated at the cut);
+    // notes after move to the second with rebased start
+    const first = []
+    const moved = []
+    for (const n of clip.note_events) {
+      if (n.start_beat < rel) {
+        n.duration_beats = Math.min(n.duration_beats, rel - n.start_beat)
+        if (n.duration_beats > 0.01) first.push(n)
+      } else {
+        moved.push(n)
+      }
+    }
+    clip.note_events = first
+    second.note_events = moved.map((n) => ({ ...n, id: uid(), start_beat: n.start_beat - rel }))
+  }
+  clip.duration_beats = rel
+  track.clips.splice(index + 1, 0, second)
+  selectedClip.value = { trackId: track.id, clipId: second.id }
+  await save()
+}
+
+async function duplicateClip() {
+  const found = findClip()
+  if (!found) return
+  const { track, clip, index } = found
+  const copy: Clip = JSON.parse(JSON.stringify(clip))
+  copy.id = uid()
+  copy.start_beat = clip.start_beat + clip.duration_beats
+  copy.note_events = copy.note_events.map((n) => ({ ...n, id: uid() }))
+  track.clips.splice(index + 1, 0, copy)
+  selectedClip.value = { trackId: track.id, clipId: copy.id }
+  await save()
+}
+
+async function deleteClip() {
+  const found = findClip()
+  if (!found) return
+  found.track.clips.splice(found.index, 1)
+  selectedClip.value = null
+  await save()
 }
 </script>
 
@@ -89,12 +253,22 @@ function seekAt(e: MouseEvent) {
   <div v-else class="timeline-root">
     <div class="zoom-bar">
       <span class="dim small">zoom</span>
-      <input type="range" min="4" max="48" v-model.number="pxPerBeat" style="width: 120px" />
+      <input type="range" min="4" max="48" v-model.number="pxPerBeat" style="width: 100px" />
+      <span class="sep" />
+      <select v-model="newTrackType" class="small-select">
+        <option v-for="t in TRACK_TYPES" :key="t" :value="t">{{ t }}</option>
+      </select>
+      <button class="tb" :disabled="saving" @click="addTrack">+ Track</button>
+      <span class="sep" />
+      <button class="tb" :disabled="!selectedClip || saving" title="Split selected clip at playhead" @click="splitClip">✂ Split</button>
+      <button class="tb" :disabled="!selectedClip || saving" title="Duplicate selected clip after itself" @click="duplicateClip">⧉ Duplicate</button>
+      <button class="tb danger" :disabled="!selectedClip || saving" title="Delete selected clip" @click="deleteClip">✕ Clip</button>
       <span class="spacer" />
-      <span class="dim small">{{ manifest.total_bars }} bars · {{ manifest.duration_seconds.toFixed(1) }}s</span>
+      <span class="dim small">{{ manifest.total_bars }} bars · {{ manifest.duration_seconds.toFixed(1) }}s<template v-if="saving"> · saving…</template></span>
     </div>
-    <div class="scroll-area">
+    <div ref="scrollEl" class="scroll-area">
       <div class="grid" :style="{ width: LABEL_W + contentWidth + 'px' }">
+        <div ref="playheadEl" class="playhead-overlay" />
         <!-- ruler -->
         <div class="row ruler-row">
           <div class="label small dim" :style="{ width: LABEL_W + 'px' }">bars</div>
@@ -102,62 +276,46 @@ function seekAt(e: MouseEvent) {
             <div v-for="b in bars" :key="b.bar" class="bar-tick" :style="{ left: b.x + 'px' }">
               <span class="bar-num">{{ b.bar }}</span>
             </div>
-            <div class="playhead" :style="{ left: playheadX + 'px' }" />
           </div>
         </div>
         <!-- section lane -->
         <div class="row">
           <div class="label small dim" :style="{ width: LABEL_W + 'px' }">sections</div>
-          <div class="lane section-lane" :style="{ width: contentWidth + 'px' }">
+          <div class="lane section-lane" :style="{ width: contentWidth + 'px' }" @click="seekAt">
             <div
               v-for="s in manifest.sections" :key="s.section_id" class="section-block"
               :style="{ left: s.start_beat * pxPerBeat + 'px', width: (s.end_beat - s.start_beat) * pxPerBeat + 'px' }"
             >{{ s.name }}</div>
-            <div class="playhead" :style="{ left: playheadX + 'px' }" />
           </div>
         </div>
         <!-- track lanes -->
-        <div v-for="t in manifest.tracks" :key="t.track_id" class="row track-row"
-             :class="{ selected: studio.selectedTrackId === t.track_id }"
-             @click="studio.selectedTrackId = t.track_id">
+        <div v-for="tl in layout" :key="tl.track.track_id" class="row track-row"
+             :class="{ selected: studio.selectedTrackId === tl.track.track_id }"
+             @click="studio.selectedTrackId = tl.track.track_id">
           <div class="label" :style="{ width: LABEL_W + 'px' }">
-            <span class="track-dot" :style="{ background: color(t.track_type) }" />
-            <span class="track-name">{{ t.name }}</span>
-            <span class="dim small">{{ t.track_type }}</span>
+            <span class="track-dot" :style="{ background: color(tl.track.track_type) }" />
+            <span class="track-name">{{ tl.track.name }}</span>
+            <span class="dim small">{{ tl.track.track_type }}</span>
           </div>
           <div class="lane track-lane" :style="{ width: contentWidth + 'px', height: TRACK_H + 'px' }">
             <div
-              v-for="c in clipsFor(t)" :key="c.clip_id" class="clip"
-              :class="c.clip_type"
-              :style="{
-                left: c.start_beat * pxPerBeat + 'px',
-                width: Math.max((c.end_beat - c.start_beat) * pxPerBeat, 4) + 'px',
-                borderColor: color(t.track_type),
-              }"
+              v-for="c in tl.clips" :key="c.clipId" class="clip"
+              :class="{ selected: selectedClip?.clipId === c.clipId }"
+              :style="{ left: c.x + 'px', width: c.w + 'px', borderColor: color(tl.track.track_type) }"
+              @click.stop="studio.selectedTrackId = tl.track.track_id; selectedClip = { trackId: tl.track.track_id, clipId: c.clipId }"
             >
-              <!-- MIDI notes -->
-              <svg v-if="c.clip_type === 'midi' || c.clip_type === 'vocal'" class="notes-svg"
-                   :viewBox="`0 0 ${(c.end_beat - c.start_beat) * pxPerBeat} ${TRACK_H - 6}`"
-                   preserveAspectRatio="none">
-                <template v-for="n in notesFor(c)" :key="n.note_id">
-                  <rect
-                    :x="(n.start_beat - c.start_beat) * pxPerBeat"
-                    :y="(TRACK_H - 6) * (1 - (n.midi_note - noteRange(notesFor(c))[0]) / (noteRange(notesFor(c))[1] - noteRange(notesFor(c))[0] || 1)) - 2"
-                    :width="Math.max((n.end_beat - n.start_beat) * pxPerBeat - 0.5, 1)"
-                    height="3" rx="1"
-                    :fill="color(t.track_type)" :opacity="0.4 + (n.velocity / 127) * 0.6"
-                  />
-                </template>
+              <svg v-if="c.notes.length" class="notes-svg"
+                   :viewBox="`0 0 ${c.w} ${TRACK_H - 6}`" preserveAspectRatio="none">
+                <rect v-for="(n, i) in c.notes" :key="i"
+                      :x="n.x" :y="n.y" :width="n.w" height="3" rx="1"
+                      :fill="color(tl.track.track_type)" :opacity="n.o" />
               </svg>
-              <!-- audio clip waveform (real peaks if rendered, placeholder otherwise) -->
-              <svg v-else-if="waveformFor(t.track_id)" class="notes-svg"
+              <svg v-else-if="c.wavePath" class="notes-svg"
                    :viewBox="`0 0 200 ${TRACK_H - 6}`" preserveAspectRatio="none">
-                <path :d="waveformPath(waveformFor(t.track_id)!, 200, TRACK_H - 6)"
-                      :fill="color(t.track_type)" opacity="0.55" />
+                <path :d="c.wavePath" :fill="color(tl.track.track_type)" opacity="0.55" />
               </svg>
-              <div v-else class="wave-placeholder" :style="{ background: color(t.track_type) }" />
+              <div v-else class="wave-placeholder" :style="{ background: color(tl.track.track_type) }" />
             </div>
-            <div class="playhead" :style="{ left: playheadX + 'px' }" />
           </div>
         </div>
       </div>
@@ -168,25 +326,30 @@ function seekAt(e: MouseEvent) {
 <style scoped>
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; }
 .timeline-root { display: flex; flex-direction: column; height: 100%; }
-.zoom-bar { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex: none; }
+.zoom-bar { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex: none; flex-wrap: wrap; }
 .spacer { flex: 1; }
+.sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 .small { font-size: 11px; }
+.small-select { font-size: 12px; padding: 3px 6px; }
+.tb { padding: 3px 9px; font-size: 12px; }
+.tb.danger:not(:disabled) { border-color: var(--err); color: var(--err); }
 .scroll-area { flex: 1; overflow: auto; }
-.grid { min-width: 100%; }
+.grid { min-width: 100%; position: relative; }
+.playhead-overlay { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: var(--err); z-index: 4; pointer-events: none; will-change: transform; }
 .row { display: flex; border-bottom: 1px solid var(--border); }
-.label { flex: none; padding: 4px 8px; display: flex; align-items: center; gap: 6px; position: sticky; left: 0; background: var(--bg-panel); z-index: 3; border-right: 1px solid var(--border); overflow: hidden; }
+.label { flex: none; padding: 4px 8px; display: flex; align-items: center; gap: 6px; position: sticky; left: 0; background: var(--bg-panel); z-index: 5; border-right: 1px solid var(--border); overflow: hidden; }
 .track-name { font-size: 12px; font-weight: 600; white-space: nowrap; }
 .track-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .lane { position: relative; flex: none; }
 .ruler { height: 24px; cursor: pointer; }
-.bar-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--border); }
+.bar-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--border); pointer-events: none; }
 .bar-num { font-size: 9px; color: var(--text-dim); padding-left: 2px; }
-.section-lane { height: 26px; background: rgba(0,0,0,0.15); }
-.section-block { position: absolute; top: 3px; bottom: 3px; background: var(--bg-elevated); border: 1px solid var(--accent-2); border-radius: 4px; font-size: 11px; padding: 1px 6px; overflow: hidden; white-space: nowrap; }
+.section-lane { height: 26px; background: rgba(0,0,0,0.15); cursor: pointer; }
+.section-block { position: absolute; top: 3px; bottom: 3px; background: var(--bg-elevated); border: 1px solid var(--accent-2); border-radius: 4px; font-size: 11px; padding: 1px 6px; overflow: hidden; white-space: nowrap; pointer-events: none; }
 .track-row.selected .label { outline: 1px solid var(--accent); outline-offset: -1px; }
 .track-lane { background: rgba(0,0,0,0.1); }
-.clip { position: absolute; top: 3px; bottom: 3px; border: 1px solid; border-radius: 4px; background: rgba(255,255,255,0.05); overflow: hidden; }
-.notes-svg { width: 100%; height: 100%; display: block; }
-.wave-placeholder { position: absolute; left: 2px; right: 2px; top: 40%; bottom: 40%; opacity: 0.35; border-radius: 2px; }
-.playhead { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--err); z-index: 2; pointer-events: none; }
+.clip { position: absolute; top: 3px; bottom: 3px; border: 1px solid; border-radius: 4px; background: rgba(255,255,255,0.05); overflow: hidden; cursor: pointer; }
+.clip.selected { outline: 2px solid var(--accent); outline-offset: -1px; background: rgba(79,156,249,0.12); }
+.notes-svg { width: 100%; height: 100%; display: block; pointer-events: none; }
+.wave-placeholder { position: absolute; left: 2px; right: 2px; top: 40%; bottom: 40%; opacity: 0.35; border-radius: 2px; pointer-events: none; }
 </style>

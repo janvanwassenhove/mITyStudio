@@ -1,5 +1,16 @@
 # Troubleshooting
 
+## Timeline is slow / freezes during playback
+Fixed in the current version: the playhead is updated via direct DOM
+transforms (no re-renders) and note layouts are precomputed once per project
+change. If you still see jank, lower the zoom slider (fewer pixels per beat)
+and hard-refresh the browser tab (Ctrl+F5) to clear stale hot-reload state.
+
+## UI shows errors after a backend upgrade
+Old project data in an open browser tab can miss new fields. Hard-refresh
+(Ctrl+F5); the backend migrates projects on load, and the UI guards against
+missing fields.
+
 ## "FluidSynth is not installed or not on PATH"
 Instrument stems need the FluidSynth CLI.
 Windows: `choco install fluidsynth`. Verify with `fluidsynth --version`,

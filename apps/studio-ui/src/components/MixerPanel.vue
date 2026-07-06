@@ -37,7 +37,7 @@ function queueSave() {
         <button :class="{ on: t.mute }" title="mute" @click="t.mute = !t.mute; queueSave()">M</button>
         <button :class="{ on: t.solo, solo: t.solo }" title="solo" @click="t.solo = !t.solo; queueSave()">S</button>
       </div>
-      <div class="dim tiny">{{ t.effects.effects.filter(e => e.enabled).length }} fx</div>
+      <div class="dim tiny">{{ (t.effects?.effects ?? []).filter(e => e.enabled).length }} fx</div>
     </div>
     <div v-if="studio.project" class="strip master">
       <div class="strip-name">Master</div>
@@ -49,7 +49,7 @@ function queueSave() {
       <div class="dim tiny">{{ (20 * Math.log10(studio.project.mix_settings.master_volume || 0.001)).toFixed(1) }} dB</div>
       <label class="tiny opt"><input type="checkbox" v-model="studio.project.mix_settings.normalize" @change="queueSave()" /> norm</label>
       <label class="tiny opt"><input type="checkbox" v-model="studio.project.mix_settings.limiter" @change="queueSave()" /> limit</label>
-      <div class="dim tiny">{{ studio.project.mix_settings.master_effects.effects.length }} fx</div>
+      <div class="dim tiny">{{ (studio.project.mix_settings.master_effects?.effects ?? []).length }} fx</div>
     </div>
     <div v-if="saving" class="dim tiny saving">saving…</div>
   </div>

@@ -37,6 +37,9 @@ export interface Clip {
   source_asset_id: string | null
   gain_db: number
   loop: boolean
+  fade_in_seconds: number
+  fade_out_seconds: number
+  source_offset_seconds: number
 }
 
 export interface Effect {

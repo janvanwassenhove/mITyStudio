@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onUnmounted, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { Asset, Effect, VoiceProfile } from '../api/types'
 import { useStudioStore } from '../stores/studio'
+import { usePlaybackStore } from '../stores/playback'
 
 const studio = useStudioStore()
+const playback = usePlaybackStore()
 
 const track = computed(() =>
   studio.project?.tracks.find((t) => t.id === studio.selectedTrackId) ?? null)
@@ -64,7 +66,8 @@ function pickPreset(p: { bank: number; program: number }) {
   save()
 }
 
-const EFFECT_TYPES = ['gain', 'pan', 'eq', 'compressor', 'reverb', 'delay', 'distortion']
+const EFFECT_TYPES = ['gain', 'pan', 'eq', 'compressor', 'reverb', 'delay',
+  'distortion', 'robot', 'telephone', 'chorus']
 const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
   gain: { gain_db: 0 },
   pan: { position: 0 },
@@ -73,6 +76,9 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
   reverb: { mix: 0.25, decay: 0.5 },
   delay: { time_seconds: 0.3, feedback: 0.35, mix: 0.3 },
   distortion: { drive: 3, mix: 1 },
+  robot: { carrier_hz: 55, mix: 1, crush: 0.15 },
+  telephone: { low_freq: 300, high_freq: 3400, drive: 1.5 },
+  chorus: { depth_ms: 8, rate_hz: 0.8, mix: 0.5 },
 }
 const newEffectType = ref('reverb')
 
@@ -91,6 +97,67 @@ function removeEffect(i: number) {
   track.value?.effects.effects.splice(i, 1)
   save()
 }
+
+// --- live vocal take: record mic → save as voice recording → clip on track ---
+const recording = ref(false)
+const recordSeconds = ref(0)
+const takeStatus = ref('')
+let mediaRecorder: MediaRecorder | null = null
+let chunks: Blob[] = []
+let recTimer: ReturnType<typeof setInterval> | null = null
+let takeStartSeconds = 0
+
+async function startTake() {
+  takeStatus.value = ''
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    chunks = []
+    takeStartSeconds = playback.playhead
+    mediaRecorder = new MediaRecorder(stream)
+    mediaRecorder.ondataavailable = (e) => chunks.push(e.data)
+    mediaRecorder.onstop = async () => {
+      stream.getTracks().forEach((s) => s.stop())
+      const blob = new Blob(chunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
+      const ext = (mediaRecorder?.mimeType || '').includes('ogg') ? 'ogg' : 'webm'
+      try {
+        const asset = await api.upload<Asset>('/voice/recordings/upload', blob,
+          `take-${track.value?.name ?? 'vocal'}-${Date.now()}.${ext}`,
+          { source: 'live_recording' })
+        const p = studio.project
+        const m = studio.manifest
+        if (p && m && track.value) {
+          const durationBeats = Math.max((recordSeconds.value * p.bpm) / 60, 1)
+          track.value.clips.push({
+            id: crypto.randomUUID().replace(/-/g, ''),
+            section_id: '', clip_type: 'sample',
+            start_beat: (takeStartSeconds * p.bpm) / 60,
+            duration_beats: durationBeats,
+            note_events: [], source_asset_id: asset.id, gain_db: 0, loop: false,
+            fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
+          })
+          await studio.saveProject()
+          takeStatus.value = 'take placed on track — render vocals to hear it in the mix'
+        }
+      } catch (e) {
+        takeStatus.value = String(e)
+      }
+    }
+    mediaRecorder.start()
+    recording.value = true
+    recordSeconds.value = 0
+    recTimer = setInterval(() => recordSeconds.value++, 1000)
+  } catch (e) {
+    takeStatus.value = 'Microphone unavailable: ' + String(e)
+  }
+}
+
+function stopTake() {
+  mediaRecorder?.stop()
+  recording.value = false
+  if (recTimer) clearInterval(recTimer)
+}
+
+onUnmounted(() => { if (recording.value) stopTake() })
 
 function removeTrack() {
   if (!studio.project || !track.value) return
@@ -146,10 +213,21 @@ loadLibraries()
           <select :value="track.voice_profile_id ?? ''"
                   @change="track.voice_profile_id = ($event.target as HTMLSelectElement).value || null; save()">
             <option value="">(none — formant engine default)</option>
-            <option v-for="p in profiles" :key="p.id" :value="p.id">{{ p.name }}</option>
+            <option v-for="p in profiles" :key="p.id" :value="p.id">{{ p.name }} — AI voice from recording</option>
           </select>
         </label>
-        <p class="dim small">Profiles require recorded consent and are only used when selected here.</p>
+        <p class="dim small">
+          With a consented profile, the vocal renders in that voice (pitch-shifted
+          from its source recording). Without one, the formant engine sings the vowels.
+        </p>
+        <div class="field">
+          <span>Record a take (live singing onto this track)</span>
+          <div class="rec-row">
+            <button v-if="!recording" @click="startTake">● Record take at playhead</button>
+            <button v-else class="rec-active" @click="stopTake">■ Stop ({{ recordSeconds }}s)</button>
+            <span class="dim small">{{ takeStatus }}</span>
+          </div>
+        </div>
       </template>
     </div>
 
@@ -199,4 +277,6 @@ h4 { margin: 0; }
 .param input { width: 90px; padding: 2px 6px; }
 .tiny-btn { padding: 0 6px; font-size: 11px; }
 .danger { border-color: var(--err); color: var(--err); margin-top: auto; }
+.rec-row { display: flex; gap: 8px; align-items: center; }
+.rec-active { background: var(--err); border-color: var(--err); color: #fff; }
 </style>

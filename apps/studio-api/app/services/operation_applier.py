@@ -171,6 +171,17 @@ def op_select_sample(project: SongProject, p: dict) -> str:
 
 def _generate(project: SongProject, p: dict, kind: str,
               default_track_type: str, gen: Callable) -> str:
+    # section "all"/"*" generates for every section in one operation
+    if str(p.get("section", "")).lower() in ("all", "*"):
+        if not project.sections:
+            raise OperationError("project has no sections yet")
+        summaries = []
+        for s in project.sections:
+            sub = dict(p)
+            sub["section"] = s.id
+            summaries.append(_generate(project, sub, kind,
+                                       default_track_type, gen))
+        return f"generated {kind} for all {len(project.sections)} sections"
     section = _find_section(project, p.get("section"))
     track_ref = p.get("track")
     track = None
@@ -295,7 +306,7 @@ def op_arrange_from_score(project: SongProject, p: dict) -> str:
 
 
 _EFFECT_TYPES = {"gain", "pan", "eq", "compressor", "reverb", "delay",
-                 "distortion"}
+                 "distortion", "robot", "telephone", "chorus"}
 
 
 def op_add_effect(project: SongProject, p: dict) -> str:

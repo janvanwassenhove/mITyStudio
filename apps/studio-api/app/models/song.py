@@ -18,7 +18,7 @@ VOCAL_TRACK_TYPES = {"lead_vocal", "backing_vocal"}
 ClipType = Literal["midi", "sample", "vocal"]
 
 EffectType = Literal["gain", "pan", "eq", "compressor", "reverb", "delay",
-                     "distortion"]
+                     "distortion", "robot", "telephone", "chorus"]
 
 _NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
@@ -65,6 +65,7 @@ class Clip(BaseModel):
     loop: bool = False
     fade_in_seconds: float = Field(default=0.0, ge=0)
     fade_out_seconds: float = Field(default=0.0, ge=0)
+    source_offset_seconds: float = Field(default=0.0, ge=0)  # skip into source (clip splitting)
 
     @model_validator(mode="after")
     def _check(self) -> "Clip":

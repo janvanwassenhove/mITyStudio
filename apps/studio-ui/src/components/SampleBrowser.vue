@@ -57,6 +57,7 @@ async function addToProject(hit: SearchHit, loop: boolean) {
     section_id: '', clip_type: 'sample',
     start_beat: startBeat, duration_beats: durationBeats,
     note_events: [], source_asset_id: hit.id, gain_db: 0, loop,
+    fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
   })
   await studio.saveProject()
   message.value = `Added ${hit.filename} ${loop ? '(looped)' : '(one-shot)'}`

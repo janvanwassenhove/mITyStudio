@@ -46,11 +46,23 @@ Requirements for a real engine adapter:
 - the **mock engine stays available as fallback** when the real engine or its
   dependencies are missing
 
-### v1 engine: MockSingingVoiceEngine
+### Engines
 
-Synthesizes a soft harmonic tone with vibrato per melody note — audible in
-mixes, correct timing, no cloning. Real voice synthesis is intentionally out
-of scope for v1.
+- **MockSingingVoiceEngine (formant)** — default. Formant-synthesized vowels
+  from lyric syllables with vibrato and consonant bursts. Clearly synthetic.
+- **RecordingVoiceEngine (AI voice from your recording)** — used automatically
+  when the vocal track has a **consented voice profile** with source
+  recordings: a voiced segment of the recording is pitch-shifted to every
+  melody note, so the vocal carries the recorded voice's timbre. Consent is
+  re-checked at render time; without a usable pitched recording it falls back
+  to the formant engine with a warning. No neural cloning is involved.
+
+### Recorded takes (live singing on a track)
+
+Vocal tracks can carry **sample clips** pointing at voice recordings — the
+Track inspector's "Record take" button records the microphone and drops the
+take at the playhead. Takes are mixed into the vocal stem at render time, so
+vocal effects (reverb, robot, telephone, chorus…) apply to them too.
 
 ## Lyrics alignment schema
 
