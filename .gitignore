@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Node
+node_modules/
+dist/
+
+# Local settings & secrets
+.env
+apps/studio-api/local_settings.json
+
+# Generated data (originals in scores/soundfonts/samples/voices are user assets;
+# large binaries and generated outputs are not tracked)
+analysis-cache/
+stems/
+exports/
+midi/
+soundfonts/*.sf2
+soundfonts/*.SF2
+soundfonts/*.sf3
+samples/*.wav
+samples/*.mp3
+samples/*.flac
+voices/recordings/*
+!voices/recordings/README.md
+projects/*/

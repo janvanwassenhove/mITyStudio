@@ -1,0 +1,54 @@
+:root {
+  --bg: #14161a;
+  --bg-panel: #1c1f26;
+  --bg-elevated: #252932;
+  --border: #31363f;
+  --text: #e6e8ec;
+  --text-dim: #9aa1ad;
+  --accent: #4f9cf9;
+  --accent-2: #9d6ff2;
+  --ok: #3ecf8e;
+  --warn: #f5a623;
+  --err: #f2555a;
+  font-family: 'Segoe UI', system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #app {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+}
+
+button {
+  background: var(--bg-elevated);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: 13px;
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+input, select, textarea {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+input:focus, select:focus, textarea:focus { outline: 1px solid var(--accent); }
+
+.panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.dim { color: var(--text-dim); }
