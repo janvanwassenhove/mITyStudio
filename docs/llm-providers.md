@@ -30,15 +30,25 @@ Set provider to *Custom*, then:
 The custom provider sends `response_format: json_object` when the server
 supports it and falls back gracefully when it doesn't.
 
-## Key storage
+## Key storage & environment variables
 
-- Keys are stored **per provider** in `local_settings.json` at the workspace
+Key lookup order (per provider): **stored key → environment variables**.
+
+- Stored keys live **per provider** in `local_settings.json` at the workspace
   root (git-ignored). Switching providers keeps other keys intact; saving an
   empty key clears that provider's stored key.
-- Environment variables work as fallback: `ANTHROPIC_API_KEY`,
-  `OPENAI_API_KEY`, `MITY_LLM_API_KEY`.
-- The API never returns keys — `GET /api/settings/llm` only reports
-  `api_keys_set: {anthropic: bool, openai: bool, custom: bool}`.
+- Provider env vars: `ANTHROPIC_API_KEY` / `CLAUDE_API_KEY` (anthropic),
+  `OPENAI_API_KEY` (openai), `MITY_LLM_API_KEY` (generic fallback for all).
+- The **custom** provider also auto-detects the conventional env var for the
+  service its base URL points at: `OPENROUTER_API_KEY`, `GROQ_API_KEY`,
+  `MISTRAL_API_KEY`, `DEEPSEEK_API_KEY`, `TOGETHER_API_KEY`,
+  `GEMINI_API_KEY` (googleapis URLs), `CEREBRAS_API_KEY`, `XAI_API_KEY`,
+  `PERPLEXITY_API_KEY`, `FIREWORKS_API_KEY`. Point the base URL at
+  OpenRouter and your existing `OPENROUTER_API_KEY` just works — no
+  copy-pasting keys.
+- The API never returns key values — `GET /api/settings/llm` reports
+  `api_keys_set` (booleans) and `api_key_sources` (`"stored"` or the env var
+  name), which the Settings UI displays per provider.
 
 ## Endpoints
 

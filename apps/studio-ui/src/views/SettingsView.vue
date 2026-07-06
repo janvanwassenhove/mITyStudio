@@ -10,6 +10,7 @@ interface LlmSettings {
   max_tokens: number
   providers: string[]
   api_keys_set: Record<string, boolean>
+  api_key_sources: Record<string, string | null>
   api_key_set: boolean
 }
 
@@ -35,6 +36,13 @@ const needsKey = computed(() => settings.value != null && settings.value.provide
 const needsUrl = computed(() => settings.value?.provider === 'custom')
 const keySet = computed(() =>
   settings.value?.api_keys_set?.[settings.value.provider] ?? false)
+const keySource = computed(() =>
+  settings.value?.api_key_sources?.[settings.value.provider] ?? null)
+const keyStatusText = computed(() => {
+  if (!keySet.value) return '○ no key found'
+  if (keySource.value === 'stored') return '● key stored in local_settings.json'
+  return `● using key from environment variable ${keySource.value}`
+})
 
 async function load() {
   settings.value = await api.get<LlmSettings>('/settings/llm')
@@ -108,11 +116,11 @@ onMounted(load)
       <label v-if="needsKey">
         API key
         <span class="key-status" :class="{ set: keySet }">
-          {{ keySet ? '● key stored for this provider' : '○ no key stored' }}
-          <template v-if="info.keyEnv"> · env fallback: {{ info.keyEnv }}</template>
+          {{ keyStatusText }}
+          <template v-if="!keySet && info.keyEnv"> · also checks env var {{ info.keyEnv }}</template>
         </span>
         <input v-model="apiKey" type="password"
-               :placeholder="keySet ? '•••••• (enter to replace, blank keeps current)' : settings.provider === 'custom' ? 'optional for local servers like Ollama' : 'paste API key'" />
+               :placeholder="keySet ? '•••••• (enter to replace, blank keeps current)' : settings.provider === 'custom' ? 'optional — env vars and local servers work without one' : 'paste API key'" />
       </label>
       <div class="row2">
         <label>Temperature
@@ -128,9 +136,10 @@ onMounted(load)
         <span class="dim small">{{ testResult }}</span>
       </div>
       <div class="dim tiny keys-overview">
-        Stored keys:
-        <span v-for="(set, p) in settings.api_keys_set" :key="p" class="key-chip" :class="{ set }">
-          {{ p }} {{ set ? '✓' : '—' }}
+        Keys found:
+        <span v-for="(set, p) in settings.api_keys_set" :key="p" class="key-chip" :class="{ set }"
+              :title="settings.api_key_sources[p] ? `source: ${settings.api_key_sources[p]}` : 'no key stored or in environment'">
+          {{ p }} {{ set ? (settings.api_key_sources[p] === 'stored' ? '✓ file' : '✓ env') : '—' }}
         </span>
       </div>
     </div>

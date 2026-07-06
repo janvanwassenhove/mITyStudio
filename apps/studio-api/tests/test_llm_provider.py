@@ -113,6 +113,60 @@ def test_openai_provider_key_and_url_rules(workspace, monkeypatch):
     assert type(get_provider(LlmSettings(provider="mock"))).__name__ == "MockLlmProvider"
 
 
+def test_env_var_key_detection(workspace, monkeypatch):
+    from app.services.llm.settings import get_api_key, key_source
+
+    for env in ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "OPENAI_API_KEY",
+                "OPENROUTER_API_KEY", "GEMINI_API_KEY", "MITY_LLM_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+
+    # provider-specific env vars
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env-openai")
+    assert key_source("openai") == "OPENAI_API_KEY"
+    assert get_api_key("openai") == "sk-env-openai"
+    assert key_source("anthropic") is None
+
+    monkeypatch.setenv("CLAUDE_API_KEY", "sk-env-claude")
+    assert key_source("anthropic") == "CLAUDE_API_KEY"
+
+    # domain-matched env var for the custom provider
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-env-or")
+    assert key_source("custom", "https://openrouter.ai/api/v1") == "OPENROUTER_API_KEY"
+    assert get_api_key("custom", "https://openrouter.ai/api/v1") == "sk-env-or"
+    monkeypatch.setenv("GEMINI_API_KEY", "sk-env-gem")
+    assert key_source(
+        "custom",
+        "https://generativelanguage.googleapis.com/v1beta/openai/") == "GEMINI_API_KEY"
+    # unrelated base_url does not leak another provider's key
+    assert key_source("custom", "http://localhost:11434/v1") is None
+
+    # stored key always wins over env
+    from app.services.llm.settings import store_api_key
+    store_api_key("openai", "sk-stored")
+    assert key_source("openai") == "stored"
+    assert get_api_key("openai") == "sk-stored"
+
+
+def test_settings_endpoint_reports_key_sources(client, workspace, monkeypatch):
+    for env in ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY", "OPENAI_API_KEY",
+                "OPENROUTER_API_KEY", "MITY_LLM_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-env")
+
+    s = client.get("/api/settings/llm").json()
+    assert s["api_key_sources"]["openai"] == "OPENAI_API_KEY"
+    assert s["api_key_sources"]["anthropic"] is None
+    assert "sk-env" not in str(s)
+
+    # base_url-aware: saving a custom provider with an OpenRouter URL
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or")
+    s = client.put("/api/settings/llm", json={
+        "provider": "custom", "model": "meta-llama/llama-3-70b",
+        "base_url": "https://openrouter.ai/api/v1"}).json()
+    assert s["api_key_sources"]["custom"] == "OPENROUTER_API_KEY"
+    assert s["api_key_set"] is True
+
+
 def test_openai_provider_plan_parses_response(workspace, monkeypatch):
     """plan() path with a stubbed OpenAI client — no network."""
     from app.services.llm.provider import OpenAIProvider

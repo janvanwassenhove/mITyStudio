@@ -23,7 +23,8 @@ def _public(s: LlmSettings) -> dict:
     return {"provider": s.provider, "model": s.model, "base_url": s.base_url,
             "temperature": s.temperature, "max_tokens": s.max_tokens,
             "providers": list(PROVIDERS),
-            "api_keys_set": llm_settings.api_keys_set(),
+            "api_keys_set": llm_settings.api_keys_set(s.base_url),
+            "api_key_sources": llm_settings.api_key_sources(s.base_url),
             "api_key_set": llm_settings.api_key_is_set(s.provider)}
 
 

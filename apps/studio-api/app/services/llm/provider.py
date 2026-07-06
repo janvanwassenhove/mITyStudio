@@ -101,8 +101,8 @@ class OpenAIProvider(LlmProvider):
         except ImportError as e:
             raise LlmProviderError(
                 "the 'openai' package is not installed (pip install openai)") from e
-        key = get_api_key(self.provider_key)
         base_url = self.settings.base_url.strip() or None
+        key = get_api_key(self.provider_key, base_url or "")
         if self.provider_key == "custom" and not base_url:
             raise LlmProviderError(
                 "the custom provider needs a base URL "

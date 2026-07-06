@@ -24,10 +24,25 @@ from ...db import get_db
 PROVIDERS = ("mock", "anthropic", "openai", "custom")
 
 _ENV_KEYS = {
-    "anthropic": ("ANTHROPIC_API_KEY",),
+    "anthropic": ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY"),
     "openai": ("OPENAI_API_KEY",),
     "custom": ("MITY_LLM_API_KEY",),
 }
+
+# for the custom provider: base_url substring → conventional env var name
+_DOMAIN_ENV_KEYS = (
+    ("openrouter", "OPENROUTER_API_KEY"),
+    ("groq", "GROQ_API_KEY"),
+    ("mistral", "MISTRAL_API_KEY"),
+    ("deepseek", "DEEPSEEK_API_KEY"),
+    ("together", "TOGETHER_API_KEY"),
+    ("generativelanguage", "GEMINI_API_KEY"),
+    ("googleapis", "GEMINI_API_KEY"),
+    ("cerebras", "CEREBRAS_API_KEY"),
+    ("x.ai", "XAI_API_KEY"),
+    ("perplexity", "PERPLEXITY_API_KEY"),
+    ("fireworks", "FIREWORKS_API_KEY"),
+)
 
 _DEFAULT_MODELS = {
     "mock": "mock",
@@ -92,22 +107,56 @@ def store_api_key(provider: str, key: str) -> None:
     _save_secrets(secrets)
 
 
-def get_api_key(provider: str) -> str | None:
+def _domain_env_var(base_url: str) -> str | None:
+    url = base_url.lower()
+    if not url:
+        return None
+    for needle, env in _DOMAIN_ENV_KEYS:
+        if needle in url:
+            return env
+    return None
+
+
+def key_source(provider: str, base_url: str = "") -> str | None:
+    """Where the key for a provider comes from:
+    'stored', an environment variable name, or None."""
     secrets = _local_secrets()
-    keys = secrets.get("llm_api_keys", {})
-    if keys.get(provider):
-        return keys[provider]
-    # legacy single-key field (pre multi-provider)
-    if secrets.get("llm_api_key"):
-        return secrets["llm_api_key"]
+    if secrets.get("llm_api_keys", {}).get(provider):
+        return "stored"
+    if secrets.get("llm_api_key"):   # legacy single-key field
+        return "stored"
     for env in _ENV_KEYS.get(provider, ()):
         if os.environ.get(env):
-            return os.environ[env]
-    return os.environ.get("MITY_LLM_API_KEY")
+            return env
+    if provider == "custom":
+        env = _domain_env_var(base_url)
+        if env and os.environ.get(env):
+            return env
+    if os.environ.get("MITY_LLM_API_KEY"):
+        return "MITY_LLM_API_KEY"
+    return None
 
 
-def api_keys_set() -> dict[str, bool]:
-    return {p: bool(get_api_key(p)) for p in PROVIDERS if p != "mock"}
+def get_api_key(provider: str, base_url: str = "") -> str | None:
+    if not base_url and provider == "custom":
+        base_url = load_settings().base_url
+    source = key_source(provider, base_url)
+    if source is None:
+        return None
+    if source == "stored":
+        secrets = _local_secrets()
+        return (secrets.get("llm_api_keys", {}).get(provider)
+                or secrets.get("llm_api_key"))
+    return os.environ.get(source)
+
+
+def api_keys_set(base_url: str = "") -> dict[str, bool]:
+    return {p: key_source(p, base_url) is not None
+            for p in PROVIDERS if p != "mock"}
+
+
+def api_key_sources(base_url: str = "") -> dict[str, str | None]:
+    return {p: key_source(p, base_url) for p in PROVIDERS if p != "mock"}
 
 
 def api_key_is_set(provider: str | None = None) -> bool:
@@ -115,4 +164,4 @@ def api_key_is_set(provider: str | None = None) -> bool:
         provider = load_settings().provider
     if provider == "mock":
         return True
-    return bool(get_api_key(provider))
+    return key_source(provider, load_settings().base_url) is not None
