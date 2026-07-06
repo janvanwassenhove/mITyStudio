@@ -1,0 +1,399 @@
+"""OperationApplier: validates and applies ChatOperations to a SongProject.
+
+Referential rules enforced here:
+- soundfonts, samples and voice profiles must exist in the registry
+  (the LLM cannot invent assets)
+- sections/tracks referenced by id or name must exist
+"""
+from __future__ import annotations
+
+import logging
+from typing import Callable
+
+from ..models.operations import ChatOperation, OperationResult
+from ..models.song import (Clip, Effect, LyricsLine, Section, SongProject,
+                           Track, INSTRUMENT_TRACK_TYPES)
+from . import asset_repo, music_gen
+
+log = logging.getLogger(__name__)
+
+
+class OperationError(Exception):
+    pass
+
+
+def _find_section(project: SongProject, ref: str | None) -> Section:
+    if not project.sections:
+        raise OperationError("project has no sections yet — add a section first")
+    if ref is None:
+        return project.sections[-1]
+    for s in project.sections:
+        if s.id == ref or s.name.lower() == str(ref).lower():
+            return s
+    raise OperationError(f"section {ref!r} not found")
+
+
+def _find_track(project: SongProject, ref: str) -> Track:
+    for t in project.tracks:
+        if t.id == ref or t.name.lower() == str(ref).lower():
+            return t
+    raise OperationError(f"track {ref!r} not found")
+
+
+def _require_asset(asset_id: str, expected_type: str):
+    asset = asset_repo.get_asset(asset_id)
+    if asset is None:
+        raise OperationError(f"asset {asset_id} does not exist")
+    if asset.asset_type != expected_type:
+        raise OperationError(
+            f"asset {asset.filename!r} is {asset.asset_type}, expected {expected_type}")
+    if asset.is_missing:
+        raise OperationError(f"asset file {asset.filename!r} is missing on disk")
+    return asset
+
+
+def _next_start_bar(project: SongProject) -> int:
+    return max((s.start_bar + s.length_bars for s in project.sections), default=0)
+
+
+# --- operation handlers ---------------------------------------------------
+
+def op_create_song(project: SongProject, p: dict) -> str:
+    project.title = p.get("title", project.title)
+    project.style = p.get("style", project.style)
+    if "bpm" in p:
+        project.bpm = float(p["bpm"])
+    if "key" in p:
+        project.key = str(p["key"])
+    if "time_signature" in p:
+        project.time_signature = str(p["time_signature"])
+    return (f"song set up: {project.title!r}, style={project.style or 'n/a'}, "
+            f"{project.bpm:g} BPM, {project.key}")
+
+
+def op_add_section(project: SongProject, p: dict) -> str:
+    name = p.get("name") or f"Section {len(project.sections) + 1}"
+    section = Section(
+        name=name,
+        start_bar=int(p.get("start_bar", _next_start_bar(project))),
+        length_bars=int(p.get("length_bars", 8)),
+        energy=float(p.get("energy", 0.5)),
+        description=p.get("description", ""))
+    project.sections.append(section)
+    return f"added section {name!r} ({section.length_bars} bars at bar {section.start_bar})"
+
+
+def op_update_section(project: SongProject, p: dict) -> str:
+    s = _find_section(project, p.get("section"))
+    for field in ("name", "length_bars", "start_bar", "energy", "description"):
+        if field in p:
+            setattr(s, field, p[field])
+    return f"updated section {s.name!r}"
+
+
+def op_add_track(project: SongProject, p: dict) -> str:
+    track_type = p.get("track_type", "keys")
+    name = p.get("name") or track_type.replace("_", " ").title()
+    track = Track(name=name, track_type=track_type)
+    if p.get("soundfont_asset_id"):
+        _require_asset(p["soundfont_asset_id"], "soundfont")
+        track.instrument_config.soundfont_asset_id = p["soundfont_asset_id"]
+    if "program" in p:
+        track.instrument_config.program = int(p["program"])
+    track.instrument_config.is_drum_kit = track_type == "drums"
+    project.tracks.append(track)
+    return f"added {track_type} track {name!r}"
+
+
+def op_remove_track(project: SongProject, p: dict) -> str:
+    t = _find_track(project, p.get("track", ""))
+    project.tracks = [x for x in project.tracks if x.id != t.id]
+    return f"removed track {t.name!r}"
+
+
+def op_assign_soundfont(project: SongProject, p: dict) -> str:
+    t = _find_track(project, p.get("track", ""))
+    asset = _require_asset(p.get("soundfont_asset_id", ""), "soundfont")
+    t.instrument_config.soundfont_asset_id = asset.id
+    if "program" in p:
+        t.instrument_config.program = int(p["program"])
+    return f"assigned soundfont {asset.filename!r} to track {t.name!r}"
+
+
+def op_select_sample(project: SongProject, p: dict) -> str:
+    asset = _require_asset(p.get("sample_asset_id", ""), "sample")
+    track_ref = p.get("track")
+    if track_ref:
+        track = _find_track(project, track_ref)
+        if track.track_type != "sample":
+            raise OperationError(f"track {track.name!r} is not a sample track")
+    else:
+        track = Track(name=p.get("track_name") or asset.filename.rsplit(".", 1)[0],
+                      track_type="sample")
+        project.tracks.append(track)
+    bpb = project.beats_per_bar
+    section = _find_section(project, p.get("section")) if project.sections else None
+    start_beat = float(p.get("start_beat",
+                             section.start_bar * bpb if section else 0.0))
+    duration = float(p.get("duration_beats",
+                           section.length_bars * bpb if section else bpb * 4))
+    track.clips.append(Clip(
+        section_id=section.id if section else "",
+        clip_type="sample", start_beat=start_beat, duration_beats=duration,
+        source_asset_id=asset.id, loop=bool(p.get("loop", False)),
+        gain_db=float(p.get("gain_db", 0.0))))
+    return f"placed sample {asset.filename!r} on track {track.name!r} at beat {start_beat:g}"
+
+
+def _generate(project: SongProject, p: dict, kind: str,
+              default_track_type: str, gen: Callable) -> str:
+    section = _find_section(project, p.get("section"))
+    track_ref = p.get("track")
+    track = None
+    if track_ref:
+        try:
+            track = _find_track(project, track_ref)
+        except OperationError:
+            track = Track(name=str(track_ref), track_type=default_track_type)
+            track.instrument_config.is_drum_kit = default_track_type == "drums"
+            project.tracks.append(track)
+    else:
+        track = next((t for t in project.tracks
+                      if t.track_type == default_track_type), None)
+    if track is None:
+        track = Track(name=default_track_type.title(),
+                      track_type=default_track_type)
+        track.instrument_config.is_drum_kit = default_track_type == "drums"
+        project.tracks.append(track)
+    clip = gen(project, section)
+    # replace an existing generated clip for the same section
+    track.clips = [c for c in track.clips if c.section_id != section.id]
+    track.clips.append(clip)
+    return (f"generated {kind} for section {section.name!r} on track "
+            f"{track.name!r} ({len(clip.note_events)} notes)")
+
+
+def op_generate_drums(project: SongProject, p: dict) -> str:
+    return _generate(project, p, "drums", "drums", music_gen.generate_drums)
+
+
+def op_generate_bassline(project: SongProject, p: dict) -> str:
+    return _generate(project, p, "bassline", "bass", music_gen.generate_bassline)
+
+
+def op_generate_chords(project: SongProject, p: dict) -> str:
+    default = p.get("track_type", "guitar" if project.style.lower() in
+                    ("punk", "rock", "metal") else "keys")
+    return _generate(project, p, "chords", default, music_gen.generate_chords)
+
+
+def op_generate_melody(project: SongProject, p: dict) -> str:
+    section = _find_section(project, p.get("section"))
+    lines = [l.text for l in project.lyrics.lines
+             if l.section_id == section.id] or None
+
+    def gen(proj, sec):
+        return music_gen.generate_melody(proj, sec, lines)
+    track_type = p.get("track_type", "lead_vocal" if lines else "synth")
+    return _generate(project, p, "melody", track_type, gen)
+
+
+def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
+    lines = p.get("lines")
+    if not isinstance(lines, list) or not lines:
+        raise OperationError("rewrite_lyrics requires a non-empty 'lines' list")
+    section = _find_section(project, p.get("section")) if project.sections else None
+    section_id = section.id if section else ""
+    project.lyrics.lines = [l for l in project.lyrics.lines
+                            if l.section_id != section_id]
+    for text in lines:
+        project.lyrics.lines.append(LyricsLine(section_id=section_id,
+                                               text=str(text)))
+    if "language" in p:
+        project.lyrics.language = str(p["language"])
+    where = f" for section {section.name!r}" if section else ""
+    return f"set {len(lines)} lyric line(s){where}"
+
+
+def op_change_key(project: SongProject, p: dict) -> str:
+    key = p.get("key")
+    if not key:
+        raise OperationError("change_key requires 'key'")
+    project.key = str(key)
+    return f"changed key to {project.key}"
+
+
+def op_change_tempo(project: SongProject, p: dict) -> str:
+    bpm = p.get("bpm")
+    if bpm is None:
+        raise OperationError("change_tempo requires 'bpm'")
+    if isinstance(bpm, str) and bpm.strip().startswith(("+", "-")):
+        bpm = project.bpm + float(bpm)   # relative change, e.g. "+15"
+    else:
+        bpm = float(bpm)
+    if not 20 < bpm < 400:
+        raise OperationError(f"bpm {bpm} out of range (20-400)")
+    project.bpm = bpm
+    return f"changed tempo to {bpm:g} BPM"
+
+
+def op_import_score(project: SongProject, p: dict) -> str:
+    from . import score_import
+    asset = _require_asset(p.get("score_asset_id", ""), "score")
+    result = score_import.import_score(asset)
+    if not result.supported:
+        raise OperationError("; ".join(result.warnings))
+    p["_import_result"] = result  # available for arrange_from_score
+    return (f"imported score {asset.filename!r}: "
+            f"{len(result.detected_tracks)} tracks, "
+            f"tempo {result.detected_tempo or 'unknown'}")
+
+
+def op_arrange_from_score(project: SongProject, p: dict) -> str:
+    from . import score_import
+    asset = _require_asset(p.get("score_asset_id", ""), "score")
+    result = p.get("_import_result") or score_import.import_score(asset)
+    if not result.supported or not result.detected_tracks:
+        raise OperationError(
+            f"score {asset.filename!r} cannot be arranged: "
+            + "; ".join(result.warnings))
+    imported = score_import.project_from_import(result, project.title,
+                                                project.style)
+    project.bpm = imported.bpm
+    project.time_signature = imported.time_signature
+    project.key = imported.key
+    project.sections = imported.sections
+    project.tracks = imported.tracks
+    if asset.id not in project.source_assets:
+        project.source_assets.append(asset.id)
+    return (f"arranged project from {asset.filename!r} "
+            f"({len(project.tracks)} tracks)")
+
+
+_EFFECT_TYPES = {"gain", "pan", "eq", "compressor", "reverb", "delay",
+                 "distortion"}
+
+
+def op_add_effect(project: SongProject, p: dict) -> str:
+    t = _find_track(project, p.get("track", ""))
+    etype = p.get("effect_type")
+    if etype not in _EFFECT_TYPES:
+        raise OperationError(f"unknown effect type {etype!r} "
+                             f"(supported: {sorted(_EFFECT_TYPES)})")
+    params = p.get("params", {})
+    if not isinstance(params, dict):
+        raise OperationError("'params' must be an object")
+    t.effects.effects.append(Effect(effect_type=etype, params={
+        k: float(v) for k, v in params.items()}))
+    return f"added {etype} effect to track {t.name!r}"
+
+
+def op_update_effect(project: SongProject, p: dict) -> str:
+    t = _find_track(project, p.get("track", ""))
+    ref = p.get("effect_id") or p.get("effect_type")
+    for e in t.effects.effects:
+        if e.id == ref or e.effect_type == ref:
+            if "params" in p:
+                e.params.update({k: float(v) for k, v in p["params"].items()})
+            if "enabled" in p:
+                e.enabled = bool(p["enabled"])
+            return f"updated {e.effect_type} effect on track {t.name!r}"
+    raise OperationError(f"effect {ref!r} not found on track {t.name!r}")
+
+
+def op_create_vocal_track(project: SongProject, p: dict) -> str:
+    track_type = p.get("track_type", "lead_vocal")
+    if track_type not in ("lead_vocal", "backing_vocal"):
+        raise OperationError("track_type must be lead_vocal or backing_vocal")
+    name = p.get("name") or ("Lead Vocal" if track_type == "lead_vocal"
+                             else "Backing Vocal")
+    track = Track(name=name, track_type=track_type)
+    if p.get("voice_profile_id"):
+        from . import voice_profiles
+        profile = voice_profiles.get_profile(p["voice_profile_id"])
+        if profile is None:
+            raise OperationError(f"voice profile {p['voice_profile_id']} does not exist")
+        track.voice_profile_id = profile.id
+    project.tracks.append(track)
+    return f"created vocal track {name!r}"
+
+
+def op_assign_voice_profile(project: SongProject, p: dict) -> str:
+    from . import voice_profiles
+    t = _find_track(project, p.get("track", ""))
+    if t.track_type not in ("lead_vocal", "backing_vocal"):
+        raise OperationError(f"track {t.name!r} is not a vocal track")
+    profile = voice_profiles.get_profile(p.get("voice_profile_id", ""))
+    if profile is None:
+        raise OperationError("voice profile does not exist")
+    if not profile.consent_confirmed:
+        raise OperationError("voice profile has no confirmed consent")
+    t.voice_profile_id = profile.id
+    return f"assigned voice profile {profile.name!r} to track {t.name!r}"
+
+
+def op_render_stems(project: SongProject, p: dict) -> str:
+    # rendering is executed by the render endpoints; from chat we only flag it
+    project.render_status = "render_requested"
+    return "stem rendering requested — use the Export panel or render endpoints"
+
+
+def op_render_mix(project: SongProject, p: dict) -> str:
+    project.render_status = "mix_requested"
+    return "mix export requested — use the Export panel or export endpoint"
+
+
+_HANDLERS: dict[str, Callable[[SongProject, dict], str]] = {
+    "create_song": op_create_song,
+    "add_section": op_add_section,
+    "update_section": op_update_section,
+    "add_track": op_add_track,
+    "remove_track": op_remove_track,
+    "assign_soundfont": op_assign_soundfont,
+    "select_sample": op_select_sample,
+    "generate_chords": op_generate_chords,
+    "generate_melody": op_generate_melody,
+    "generate_drums": op_generate_drums,
+    "generate_bassline": op_generate_bassline,
+    "rewrite_lyrics": op_rewrite_lyrics,
+    "change_key": op_change_key,
+    "change_tempo": op_change_tempo,
+    "import_score": op_import_score,
+    "arrange_from_score": op_arrange_from_score,
+    "add_effect": op_add_effect,
+    "update_effect": op_update_effect,
+    "create_vocal_track": op_create_vocal_track,
+    "assign_voice_profile": op_assign_voice_profile,
+    "render_stems": op_render_stems,
+    "render_mix": op_render_mix,
+}
+
+
+def apply_operations(project: SongProject,
+                     operations: list[ChatOperation]) -> list[OperationResult]:
+    """Apply operations in order. Each op is validated against a working copy
+    so a failing op never leaves the project half-modified."""
+    results: list[OperationResult] = []
+    for op in operations:
+        handler = _HANDLERS.get(op.op_type)
+        if handler is None:
+            results.append(OperationResult(op_type=op.op_type, summary="",
+                                           applied=False,
+                                           error=f"unknown operation {op.op_type!r}"))
+            continue
+        snapshot = project.model_copy(deep=True)
+        try:
+            summary = handler(project, dict(op.params))
+            SongProject.model_validate(project.model_dump())  # re-validate
+            results.append(OperationResult(op_type=op.op_type,
+                                           summary=summary, applied=True))
+        except (OperationError, ValueError) as e:
+            project.sections = snapshot.sections
+            project.tracks = snapshot.tracks
+            project.lyrics = snapshot.lyrics
+            project.bpm, project.key = snapshot.bpm, snapshot.key
+            project.title, project.style = snapshot.title, snapshot.style
+            project.time_signature = snapshot.time_signature
+            results.append(OperationResult(op_type=op.op_type, summary="",
+                                           applied=False, error=str(e)))
+    return results
