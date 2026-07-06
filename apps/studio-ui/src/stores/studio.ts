@@ -8,8 +8,16 @@ export const useStudioStore = defineStore('studio', () => {
   const project = ref<SongProject | null>(null)
   const manifest = ref<PlaybackManifest | null>(null)
   const selectedTrackId = ref<string | null>(null)
+  const selectedClip = ref<{ trackId: string; clipId: string } | null>(null)
+  const editorRequest = ref(0)   // bumped to open the clip editor tab
   const loading = ref(false)
   const error = ref('')
+
+  function openClipEditor(trackId: string, clipId: string) {
+    selectedTrackId.value = trackId
+    selectedClip.value = { trackId, clipId }
+    editorRequest.value++
+  }
 
   async function refreshProjects() {
     projects.value = await api.get<ProjectSummary[]>('/projects')
@@ -46,7 +54,8 @@ export const useStudioStore = defineStore('studio', () => {
   }
 
   return {
-    projects, project, manifest, selectedTrackId, loading, error,
+    projects, project, manifest, selectedTrackId, selectedClip, editorRequest,
+    loading, error, openClipEditor,
     refreshProjects, openProject, reloadCurrent, createProject, saveProject,
   }
 })

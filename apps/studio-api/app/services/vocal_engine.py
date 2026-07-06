@@ -80,22 +80,34 @@ class MockSingingVoiceEngine(SingingVoiceEngine):
         notes_rendered = 0
         rng = np.random.default_rng(hash(track.id) & 0xFFFFFFFF)
 
+        seq: list[tuple[float, float, "object"]] = []
         for clip in track.clips:
             if clip.clip_type == "sample":
                 continue
             for n in clip.note_events:
                 t0 = timing.beats_to_seconds(project, clip.start_beat + n.start_beat)
                 dur = timing.beats_to_seconds(project, n.duration_beats)
+                seq.append((t0, dur, n))
+        seq.sort(key=lambda x: x[0])
+        prev_f0: float | None = None
+        prev_end = -1.0
+        for t0, dur, n in seq:
                 i0 = int(t0 * SAMPLE_RATE)
                 count = min(int(dur * SAMPLE_RATE), total - i0)
                 if count <= 0:
                     continue
                 t = np.arange(count) / SAMPLE_RATE
                 f0 = _note_freq(n.midi_note)
-                # pitch: slight scoop into the note + 5.5 Hz vibrato
-                scoop = 1 - 0.03 * np.exp(-t / 0.05)
+                # legato portamento from the previous note, else scoop in
+                if prev_f0 is not None and t0 - prev_end < 0.06:
+                    glide = min(0.06, dur * 0.3)
+                    scoop = 1 + (prev_f0 / f0 - 1) * np.exp(-t / max(glide, 1e-3))
+                else:
+                    scoop = 1 - 0.03 * np.exp(-t / 0.05)
                 vib_depth = 0.008 * np.minimum(t / 0.25, 1.0)  # delayed vibrato
                 freq = f0 * scoop * (1 + vib_depth * np.sin(2 * np.pi * 5.5 * t))
+                prev_f0 = f0
+                prev_end = t0 + dur
                 phase = 2 * np.pi * np.cumsum(freq) / SAMPLE_RATE
 
                 # glottal-ish source: harmonics shaped by vowel formants
@@ -289,28 +301,53 @@ class RecordingVoiceEngine(SingingVoiceEngine):
         total = max(int(project.duration_seconds() * SAMPLE_RATE), SAMPLE_RATE)
         out = np.zeros(total, dtype=np.float32)
         notes_rendered = 0
+        # gather notes in time order for portamento/legato context
+        seq: list[tuple[float, float, "object"]] = []
         for clip in track.clips:
             if clip.clip_type == "sample":
                 continue
             for n in clip.note_events:
                 t0 = timing.beats_to_seconds(project, clip.start_beat + n.start_beat)
                 dur = timing.beats_to_seconds(project, n.duration_beats)
-                i0 = int(t0 * SAMPLE_RATE)
-                count = min(int(dur * SAMPLE_RATE), total - i0)
-                if count <= 0:
-                    continue
-                # pitch shift by resampling: ratio > 1 → higher pitch
-                ratio = _note_freq(n.midi_note) / src_freq
-                ratio *= src_rate / SAMPLE_RATE
-                idx = np.arange(count) * ratio
-                tile = np.take(seg, (idx.astype(np.int64)) % len(seg))
-                attack = min(int(0.015 * SAMPLE_RATE), count)
-                release = min(int(0.05 * SAMPLE_RATE), max(count - attack, 1))
-                env = np.ones(count, dtype=np.float32)
-                env[:attack] = np.linspace(0, 1, attack)
-                env[-release:] *= np.linspace(1, 0, release)
-                out[i0:i0 + count] += tile * env * (n.velocity / 127) * 0.9
-                notes_rendered += 1
+                seq.append((t0, dur, n))
+        seq.sort(key=lambda x: x[0])
+
+        prev_freq: float | None = None
+        prev_end = -1.0
+        L = len(seg)
+        for t0, dur, n in seq:
+            i0 = int(t0 * SAMPLE_RATE)
+            count = min(int(dur * SAMPLE_RATE), total - i0)
+            if count <= 0:
+                continue
+            target = _note_freq(n.midi_note)
+            t = np.arange(count) / SAMPLE_RATE
+            # portamento: glide from the previous note when legato (<60 ms gap)
+            if prev_freq is not None and t0 - prev_end < 0.06:
+                glide = min(0.07, dur * 0.3)
+                freq = target + (prev_freq - target) * np.exp(-t / max(glide, 1e-3))
+            else:
+                freq = target * (1 - 0.04 * np.exp(-t / 0.04))  # scoop in
+            # delayed vibrato
+            vib = 1 + (0.009 * np.minimum(t / 0.3, 1.0)
+                       * np.sin(2 * np.pi * 5.3 * t))
+            ratio = (freq * vib / src_freq) * (src_rate / SAMPLE_RATE)
+            # ping-pong (mirror) read: no loop-seam clicks
+            phase = np.cumsum(ratio)
+            m = np.mod(phase, 2 * L)
+            idx = np.where(m < L, m, 2 * L - 1 - m).astype(np.int64)
+            tile = np.take(seg, np.clip(idx, 0, L - 1))
+            attack = min(int(0.015 * SAMPLE_RATE), count)
+            release = min(int(0.05 * SAMPLE_RATE), max(count - attack, 1))
+            env = np.ones(count, dtype=np.float32)
+            env[:attack] = np.linspace(0, 1, attack)
+            env[-release:] *= np.linspace(1, 0, release)
+            # gentle phrase dynamics
+            env *= 0.85 + 0.15 * np.sin(np.pi * np.minimum(t / max(dur, 1e-3), 1.0))
+            out[i0:i0 + count] += tile * env * (n.velocity / 127) * 0.9
+            prev_freq = target
+            prev_end = t0 + dur
+            notes_rendered += 1
 
         peak = float(np.max(np.abs(out))) if out.size else 0.0
         if peak > 1.0:

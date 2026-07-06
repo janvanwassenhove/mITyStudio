@@ -43,6 +43,23 @@ never crashes.
 
 FluidSynth invocation: `fluidsynth -ni -g 0.7 -r 44100 -F out.wav font.sf2 in.mid`
 
+`soundfonts/MuseScore_General.sf3` (free, MIT-licensed, ships with MuseScore)
+is included as the General MIDI reference bank — it gives every track type a
+solid default preset. `.sf3` works because FluidSynth decompresses it on load.
+
+### Why SoundFonts (and what would be "better")
+
+SoundFonts + FluidSynth are the right v1 choice for a local-first studio:
+free, offline, instant, cover all GM instruments, and the user can drop in
+higher-quality banks at any time. The upgrade paths, in order of effort:
+1. **Better SoundFonts** — commercial/free .sf2 banks per instrument
+   (works today, zero code).
+2. **SFZ + a renderer** (e.g. sfizz) — bigger, more expressive sample sets.
+3. **VST3 hosting** — real instrument plugins; needs a plugin host process
+   and licensing care.
+4. **Neural audio synthesis** — highest ceiling, heavy models/GPU.
+The renderer interface (`InstrumentRenderer`) is where any of these plug in.
+
 ## Effects (all real DSP)
 
 Implemented in pure numpy (`app/services/render/effects.py`):

@@ -180,7 +180,8 @@ def find_best_soundfont(track_type: str) -> tuple[object, dict] | None:
     best_score = 0.0
     best: tuple[object, dict] | None = None
     for asset in asset_repo.list_assets("soundfont", include_missing=False):
-        if asset.extension not in (".sf2",):
+        # .sf3 shares the RIFF/phdr structure (samples are compressed)
+        if asset.extension not in (".sf2", ".sf3"):
             continue
         inv = get_preset_inventory(asset.id, Path(asset.original_path))
         score, preset = score_soundfont_for_track(inv, track_type, asset.filename)

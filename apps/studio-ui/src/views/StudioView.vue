@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useStudioStore } from '../stores/studio'
 import TransportControls from '../components/TransportControls.vue'
 import ProjectSidebar from '../components/ProjectSidebar.vue'
@@ -10,10 +10,13 @@ import ExportPanel from '../components/ExportPanel.vue'
 import LyricsKaraokeView from '../components/LyricsKaraokeView.vue'
 import TrackInspector from '../components/TrackInspector.vue'
 import SampleBrowser from '../components/SampleBrowser.vue'
+import ClipEditor from '../components/ClipEditor.vue'
 
 const studio = useStudioStore()
 const rightTab = ref<'chat' | 'export'>('chat')
-const bottomTab = ref<'mixer' | 'track' | 'samples' | 'karaoke'>('mixer')
+const bottomTab = ref<'mixer' | 'track' | 'editor' | 'samples' | 'karaoke'>('mixer')
+
+watch(() => studio.editorRequest, () => { bottomTab.value = 'editor' })
 
 onMounted(() => studio.refreshProjects())
 </script>
@@ -31,11 +34,13 @@ onMounted(() => studio.refreshProjects())
           <div class="tabs">
             <button :class="{ active: bottomTab === 'mixer' }" @click="bottomTab = 'mixer'">Mixer</button>
             <button :class="{ active: bottomTab === 'track' }" @click="bottomTab = 'track'">Track</button>
+            <button :class="{ active: bottomTab === 'editor' }" @click="bottomTab = 'editor'">Editor</button>
             <button :class="{ active: bottomTab === 'samples' }" @click="bottomTab = 'samples'">Samples</button>
             <button :class="{ active: bottomTab === 'karaoke' }" @click="bottomTab = 'karaoke'">Karaoke</button>
           </div>
           <MixerPanel v-if="bottomTab === 'mixer'" />
           <TrackInspector v-else-if="bottomTab === 'track'" />
+          <ClipEditor v-else-if="bottomTab === 'editor'" />
           <SampleBrowser v-else-if="bottomTab === 'samples'" />
           <LyricsKaraokeView v-else />
         </div>

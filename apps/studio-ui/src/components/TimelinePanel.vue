@@ -133,17 +133,89 @@ watch([pxPerBeat, manifest], () => {
 })
 onBeforeUnmount(stopWatch)
 
-function seekAt(e: MouseEvent) {
+// ------- playhead scrubbing (drag anywhere on the ruler/sections lane) -----
+let scrubbing = false
+let scrubWasPlaying = false
+let scrubLane: HTMLElement | null = null
+
+function laneSeconds(e: PointerEvent): number {
   const m = manifest.value
-  if (!m) return
-  const lane = e.currentTarget as HTMLElement
-  const x = e.clientX - lane.getBoundingClientRect().left
-  playback.seek(((x / pxPerBeat.value) * 60) / m.bpm)
+  if (!m || !scrubLane) return 0
+  const x = e.clientX - scrubLane.getBoundingClientRect().left
+  return Math.max(0, ((x / pxPerBeat.value) * 60) / m.bpm)
+}
+
+function scrubStart(e: PointerEvent) {
+  if (!manifest.value) return
+  scrubbing = true
+  scrubLane = e.currentTarget as HTMLElement
+  scrubWasPlaying = playback.playing
+  if (scrubWasPlaying) playback.pause()
+  playback.playhead = laneSeconds(e)
+  window.addEventListener('pointermove', scrubMove)
+  window.addEventListener('pointerup', scrubEnd, { once: true })
+}
+function scrubMove(e: PointerEvent) {
+  if (scrubbing) playback.playhead = laneSeconds(e)
+}
+function scrubEnd(e: PointerEvent) {
+  scrubbing = false
+  window.removeEventListener('pointermove', scrubMove)
+  const t = laneSeconds(e)
+  if (scrubWasPlaying) { playback.playhead = t; void playback.play() }
+  else playback.seek(t)
+  scrubLane = null
+}
+
+// ------- clip dragging (direct DOM transform while dragging) ---------------
+interface ClipDrag {
+  trackId: string; clipId: string; el: HTMLElement
+  startX: number; deltaBeats: number; moved: boolean
+}
+let clipDrag: ClipDrag | null = null
+
+function clipPointerDown(e: PointerEvent, trackId: string, clipId: string) {
+  if (e.button !== 0) return
+  studio.selectedTrackId = trackId
+  selectedClip.value = { trackId, clipId }
+  clipDrag = { trackId, clipId, el: e.currentTarget as HTMLElement,
+               startX: e.clientX, deltaBeats: 0, moved: false }
+  window.addEventListener('pointermove', clipDragMove)
+  window.addEventListener('pointerup', clipDragEnd, { once: true })
+}
+function clipDragMove(e: PointerEvent) {
+  if (!clipDrag) return
+  const dx = e.clientX - clipDrag.startX
+  if (Math.abs(dx) > 3) clipDrag.moved = true
+  if (!clipDrag.moved) return
+  const snap = 0.25
+  clipDrag.deltaBeats = Math.round(dx / pxPerBeat.value / snap) * snap
+  clipDrag.el.style.transform = `translateX(${clipDrag.deltaBeats * pxPerBeat.value}px)`
+  clipDrag.el.style.zIndex = '3'
+}
+async function clipDragEnd() {
+  window.removeEventListener('pointermove', clipDragMove)
+  const d = clipDrag
+  clipDrag = null
+  if (!d) return
+  d.el.style.transform = ''
+  d.el.style.zIndex = ''
+  if (!d.moved || d.deltaBeats === 0) return
+  const p = studio.project
+  const track = p?.tracks.find((t) => t.id === d.trackId)
+  const clip = track?.clips.find((c) => c.id === d.clipId)
+  if (!p || !clip) return
+  clip.start_beat = Math.max(0, clip.start_beat + d.deltaBeats)
+  clip.section_id = ''   // manual placement detaches from section regeneration
+  await save()
 }
 
 // ------- editing: add track, select clip, split / duplicate / delete -------
 const showAddTrack = ref(false)
-const selectedClip = ref<{ trackId: string; clipId: string } | null>(null)
+const selectedClip = computed({
+  get: () => studio.selectedClip,
+  set: (v) => { studio.selectedClip = v },
+})
 const saving = ref(false)
 
 const uid = () => crypto.randomUUID().replace(/-/g, '')
@@ -274,7 +346,7 @@ async function deleteClip() {
         <!-- ruler -->
         <div class="row ruler-row">
           <div class="label small dim" :style="{ width: LABEL_W + 'px' }">bars</div>
-          <div class="lane ruler" :style="{ width: contentWidth + 'px' }" @click="seekAt">
+          <div class="lane ruler" :style="{ width: contentWidth + 'px' }" @pointerdown="scrubStart">
             <div v-for="b in bars" :key="b.bar" class="bar-tick" :style="{ left: b.x + 'px' }">
               <span class="bar-num">{{ b.bar }}</span>
             </div>
@@ -283,7 +355,7 @@ async function deleteClip() {
         <!-- section lane -->
         <div class="row">
           <div class="label small dim" :style="{ width: LABEL_W + 'px' }">sections</div>
-          <div class="lane section-lane" :style="{ width: contentWidth + 'px' }" @click="seekAt">
+          <div class="lane section-lane" :style="{ width: contentWidth + 'px' }" @pointerdown="scrubStart">
             <div
               v-for="s in manifest.sections" :key="s.section_id" class="section-block"
               :style="{ left: s.start_beat * pxPerBeat + 'px', width: (s.end_beat - s.start_beat) * pxPerBeat + 'px' }"
@@ -304,7 +376,9 @@ async function deleteClip() {
               v-for="c in tl.clips" :key="c.clipId" class="clip"
               :class="{ selected: selectedClip?.clipId === c.clipId }"
               :style="{ left: c.x + 'px', width: c.w + 'px', borderColor: color(tl.track.track_type) }"
-              @click.stop="studio.selectedTrackId = tl.track.track_id; selectedClip = { trackId: tl.track.track_id, clipId: c.clipId }"
+              :title="'drag to move · double-click to edit'"
+              @pointerdown.stop="clipPointerDown($event, tl.track.track_id, c.clipId)"
+              @dblclick.stop="studio.openClipEditor(tl.track.track_id, c.clipId)"
             >
               <svg v-if="c.notes.length" class="notes-svg"
                    :viewBox="`0 0 ${c.w} ${TRACK_H - 6}`" preserveAspectRatio="none">
