@@ -9,7 +9,14 @@ export const useStudioStore = defineStore('studio', () => {
   const manifest = ref<PlaybackManifest | null>(null)
   const selectedTrackId = ref<string | null>(null)
   const selectedClip = ref<{ trackId: string; clipId: string } | null>(null)
-  const editorRequest = ref(0)   // bumped to open the clip editor tab
+  const editorRequest = ref(0)     // bumped to open the clip editor tab
+  const inspectorRequest = ref(0)  // bumped to open the track inspector tab
+  const timeMode = ref<'bars' | 'seconds'>('bars')
+
+  function openTrackInspector(trackId: string) {
+    selectedTrackId.value = trackId
+    inspectorRequest.value++
+  }
   const loading = ref(false)
   const error = ref('')
 
@@ -55,7 +62,8 @@ export const useStudioStore = defineStore('studio', () => {
 
   return {
     projects, project, manifest, selectedTrackId, selectedClip, editorRequest,
-    loading, error, openClipEditor,
+    inspectorRequest, timeMode, loading, error, openClipEditor,
+    openTrackInspector,
     refreshProjects, openProject, reloadCurrent, createProject, saveProject,
   }
 })

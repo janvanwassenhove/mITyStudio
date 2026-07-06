@@ -52,6 +52,29 @@ def search(text: str | None = None, tags: str | None = None,
         key=key, asset_type=asset_type)
 
 
+@router.get("/soundfont-presets/search")
+def search_presets(q: str, limit: int = 40) -> list[dict]:
+    """Search preset names across ALL SoundFonts — 'conga', 'trombone',
+    'rhodes', 'overdrive'… Returns (asset, bank, program) ready to assign."""
+    from ..services.sf2_parser import get_preset_inventory
+    ql = q.strip().lower()
+    if not ql:
+        return []
+    hits: list[dict] = []
+    for asset in asset_repo.list_assets("soundfont", include_missing=False):
+        if asset.extension not in (".sf2", ".sf3"):
+            continue
+        inv = get_preset_inventory(asset.id, Path(asset.original_path)) or {}
+        for p in inv.get("presets", []):
+            if ql in p["name"].lower():
+                hits.append({"asset_id": asset.id, "soundfont": asset.filename,
+                             "preset": p["name"], "bank": p["bank"],
+                             "program": p["program"]})
+                if len(hits) >= limit:
+                    return hits
+    return hits
+
+
 @router.get("/{asset_id}")
 def get_one(asset_id: str) -> Asset:
     asset = asset_repo.get_asset(asset_id)

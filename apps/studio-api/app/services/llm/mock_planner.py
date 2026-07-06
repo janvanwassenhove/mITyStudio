@@ -160,16 +160,33 @@ def plan_from_message(system_prompt: str, user_message: str) -> dict:
     if "lyrics" in msg or "sing about" in msg:
         topic_m = re.search(r"(?:lyrics about|sing about|about)\s+(.+?)(?:\.|$)", msg)
         topic = topic_m.group(1).strip() if topic_m else "life"
+        whole_song = any(w in msg for w in ("whole song", "full song",
+                                            "entire song", "every section",
+                                            "all sections"))
         lines = [
             f"We're running through the night, chasing {topic}",
-            f"Nothing's gonna stop us now",
+            "Nothing's gonna stop us now",
             f"Hearts on fire, dreaming of {topic}",
-            f"We sing it loud, we sing it proud",
+            "We sing it loud, we sing it proud",
+            f"Morning light is calling out for {topic}",
+            "Every echo knows our name",
+            f"Hold on tight, we're closer to {topic}",
+            "Nothing ever stays the same",
         ]
-        ops.append({"op_type": "rewrite_lyrics", "params": {"lines": lines}})
-        ops.append({"op_type": "generate_melody",
-                    "params": {"track_type": "lead_vocal", "track": "Lead Vocal"}})
-        replies.append(f"Wrote lyrics about {topic} and set a vocal melody.")
+        section = "all" if whole_song else None
+        params: dict = {"lines": lines if whole_song else lines[:4]}
+        if section:
+            params["section"] = section
+        ops.append({"op_type": "rewrite_lyrics", "params": params})
+        mel_params: dict = {"track_type": "lead_vocal", "track": "Lead Vocal"}
+        if section:
+            mel_params["section"] = "all"
+        ops.append({"op_type": "generate_melody", "params": mel_params})
+        replies.append(
+            f"Wrote lyrics about {topic} "
+            f"{'across the whole song' if whole_song else ''} and set a vocal "
+            "melody. Say 'add lyrics about … for the whole song' to fill "
+            "every section.")
 
     if "drum" in msg and not any(o["op_type"] == "generate_drums" for o in ops):
         ops.append({"op_type": "generate_drums", "params": {}})

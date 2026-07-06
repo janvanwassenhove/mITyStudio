@@ -74,6 +74,14 @@ const consentConfirmed = ref(false)
 const consentNotes = ref('')
 const usageRestrictions = ref('')
 
+function startProfileFrom(r: Asset) {
+  showProfileForm.value = true
+  selectedRecordings.value = [r.id]
+  profileName.value = r.filename.replace(/\.[^.]+$/, '') + ' voice'
+  consentNotes.value = ''
+  consentConfirmed.value = false
+}
+
 const canCreateProfile = computed(() =>
   profileName.value.trim() !== '' && selectedRecordings.value.length > 0 && consentConfirmed.value)
 
@@ -123,9 +131,14 @@ onMounted(load)
       <div v-for="r in recordings" :key="r.id" class="rec-item">
         <div class="fname">{{ r.filename }} <span v-if="r.is_missing" class="err-text">(missing)</span></div>
         <audio v-if="!r.is_missing" controls :src="`/api/assets/${r.id}/file`" style="width: 100%; height: 32px" />
-        <label v-if="showProfileForm" class="small">
-          <input type="checkbox" :value="r.id" v-model="selectedRecordings" /> use for profile
-        </label>
+        <div class="rec-actions">
+          <button v-if="!r.is_missing" class="small-btn"
+                  title="Create a consented voice profile from this recording — vocal tracks can then sing with this voice"
+                  @click="startProfileFrom(r)">🎙 → Make this my AI voice</button>
+          <label v-if="showProfileForm" class="small">
+            <input type="checkbox" :value="r.id" v-model="selectedRecordings" /> use for profile
+          </label>
+        </div>
       </div>
       <div v-if="!recordings.length" class="dim small">No recordings yet — upload a file or record live.</div>
     </div>
@@ -176,6 +189,8 @@ h3 { margin: 0 0 8px; }
 .actions { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
 .small { font-size: 11px; }
 .rec-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.rec-actions { display: flex; gap: 10px; align-items: center; margin-top: 4px; }
+.small-btn { font-size: 11px; padding: 2px 8px; }
 .fname { font-size: 13px; margin-bottom: 4px; }
 .rec { background: var(--err); border-color: var(--err); color: #fff; }
 .profile-form { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin: 8px 0; }

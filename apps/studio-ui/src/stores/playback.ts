@@ -20,6 +20,54 @@ export const usePlaybackStore = defineStore('playback', () => {
   const stemsLoaded = ref(0)
   const preparing = ref(false)      // auto-render in progress
   const renderWarnings = ref<string[]>([])
+  const metronome = ref(false)
+
+  // --- metronome: lookahead-scheduled clicks via WebAudio ---
+  let metroTimer: number | null = null
+  let nextBeatIndex = 0
+
+  function metroClick(when: number, accent: boolean) {
+    if (!ctx) return
+    const osc = ctx.createOscillator()
+    const g = ctx.createGain()
+    osc.frequency.value = accent ? 1568 : 1046
+    g.gain.setValueAtTime(0.22, when)
+    g.gain.exponentialRampToValueAtTime(0.001, when + 0.05)
+    osc.connect(g).connect(ctx.destination)
+    osc.start(when)
+    osc.stop(when + 0.06)
+  }
+
+  function startMetronome() {
+    const m = studio.manifest
+    if (!ctx || !m || metroTimer !== null) return
+    const spb = 60 / m.bpm
+    nextBeatIndex = Math.ceil((playhead.value - 1e-6) / spb)
+    metroTimer = window.setInterval(() => {
+      if (!ctx || !playing.value || !metronome.value) return
+      const songNow = startedAtSongTime + (ctx.currentTime - startedAtCtxTime)
+      while (nextBeatIndex * spb < songNow + 0.15) {
+        const beatTime = nextBeatIndex * spb
+        if (beatTime >= songNow - 0.02) {
+          metroClick(startedAtCtxTime + (beatTime - startedAtSongTime),
+                     nextBeatIndex % m.beats_per_bar === 0)
+        }
+        nextBeatIndex++
+      }
+    }, 60)
+  }
+
+  function stopMetronome() {
+    if (metroTimer !== null) {
+      clearInterval(metroTimer)
+      metroTimer = null
+    }
+  }
+
+  watch(metronome, (on) => {
+    if (on && playing.value) startMetronome()
+    if (!on) stopMetronome()
+  })
 
   let ctx: AudioContext | null = null
   let sources: AudioBufferSourceNode[] = []
@@ -113,6 +161,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     startedAtCtxTime = ctx.currentTime
     startedAtSongTime = playhead.value
     playing.value = true
+    if (metronome.value) startMetronome()
     raf = requestAnimationFrame(tick)
   }
 
@@ -120,6 +169,7 @@ export const usePlaybackStore = defineStore('playback', () => {
     playing.value = false
     cancelAnimationFrame(raf)
     stopSources()
+    stopMetronome()
   }
 
   function stop() {
@@ -142,5 +192,5 @@ export const usePlaybackStore = defineStore('playback', () => {
   })
 
   return { playing, playhead, duration, stemsLoaded, preparing, renderWarnings,
-           play, pause, stop, seek, loadStems }
+           metronome, play, pause, stop, seek, loadStems }
 })

@@ -161,6 +161,59 @@ def test_generate_for_all_sections(client, workspace):
     assert {c.section_id for c in piano.clips} == {s.id for s in project.sections}
 
 
+def test_full_song_lyrics_distribution(client, workspace):
+    from app.models.operations import ChatOperation
+    from app.models.song import Section, SongProject
+    from app.services import operation_applier
+
+    project = SongProject(title="t", sections=[
+        Section(name="Verse", start_bar=0, length_bars=4),
+        Section(name="Chorus", start_bar=4, length_bars=4),
+    ])
+    lines = [f"line {i}" for i in range(6)]
+    results = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="rewrite_lyrics",
+                      params={"section": "all", "lines": lines}),
+        ChatOperation(op_type="generate_melody",
+                      params={"section": "all", "track": "Lead Vocal",
+                              "track_type": "lead_vocal"}),
+    ])
+    assert all(r.applied for r in results), [r.error for r in results]
+    # lines distributed across both sections
+    by_section = {}
+    for l in project.lyrics.lines:
+        by_section.setdefault(l.section_id, []).append(l.text)
+    assert len(by_section) == 2
+    assert sum(len(v) for v in by_section.values()) == 6
+    # melody clips exist for both sections with syllables
+    vocal = project.tracks[0]
+    assert len(vocal.clips) == 2
+    assert any(n.lyric_syllable for c in vocal.clips for n in c.note_events)
+
+
+def test_preset_search_endpoint(client, workspace):
+    import shutil
+    from pathlib import Path
+    repo_fonts = Path(__file__).resolve().parents[3] / "soundfonts"
+    fonts = sorted(list(repo_fonts.glob("*.sf2")) + list(repo_fonts.glob("*.SF2")),
+                   key=lambda p: p.stat().st_size)
+    if not fonts:
+        import pytest
+        pytest.skip("no soundfonts in repo")
+    bass = next((f for f in fonts if "bass" in f.name.lower()), fonts[0])
+    shutil.copy2(bass, workspace.soundfonts_dir / bass.name)
+    client.post("/api/assets/rescan")
+
+    from app.services.sf2_parser import parse_sf2
+    first_preset = parse_sf2(bass)["presets"][0]["name"]
+    q = first_preset.split()[0][:5]
+    hits = client.get(f"/api/assets/soundfont-presets/search?q={q}").json()
+    assert hits
+    assert all({"asset_id", "soundfont", "preset", "bank", "program"} <= set(h)
+               for h in hits)
+    assert client.get("/api/assets/soundfont-presets/search?q=").json() == []
+
+
 # --- model listing -------------------------------------------------------------
 
 def test_models_endpoint(client, workspace, monkeypatch):

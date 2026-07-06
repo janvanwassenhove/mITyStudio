@@ -14,9 +14,24 @@ import ClipEditor from '../components/ClipEditor.vue'
 
 const studio = useStudioStore()
 const rightTab = ref<'chat' | 'export'>('chat')
-const bottomTab = ref<'mixer' | 'track' | 'editor' | 'samples' | 'karaoke'>('mixer')
+const bottomTab = ref<'mixer' | 'track' | 'editor' | 'samples' | 'lyrics'>('mixer')
 
 watch(() => studio.editorRequest, () => { bottomTab.value = 'editor' })
+watch(() => studio.inspectorRequest, () => { bottomTab.value = 'track' })
+
+// resizable bottom panel
+const bottomH = ref(280)
+function startResize(e: PointerEvent) {
+  const y0 = e.clientY
+  const h0 = bottomH.value
+  const move = (ev: PointerEvent) => {
+    bottomH.value = Math.min(Math.max(h0 + (y0 - ev.clientY), 150),
+                             window.innerHeight * 0.75)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup',
+    () => window.removeEventListener('pointermove', move), { once: true })
+}
 
 onMounted(() => studio.refreshProjects())
 </script>
@@ -30,13 +45,14 @@ onMounted(() => studio.refreshProjects())
       <aside class="sidebar panel"><ProjectSidebar /></aside>
       <section class="center">
         <div class="timeline panel"><TimelinePanel /></div>
-        <div class="bottom panel">
+        <div class="bottom panel" :style="{ height: bottomH + 'px' }">
+          <div class="resize-handle" title="drag to resize" @pointerdown="startResize" />
           <div class="tabs">
             <button :class="{ active: bottomTab === 'mixer' }" @click="bottomTab = 'mixer'">Mixer</button>
             <button :class="{ active: bottomTab === 'track' }" @click="bottomTab = 'track'">Track</button>
             <button :class="{ active: bottomTab === 'editor' }" @click="bottomTab = 'editor'">Editor</button>
             <button :class="{ active: bottomTab === 'samples' }" @click="bottomTab = 'samples'">Samples</button>
-            <button :class="{ active: bottomTab === 'karaoke' }" @click="bottomTab = 'karaoke'">Karaoke</button>
+            <button :class="{ active: bottomTab === 'lyrics' }" @click="bottomTab = 'lyrics'">Lyrics</button>
           </div>
           <MixerPanel v-if="bottomTab === 'mixer'" />
           <TrackInspector v-else-if="bottomTab === 'track'" />
@@ -64,7 +80,9 @@ onMounted(() => studio.refreshProjects())
 .sidebar { width: 230px; flex: none; overflow-y: auto; }
 .center { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .timeline { flex: 1; min-height: 0; overflow: hidden; }
-.bottom { height: 240px; flex: none; display: flex; flex-direction: column; overflow: hidden; }
+.bottom { flex: none; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+.resize-handle { height: 5px; cursor: ns-resize; flex: none; background: transparent; }
+.resize-handle:hover { background: var(--accent); opacity: 0.5; }
 .rightbar { width: 340px; flex: none; display: flex; flex-direction: column; overflow: hidden; }
 .tabs { display: flex; gap: 4px; padding: 6px; border-bottom: 1px solid var(--border); flex: none; }
 .tabs button { padding: 4px 10px; font-size: 12px; border: none; background: transparent; color: var(--text-dim); }

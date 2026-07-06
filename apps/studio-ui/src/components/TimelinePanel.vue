@@ -10,7 +10,7 @@ const playback = usePlaybackStore()
 
 const pxPerBeat = ref(14)
 const TRACK_H = 56
-const LABEL_W = 150
+const LABEL_W = 200
 
 const manifest = computed(() => studio.manifest)
 
@@ -24,11 +24,35 @@ const contentWidth = computed(() => totalBeats.value * pxPerBeat.value)
 const bars = computed(() => {
   const m = manifest.value
   if (!m) return []
-  const out: { bar: number; x: number }[] = []
-  const count = Math.ceil(totalBeats.value / m.beats_per_bar)
-  for (let i = 0; i <= count; i++) out.push({ bar: i + 1, x: i * m.beats_per_bar * pxPerBeat.value })
+  const out: { label: string; x: number }[] = []
+  if (studio.timeMode === 'seconds') {
+    const pxPerSec = (m.bpm / 60) * pxPerBeat.value
+    const step = pxPerSec < 26 ? 5 : 1
+    const totalSec = (totalBeats.value * 60) / m.bpm
+    for (let s = 0; s <= totalSec; s += step) out.push({ label: `${s}s`, x: s * pxPerSec })
+  } else {
+    const count = Math.ceil(totalBeats.value / m.beats_per_bar)
+    for (let i = 0; i <= count; i++) out.push({ label: String(i + 1), x: i * m.beats_per_bar * pxPerBeat.value })
+  }
   return out
 })
+
+// project-side track lookup for live mixer controls on the lane headers
+function projTrack(trackId: string): Track | null {
+  return studio.project?.tracks.find((t) => t.id === trackId) ?? null
+}
+function toggleMute(trackId: string) {
+  const t = projTrack(trackId)
+  if (t) { t.mute = !t.mute; void save() }
+}
+function toggleSolo(trackId: string) {
+  const t = projTrack(trackId)
+  if (t) { t.solo = !t.solo; void save() }
+}
+function setVolume(trackId: string, v: number) {
+  const t = projTrack(trackId)
+  if (t) { t.volume = v; void save() }
+}
 
 const TRACK_COLORS: Record<string, string> = {
   drums: '#e6a23c', bass: '#f2555a', guitar: '#f78fb3', keys: '#4f9cf9',
@@ -347,8 +371,8 @@ async function deleteClip() {
         <div class="row ruler-row">
           <div class="label small dim" :style="{ width: LABEL_W + 'px' }">bars</div>
           <div class="lane ruler" :style="{ width: contentWidth + 'px' }" @pointerdown="scrubStart">
-            <div v-for="b in bars" :key="b.bar" class="bar-tick" :style="{ left: b.x + 'px' }">
-              <span class="bar-num">{{ b.bar }}</span>
+            <div v-for="b in bars" :key="b.label" class="bar-tick" :style="{ left: b.x + 'px' }">
+              <span class="bar-num">{{ b.label }}</span>
             </div>
           </div>
         </div>
@@ -366,10 +390,25 @@ async function deleteClip() {
         <div v-for="tl in layout" :key="tl.track.track_id" class="row track-row"
              :class="{ selected: studio.selectedTrackId === tl.track.track_id }"
              @click="studio.selectedTrackId = tl.track.track_id">
-          <div class="label" :style="{ width: LABEL_W + 'px' }">
-            <span class="track-dot" :style="{ background: color(tl.track.track_type) }" />
-            <span class="track-name">{{ tl.track.name }}</span>
-            <span class="dim small">{{ tl.track.track_type }}</span>
+          <div class="label track-label" :style="{ width: LABEL_W + 'px' }"
+               title="double-click for instrument & effects"
+               @dblclick="studio.openTrackInspector(tl.track.track_id)">
+            <div class="label-top">
+              <span class="track-dot" :style="{ background: color(tl.track.track_type) }" />
+              <span class="track-name">{{ tl.track.name }}</span>
+            </div>
+            <div class="label-controls" @dblclick.stop>
+              <button class="mini" :class="{ mute: projTrack(tl.track.track_id)?.mute }"
+                      title="mute" @click.stop="toggleMute(tl.track.track_id)">M</button>
+              <button class="mini" :class="{ solo: projTrack(tl.track.track_id)?.solo }"
+                      title="solo" @click.stop="toggleSolo(tl.track.track_id)">S</button>
+              <input class="mini-vol" type="range" min="0" max="1.5" step="0.01" title="volume"
+                     :value="projTrack(tl.track.track_id)?.volume ?? 1"
+                     @click.stop
+                     @input="setVolume(tl.track.track_id, Number(($event.target as HTMLInputElement).value))" />
+              <button class="mini" title="instrument & effects"
+                      @click.stop="studio.openTrackInspector(tl.track.track_id)">✎</button>
+            </div>
           </div>
           <div class="lane track-lane" :style="{ width: contentWidth + 'px', height: TRACK_H + 'px' }">
             <div
@@ -420,8 +459,15 @@ async function deleteClip() {
 .playhead-overlay { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: var(--err); z-index: 4; pointer-events: none; will-change: transform; }
 .row { display: flex; border-bottom: 1px solid var(--border); }
 .label { flex: none; padding: 4px 8px; display: flex; align-items: center; gap: 6px; position: sticky; left: 0; background: var(--bg-panel); z-index: 5; border-right: 1px solid var(--border); overflow: hidden; }
-.track-name { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.track-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.track-label { flex-direction: column; align-items: stretch !important; gap: 3px !important; justify-content: center; cursor: default; }
+.label-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.label-controls { display: flex; align-items: center; gap: 4px; }
+.mini { padding: 0 6px; font-size: 10px; height: 18px; line-height: 1; }
+.mini.mute { background: var(--warn); color: #000; border-color: var(--warn); }
+.mini.solo { background: var(--ok); color: #000; border-color: var(--ok); }
+.mini-vol { width: 70px; height: 14px; }
 .lane { position: relative; flex: none; }
 .ruler { height: 24px; cursor: pointer; }
 .bar-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--border); pointer-events: none; }

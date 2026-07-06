@@ -14,6 +14,38 @@ const track = computed(() =>
 const soundfonts = ref<Asset[]>([])
 const sfSearch = ref('')
 const presets = ref<{ name: string; bank: number; program: number }[]>([])
+
+// global instrument search across ALL soundfont presets
+interface PresetHit { asset_id: string; soundfont: string; preset: string; bank: number; program: number }
+const instSearch = ref('')
+const instHits = ref<PresetHit[]>([])
+const instSearching = ref(false)
+let instTimer: ReturnType<typeof setTimeout> | null = null
+
+function queueInstSearch() {
+  if (instTimer) clearTimeout(instTimer)
+  instTimer = setTimeout(async () => {
+    const q = instSearch.value.trim()
+    if (q.length < 2) { instHits.value = []; return }
+    instSearching.value = true
+    try {
+      instHits.value = await api.get<PresetHit[]>(
+        `/assets/soundfont-presets/search?q=${encodeURIComponent(q)}`)
+    } finally {
+      instSearching.value = false
+    }
+  }, 300)
+}
+
+function pickInstrument(hit: PresetHit) {
+  if (!track.value) return
+  track.value.instrument_config.soundfont_asset_id = hit.asset_id
+  track.value.instrument_config.bank = hit.bank
+  track.value.instrument_config.program = hit.program
+  instHits.value = []
+  instSearch.value = hit.preset
+  save()
+}
 const profiles = ref<VoiceProfile[]>([])
 const saving = ref(false)
 
@@ -185,6 +217,19 @@ loadLibraries()
       </label>
 
       <template v-if="isInstrument">
+        <div class="field">
+          <span>🔎 Find any instrument (searches every preset in all SoundFonts)</span>
+          <input v-model="instSearch" placeholder="conga, trombone, rhodes, e-guitar, organ…"
+                 @input="queueInstSearch" />
+          <div v-if="instHits.length" class="picker">
+            <div v-for="(h, i) in instHits" :key="i" class="pick-item" @click="pickInstrument(h)">
+              <strong>{{ h.preset }}</strong> <span class="dim">— {{ h.soundfont }}</span>
+            </div>
+          </div>
+          <span v-else-if="instSearch.length >= 2 && !instSearching" class="dim small">
+            no preset matches — try another word or drop a matching .sf2 in soundfonts/ and rescan
+          </span>
+        </div>
         <div class="field">
           <span>SoundFont — <span class="current">{{ currentFontName }}</span></span>
           <input v-model="sfSearch" placeholder="Search 196 SoundFonts…" />

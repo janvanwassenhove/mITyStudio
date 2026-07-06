@@ -223,6 +223,14 @@ def op_generate_chords(project: SongProject, p: dict) -> str:
 
 
 def op_generate_melody(project: SongProject, p: dict) -> str:
+    if str(p.get("section", "")).lower() in ("all", "*"):
+        if not project.sections:
+            raise OperationError("project has no sections yet")
+        for s in project.sections:
+            sub = dict(p)
+            sub["section"] = s.id
+            op_generate_melody(project, sub)
+        return f"generated melodies for all {len(project.sections)} sections"
     section = _find_section(project, p.get("section"))
     lines = [l.text for l in project.lyrics.lines
              if l.section_id == section.id] or None
@@ -237,6 +245,24 @@ def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
     lines = p.get("lines")
     if not isinstance(lines, list) or not lines:
         raise OperationError("rewrite_lyrics requires a non-empty 'lines' list")
+    if str(p.get("section", "")).lower() in ("all", "*") and project.sections:
+        # distribute lines across sections in even chunks (full-song lyrics)
+        sections = project.sections
+        chunk = max(1, -(-len(lines) // len(sections)))  # ceil division
+        total = 0
+        for i, s in enumerate(sections):
+            part = lines[i * chunk:(i + 1) * chunk]
+            if not part:
+                break
+            project.lyrics.lines = [l for l in project.lyrics.lines
+                                    if l.section_id != s.id]
+            for text in part:
+                project.lyrics.lines.append(LyricsLine(section_id=s.id,
+                                                       text=str(text)))
+            total += len(part)
+        if "language" in p:
+            project.lyrics.language = str(p["language"])
+        return f"distributed {total} lyric lines across {len(sections)} sections"
     section = _find_section(project, p.get("section")) if project.sections else None
     section_id = section.id if section else ""
     project.lyrics.lines = [l for l in project.lyrics.lines
