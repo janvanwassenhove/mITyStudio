@@ -69,8 +69,28 @@ def plan_from_message(system_prompt: str, user_message: str) -> dict:
             ops.append({"op_type": "generate_melody",
                         "params": {"section": section, "track_type": "synth",
                                    "track": "Melody"}})
-        replies.append("I set up a full song structure (intro, verses, "
-                       "choruses, outro) with drums, bass, chords and a melody.")
+        # every generated song gets a singing lead vocal
+        profile_m = re.search(r'"voice_profiles":\s*\[\s*\{\s*"id":\s*"([^"]+)"',
+                              system_prompt)
+        vt_params: dict = {"name": "Lead Vocal", "track_type": "lead_vocal"}
+        if profile_m:
+            vt_params["voice_profile_id"] = profile_m.group(1)
+        ops.append({"op_type": "create_vocal_track", "params": vt_params})
+        topic = params.get("title") or style or "tonight"
+        for section in ("Chorus", "Chorus 2"):
+            ops.append({"op_type": "rewrite_lyrics",
+                        "params": {"section": section, "lines": [
+                            f"We sing it loud, {topic}",
+                            "Hearts wide open, carried by the sound",
+                            f"Nothing's gonna stop us now, {topic}",
+                            "This is where we're found",
+                        ]}})
+            ops.append({"op_type": "generate_melody",
+                        "params": {"section": section, "track": "Lead Vocal",
+                                   "track_type": "lead_vocal"}})
+        replies.append("I set up a full song (intro, verses, choruses, outro) "
+                       "with drums, bass, chords, a melody and a singing lead "
+                       "vocal on the choruses.")
         return {"reply": " ".join(replies), "operations": ops}
 
     # --- incremental edits ---
@@ -101,6 +121,41 @@ def plan_from_message(system_prompt: str, user_message: str) -> dict:
             for gen in ("generate_drums", "generate_bassline", "generate_chords"):
                 ops.append({"op_type": gen, "params": {"section": name}})
             replies.append(f"Added a {word} with drums, bass and chords.")
+
+    wants_voice = any(w in msg for w in ("add voice", "add vocals", "add a voice",
+                                         "add singing", "add a singer",
+                                         "vocals", "sing this", "make it sing",
+                                         "voice track", "vocal track",
+                                         "use my voice", "with my voice"))
+    if wants_voice and "lyrics" not in msg:
+        # pick a consented voice profile from the planning context if any
+        profile_id = None
+        m_prof = re.search(r'"voice_profiles":\s*\[\s*\{\s*"id":\s*"([^"]+)"',
+                           system_prompt)
+        if m_prof:
+            profile_id = m_prof.group(1)
+        vt_params: dict = {"name": "Lead Vocal", "track_type": "lead_vocal"}
+        if profile_id:
+            vt_params["voice_profile_id"] = profile_id
+        ops.append({"op_type": "create_vocal_track", "params": vt_params})
+        topic_m = re.search(r"(?:about|over|on)\s+(.+?)(?:\.|$)", msg)
+        topic = topic_m.group(1).strip() if topic_m else "this moment"
+        ops.append({"op_type": "rewrite_lyrics", "params": {"lines": [
+            f"Here we are, singing about {topic}",
+            "Every note is finding its way",
+            f"Carry me home to {topic}",
+            "We won't let this fade away",
+        ]}})
+        ops.append({"op_type": "generate_melody",
+                    "params": {"track": "Lead Vocal",
+                               "track_type": "lead_vocal"}})
+        if profile_id:
+            replies.append("Added a lead vocal singing with your voice "
+                           "profile, with lyrics and a melody.")
+        else:
+            replies.append("Added a lead vocal with lyrics and a melody "
+                           "(synthetic voice — create a voice profile in "
+                           "Voices to sing with your own).")
 
     if "lyrics" in msg or "sing about" in msg:
         topic_m = re.search(r"(?:lyrics about|sing about|about)\s+(.+?)(?:\.|$)", msg)

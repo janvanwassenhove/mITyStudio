@@ -48,6 +48,26 @@ def render_sample_stems(project_id: str) -> dict:
     return results
 
 
+@router.post("/{project_id}/render/auto")
+def auto_render(project_id: str) -> dict:
+    """Render whatever is missing or stale (instruments, samples, vocals) in
+    one call — used by the frontend before playback so the user never has to
+    render manually. Up-to-date stems are skipped via fingerprints."""
+    from ..services.mix_export import ExportJob, ensure_stems
+    project = _load(project_id)
+    before = {(s.track_id, s.stem_type, s.source_fingerprint, s.rendered_at)
+              for s in project.stems}
+    job = ExportJob(project_id=project_id)  # collector for warnings/errors
+    ensure_stems(project, job)
+    project_repo.save_project(project)
+    after = {(s.track_id, s.stem_type, s.source_fingerprint, s.rendered_at)
+             for s in project.stems}
+    return {"changed": before != after,
+            "stems": len(project.stems),
+            "warnings": job.warnings,
+            "errors": job.errors}
+
+
 @router.post("/{project_id}/render/apply-effects")
 def apply_effects(project_id: str) -> dict:
     """Effects are applied non-destructively during mixdown; this endpoint

@@ -94,7 +94,8 @@ def test_chat_edits(client):
     r = client.post(f"/api/projects/{p['id']}/chat",
                     json={"message": "add lyrics about the ocean"})
     project = r.json()["project"]
-    assert len(project["lyrics"]["lines"]) == 4
+    # full-song creation already wrote chorus lyrics; the new lines add to them
+    assert len(project["lyrics"]["lines"]) >= 4
     assert any("ocean" in l["text"] for l in project["lyrics"]["lines"])
     assert any(t["track_type"] == "lead_vocal" for t in project["tracks"])
 

@@ -27,10 +27,11 @@ const barBeat = computed(() => {
   <div class="transport panel">
     <button title="Stop" @click="playback.stop()">⏹</button>
     <button class="primary" :title="playback.playing ? 'Pause' : 'Play'"
-            :disabled="!studio.manifest"
+            :disabled="!studio.manifest || playback.preparing"
             @click="playback.playing ? playback.pause() : playback.play()">
-      {{ playback.playing ? '⏸' : '▶' }}
+      {{ playback.preparing ? '⏳' : playback.playing ? '⏸' : '▶' }}
     </button>
+    <span v-if="playback.preparing" class="preparing">preparing audio…</span>
     <span class="time">{{ timeDisplay }}</span>
     <span class="dim">bar {{ barBeat }}</span>
     <span class="spacer" />
@@ -50,4 +51,5 @@ const barBeat = computed(() => {
 .time { font-family: 'Consolas', monospace; font-size: 16px; min-width: 64px; }
 .title { font-weight: 600; }
 .spacer { flex: 1; }
+.preparing { font-size: 12px; color: var(--warn); }
 </style>

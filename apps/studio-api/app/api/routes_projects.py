@@ -54,6 +54,94 @@ def update_project(project_id: str, data: dict) -> SongProject:
     return project_repo.save_project(project)
 
 
+class QuickAddTrackRequest(BaseModel):
+    track_type: str
+    name: str | None = None
+    generate: bool = True                 # create a starter part for the song
+    voice_profile_id: str | None = None   # vocal tracks: sing with this voice
+    lyrics: list[str] | None = None       # vocal tracks: custom lyric lines
+
+
+_GENERATOR_FOR_TYPE = {
+    "drums": "generate_drums", "bass": "generate_bassline",
+    "guitar": "generate_chords", "keys": "generate_chords",
+    "strings": "generate_chords", "brass": "generate_chords",
+    "synth": "generate_melody",
+}
+
+
+@router.post("/{project_id}/tracks/quick-add")
+def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
+    """One-click 'GarageBand style' track: adds the track and (optionally)
+    generates a starter part across the whole song. Vocal tracks get lyrics,
+    a melody and — if given — a consented voice profile."""
+    from ..models.operations import ChatOperation
+    from ..services import operation_applier
+
+    try:
+        project = project_repo.load_project(project_id)
+    except ProjectNotFound:
+        raise HTTPException(404, "project not found")
+
+    is_vocal = req.track_type in ("lead_vocal", "backing_vocal")
+    name = req.name or {"lead_vocal": "Lead Vocal",
+                        "backing_vocal": "Backing Vocal"}.get(
+        req.track_type, req.track_type.replace("_", " ").title())
+
+    ops: list[ChatOperation] = []
+    # an empty project gets a starter structure so there is something to play
+    if not project.sections and req.generate:
+        for sec, bars, energy in (("Verse", 8, 0.5), ("Chorus", 8, 0.9)):
+            ops.append(ChatOperation(op_type="add_section",
+                                     params={"name": sec, "length_bars": bars,
+                                             "energy": energy}))
+
+    if is_vocal:
+        params: dict = {"name": name, "track_type": req.track_type}
+        if req.voice_profile_id:
+            params["voice_profile_id"] = req.voice_profile_id
+        ops.append(ChatOperation(op_type="create_vocal_track", params=params))
+        if req.generate:
+            lines = req.lyrics or [
+                f"This is the song they call {project.title}",
+                "Every beat is carrying us away",
+                "Sing it back like you mean it",
+                "We were made for days like today",
+            ]
+            ops.append(ChatOperation(op_type="rewrite_lyrics",
+                                     params={"lines": lines,
+                                             "section": "__last__"}))
+            ops.append(ChatOperation(op_type="generate_melody",
+                                     params={"track": name,
+                                             "track_type": req.track_type}))
+    else:
+        ops.append(ChatOperation(op_type="add_track",
+                                 params={"name": name,
+                                         "track_type": req.track_type}))
+        gen = _GENERATOR_FOR_TYPE.get(req.track_type)
+        if req.generate and gen:
+            ops.append(ChatOperation(op_type=gen,
+                                     params={"section": "all", "track": name,
+                                             "track_type": req.track_type}))
+
+    # "__last__" sentinel → default section resolution in the applier
+    for op in ops:
+        if op.params.get("section") == "__last__":
+            op.params.pop("section")
+
+    results = operation_applier.apply_operations(project, ops)
+    errors = [r.error for r in results if not r.applied and r.error]
+    if any(r.applied for r in results):
+        ref_errors = project_repo.validate_references(project)
+        if ref_errors:
+            raise HTTPException(422, ref_errors)
+        project_repo.save_project(project)
+    return {"track_name": name,
+            "applied": [r.summary for r in results if r.applied],
+            "errors": errors,
+            "project": project.model_dump()}
+
+
 @router.post("/{project_id}/validate")
 def validate_project(project_id: str) -> dict:
     try:

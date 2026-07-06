@@ -109,7 +109,7 @@ def test_mock_vocal_render_and_alignment(client, workspace):
     # lyrics alignment in manifest with correct structure and ordering
     m = client.get(f"/api/projects/{p['id']}/playback-manifest").json()
     align = m["lyrics_alignment"]
-    assert len(align) == 4
+    assert len(align) >= 4
     for line in align:
         assert line["end_time"] > line["start_time"] >= 0
         assert line["words"]

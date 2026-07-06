@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
+import AddTrackDialog from './AddTrackDialog.vue'
 import type { Clip, Track } from '../api/types'
 
 const studio = useStudioStore()
@@ -141,9 +142,7 @@ function seekAt(e: MouseEvent) {
 }
 
 // ------- editing: add track, select clip, split / duplicate / delete -------
-const newTrackType = ref('keys')
-const TRACK_TYPES = ['drums', 'bass', 'guitar', 'keys', 'synth', 'strings',
-  'brass', 'sample', 'lead_vocal', 'backing_vocal', 'fx']
+const showAddTrack = ref(false)
 const selectedClip = ref<{ trackId: string; clipId: string } | null>(null)
 const saving = ref(false)
 
@@ -154,6 +153,8 @@ async function save() {
   try { await studio.saveProject() } finally { saving.value = false }
 }
 
+const hasTracks = computed(() => (manifest.value?.tracks.length ?? 0) > 0)
+
 function findClip(): { track: Track; clip: Clip; index: number } | null {
   const p = studio.project
   if (!p || !selectedClip.value) return null
@@ -162,22 +163,6 @@ function findClip(): { track: Track; clip: Clip; index: number } | null {
   const index = track.clips.findIndex((c) => c.id === selectedClip.value!.clipId)
   if (index < 0) return null
   return { track, clip: track.clips[index], index }
-}
-
-async function addTrack() {
-  const p = studio.project
-  if (!p) return
-  const type = newTrackType.value
-  const count = p.tracks.filter((t) => t.track_type === type).length
-  p.tracks.push({
-    id: uid(),
-    name: type.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase()) + (count ? ` ${count + 1}` : ''),
-    track_type: type,
-    instrument_config: { soundfont_asset_id: null, program: 0, is_drum_kit: type === 'drums', bank: 0 },
-    clips: [], effects: { effects: [] },
-    volume: 1, pan: 0, mute: false, solo: false, voice_profile_id: null,
-  })
-  await save()
 }
 
 function playheadBeat(): number {
@@ -255,10 +240,7 @@ async function deleteClip() {
       <span class="dim small">zoom</span>
       <input type="range" min="4" max="48" v-model.number="pxPerBeat" style="width: 100px" />
       <span class="sep" />
-      <select v-model="newTrackType" class="small-select">
-        <option v-for="t in TRACK_TYPES" :key="t" :value="t">{{ t }}</option>
-      </select>
-      <button class="tb" :disabled="saving" @click="addTrack">+ Track</button>
+      <button class="tb primary" :disabled="saving" @click="showAddTrack = true">＋ Add Track</button>
       <span class="sep" />
       <button class="tb" :disabled="!selectedClip || saving" title="Split selected clip at playhead" @click="splitClip">✂ Split</button>
       <button class="tb" :disabled="!selectedClip || saving" title="Duplicate selected clip after itself" @click="duplicateClip">⧉ Duplicate</button>
@@ -266,7 +248,27 @@ async function deleteClip() {
       <span class="spacer" />
       <span class="dim small">{{ manifest.total_bars }} bars · {{ manifest.duration_seconds.toFixed(1) }}s<template v-if="saving"> · saving…</template></span>
     </div>
-    <div ref="scrollEl" class="scroll-area">
+    <div v-if="!hasTracks" class="starter">
+      <p class="dim">This song is empty. What do you want to do?</p>
+      <div class="starter-btns">
+        <button class="starter-card" @click="showAddTrack = true">
+          <span class="starter-icon">🎹</span>
+          <strong>Add an instrument</strong>
+          <span class="dim small">Drums, bass, guitar, keys… the part is written for you</span>
+        </button>
+        <button class="starter-card" @click="showAddTrack = true">
+          <span class="starter-icon">🎤</span>
+          <strong>Add vocals</strong>
+          <span class="dim small">Lyrics + melody, in your voice or a synthetic one</span>
+        </button>
+        <div class="starter-card static">
+          <span class="starter-icon">💬</span>
+          <strong>Or ask the chat</strong>
+          <span class="dim small">“create a punk song about summer” → full song with vocals</span>
+        </div>
+      </div>
+    </div>
+    <div v-show="hasTracks" ref="scrollEl" class="scroll-area">
       <div class="grid" :style="{ width: LABEL_W + contentWidth + 'px' }">
         <div ref="playheadEl" class="playhead-overlay" />
         <!-- ruler -->
@@ -320,6 +322,7 @@ async function deleteClip() {
         </div>
       </div>
     </div>
+    <AddTrackDialog v-if="showAddTrack" @close="showAddTrack = false" />
   </div>
 </template>
 
@@ -330,7 +333,12 @@ async function deleteClip() {
 .spacer { flex: 1; }
 .sep { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
 .small { font-size: 11px; }
-.small-select { font-size: 12px; padding: 3px 6px; }
+.starter { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; }
+.starter-btns { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+.starter-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 20px; width: 200px; border-radius: 12px; }
+.starter-card:hover:not(.static) { border-color: var(--accent); background: var(--bg-elevated); }
+.starter-card.static { border: 1px dashed var(--border); background: transparent; cursor: default; }
+.starter-icon { font-size: 30px; }
 .tb { padding: 3px 9px; font-size: 12px; }
 .tb.danger:not(:disabled) { border-color: var(--err); color: var(--err); }
 .scroll-area { flex: 1; overflow: auto; }

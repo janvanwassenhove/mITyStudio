@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
+import { api } from '../api/client'
 import type { PlaybackManifest } from '../api/types'
 import { useStudioStore } from './studio'
 
@@ -17,6 +18,8 @@ export const usePlaybackStore = defineStore('playback', () => {
   const playing = ref(false)
   const playhead = ref(0) // seconds
   const stemsLoaded = ref(0)
+  const preparing = ref(false)      // auto-render in progress
+  const renderWarnings = ref<string[]>([])
 
   let ctx: AudioContext | null = null
   let sources: AudioBufferSourceNode[] = []
@@ -66,8 +69,26 @@ export const usePlaybackStore = defineStore('playback', () => {
   }
 
   async function play() {
-    const m = studio.manifest
-    if (!m || playing.value) return
+    let m = studio.manifest
+    if (!m || playing.value || preparing.value) return
+    // auto-render: make sure every stem is fresh before playing, so the user
+    // never has to render manually
+    if (m.clips.length > 0) {
+      preparing.value = true
+      try {
+        const res = await api.post<{ changed: boolean; errors: string[]; warnings: string[] }>(
+          `/projects/${m.project_id}/render/auto`)
+        renderWarnings.value = [...(res.errors ?? []), ...(res.warnings ?? [])]
+        if (res.changed) {
+          buffers = new Map()
+          stemsLoaded.value = 0
+          await studio.reloadCurrent()
+        }
+      } catch { /* rendering unavailable — the clock still runs */ }
+      finally { preparing.value = false }
+      m = studio.manifest!
+      if (!m) return
+    }
     if (!ctx) ctx = new AudioContext()
     await ctx.resume()
     if (buffers.size === 0 && manifestStems(m).length > 0) await loadStems()
@@ -120,5 +141,6 @@ export const usePlaybackStore = defineStore('playback', () => {
     stemsLoaded.value = 0
   })
 
-  return { playing, playhead, duration, stemsLoaded, play, pause, stop, seek, loadStems }
+  return { playing, playhead, duration, stemsLoaded, preparing, renderWarnings,
+           play, pause, stop, seek, loadStems }
 })
