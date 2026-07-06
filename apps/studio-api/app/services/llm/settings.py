@@ -1,7 +1,15 @@
-"""LLM settings. Non-secret settings live in SQLite; the API key lives in
-apps/studio-api/local_settings.json (git-ignored) or the ANTHROPIC_API_KEY /
-MITY_LLM_API_KEY environment variables. Keys are never returned to clients
-and never committed.
+"""LLM settings. Non-secret settings live in SQLite; API keys live in
+apps/studio-api/local_settings.json (git-ignored) — one key per provider —
+or in environment variables. Keys are never returned to clients and never
+committed.
+
+Providers:
+- mock       deterministic keyword planner, no key needed
+- anthropic  Claude models (key: settings or ANTHROPIC_API_KEY)
+- openai     OpenAI models (key: settings or OPENAI_API_KEY)
+- custom     any OpenAI-compatible endpoint via base_url — OpenRouter, Groq,
+             Mistral, DeepSeek, Ollama, LM Studio… (key optional for local
+             servers; env fallback MITY_LLM_API_KEY)
 """
 from __future__ import annotations
 
@@ -13,22 +21,41 @@ from pydantic import BaseModel, Field
 from ...config import get_config
 from ...db import get_db
 
-DEFAULTS = {"provider": "mock", "model": "claude-sonnet-5",
-            "temperature": 0.4, "max_tokens": 4096}
+PROVIDERS = ("mock", "anthropic", "openai", "custom")
+
+_ENV_KEYS = {
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "custom": ("MITY_LLM_API_KEY",),
+}
+
+_DEFAULT_MODELS = {
+    "mock": "mock",
+    "anthropic": "claude-sonnet-5",
+    "openai": "gpt-5.2",
+    "custom": "",
+}
 
 
 class LlmSettings(BaseModel):
     provider: str = "mock"
     model: str = "claude-sonnet-5"
-    api_key_reference: str = "local_settings"   # where the key is looked up
+    base_url: str = ""           # used by the custom provider (and optionally openai)
+    api_key_reference: str = "local_settings"   # where keys are looked up
     temperature: float = Field(default=0.4, ge=0.0, le=1.0)
     max_tokens: int = Field(default=4096, ge=256, le=64000)
+
+
+def default_model(provider: str) -> str:
+    return _DEFAULT_MODELS.get(provider, "")
 
 
 def load_settings() -> LlmSettings:
     row = get_db().execute("SELECT value FROM settings WHERE key='llm'").fetchone()
     if row:
-        return LlmSettings(**json.loads(row["value"]))
+        data = json.loads(row["value"])
+        data.setdefault("base_url", "")
+        return LlmSettings(**data)
     return LlmSettings()
 
 
@@ -50,19 +77,42 @@ def _local_secrets() -> dict:
     return {}
 
 
-def store_api_key(key: str) -> None:
-    path = get_config().local_settings_path
+def _save_secrets(secrets: dict) -> None:
+    get_config().local_settings_path.write_text(
+        json.dumps(secrets, indent=2), encoding="utf-8")
+
+
+def store_api_key(provider: str, key: str) -> None:
     secrets = _local_secrets()
-    secrets["llm_api_key"] = key
-    path.write_text(json.dumps(secrets, indent=2), encoding="utf-8")
-
-
-def get_api_key() -> str | None:
-    key = _local_secrets().get("llm_api_key")
+    keys = secrets.setdefault("llm_api_keys", {})
     if key:
-        return key
-    return os.environ.get("MITY_LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+        keys[provider] = key
+    else:
+        keys.pop(provider, None)   # empty string clears the stored key
+    _save_secrets(secrets)
 
 
-def api_key_is_set() -> bool:
-    return bool(get_api_key())
+def get_api_key(provider: str) -> str | None:
+    secrets = _local_secrets()
+    keys = secrets.get("llm_api_keys", {})
+    if keys.get(provider):
+        return keys[provider]
+    # legacy single-key field (pre multi-provider)
+    if secrets.get("llm_api_key"):
+        return secrets["llm_api_key"]
+    for env in _ENV_KEYS.get(provider, ()):
+        if os.environ.get(env):
+            return os.environ[env]
+    return os.environ.get("MITY_LLM_API_KEY")
+
+
+def api_keys_set() -> dict[str, bool]:
+    return {p: bool(get_api_key(p)) for p in PROVIDERS if p != "mock"}
+
+
+def api_key_is_set(provider: str | None = None) -> bool:
+    if provider is None:
+        provider = load_settings().provider
+    if provider == "mock":
+        return True
+    return bool(get_api_key(provider))

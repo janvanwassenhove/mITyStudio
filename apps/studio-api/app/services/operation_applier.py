@@ -105,6 +105,30 @@ def op_add_track(project: SongProject, p: dict) -> str:
     return f"added {track_type} track {name!r}"
 
 
+def op_update_track(project: SongProject, p: dict) -> str:
+    t = _find_track(project, p.get("track", ""))
+    changes = []
+    if p.get("name"):
+        changes.append(f"renamed to {p['name']!r}")
+        t.name = str(p["name"])
+    if "volume" in p:
+        t.volume = max(0.0, min(2.0, float(p["volume"])))
+        changes.append(f"volume {t.volume:g}")
+    if "pan" in p:
+        t.pan = max(-1.0, min(1.0, float(p["pan"])))
+        changes.append(f"pan {t.pan:g}")
+    if "mute" in p:
+        t.mute = bool(p["mute"])
+        changes.append("muted" if t.mute else "unmuted")
+    if "solo" in p:
+        t.solo = bool(p["solo"])
+        changes.append("soloed" if t.solo else "unsoloed")
+    if not changes:
+        raise OperationError(
+            "update_track requires at least one of: name, volume, pan, mute, solo")
+    return f"track {t.name!r}: " + ", ".join(changes)
+
+
 def op_remove_track(project: SongProject, p: dict) -> str:
     t = _find_track(project, p.get("track", ""))
     project.tracks = [x for x in project.tracks if x.id != t.id]
@@ -353,6 +377,7 @@ _HANDLERS: dict[str, Callable[[SongProject, dict], str]] = {
     "add_section": op_add_section,
     "update_section": op_update_section,
     "add_track": op_add_track,
+    "update_track": op_update_track,
     "remove_track": op_remove_track,
     "assign_soundfont": op_assign_soundfont,
     "select_sample": op_select_sample,

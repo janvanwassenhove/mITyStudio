@@ -32,8 +32,12 @@ Optional but recommended: **FluidSynth** on PATH (SoundFont rendering) and
    MIDI, stems and final mixes.
 
 The chat uses a deterministic mock planner out of the box (no API key).
-Configure a real LLM (Anthropic) under Settings; keys stay in a git-ignored
-local file / environment variable.
+Under Settings you can switch to **Anthropic (Claude)**, **OpenAI (GPT)**, or
+**any OpenAI-compatible provider** (OpenRouter, Groq, Mistral, DeepSeek,
+local Ollama/LM Studio) via a custom base URL — bring your own key per
+provider. Keys stay in a git-ignored local file or come from
+`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` env vars. See
+[docs/llm-providers.md](docs/llm-providers.md).
 
 ## Documentation
 
@@ -45,6 +49,7 @@ local file / environment variable.
 | [docs/assets.md](docs/assets.md) | asset registry, scanning rules |
 | [docs/song-model.md](docs/song-model.md) | SongProject + PlaybackManifest |
 | [docs/rendering.md](docs/rendering.md) | MIDI/stem/effects pipeline |
+| [docs/llm-providers.md](docs/llm-providers.md) | Claude/GPT/custom providers, key storage |
 | [docs/voice-model.md](docs/voice-model.md) | voice safety, consent, engine contract |
 | [docs/export.md](docs/export.md) | mix + package export |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | common issues |
@@ -60,8 +65,9 @@ real effects** (gain, pan, 3-band EQ, compressor, reverb, delay, distortion),
 master bus effects, mixer with master strip, **MusicXML/.mxl and Guitar Pro
 (.gp3/.gp4/.gp5) import**, sample pitch detection, track inspector with
 SoundFont/preset picker and effects editor, in-studio sample browser,
-combined WAV+MP3 export, package export. The `anthropic` SDK is installed —
-add an API key in Settings for free-form chat.
+combined WAV+MP3 export, package export. Chat planning runs on the mock
+planner, **Anthropic**, **OpenAI** (verified live), or any OpenAI-compatible
+endpoint with your own key.
 
 Still simplified: the singing voice is synthetic (formant tones, no cloning —
 by design until a consented real engine is integrated), .gpx (GP6) and .mscz

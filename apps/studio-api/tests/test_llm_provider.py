@@ -82,6 +82,70 @@ def test_anthropic_provider_without_key_fails_cleanly(workspace, monkeypatch):
     assert "key" in msg.lower() or "anthropic" in msg.lower()
 
 
+def test_openai_provider_key_and_url_rules(workspace, monkeypatch):
+    from app.services.llm.provider import (LlmProviderError, OpenAIProvider,
+                                           get_provider)
+    from app.services.llm.settings import LlmSettings
+
+    for env in ("OPENAI_API_KEY", "MITY_LLM_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+
+    # openai without key → clean failure
+    ok, msg = OpenAIProvider(LlmSettings(provider="openai",
+                                         model="gpt-5.2")).test_connection()
+    assert ok is False and "key" in msg.lower()
+
+    # custom without base_url → clean failure naming the fix
+    ok, msg = OpenAIProvider(LlmSettings(provider="custom", model="llama3"),
+                             "custom").test_connection()
+    assert ok is False and "base url" in msg.lower()
+
+    # custom with base_url but no key builds a client (local servers)
+    p = OpenAIProvider(LlmSettings(provider="custom", model="llama3",
+                                   base_url="http://localhost:1/v1"), "custom")
+    client = p._client()
+    assert str(client.base_url).startswith("http://localhost:1")
+
+    # factory dispatch
+    assert type(get_provider(LlmSettings(provider="openai"))).__name__ == "OpenAIProvider"
+    assert type(get_provider(LlmSettings(provider="custom"))).__name__ == "OpenAIProvider"
+    assert type(get_provider(LlmSettings(provider="anthropic"))).__name__ == "AnthropicProvider"
+    assert type(get_provider(LlmSettings(provider="mock"))).__name__ == "MockLlmProvider"
+
+
+def test_openai_provider_plan_parses_response(workspace, monkeypatch):
+    """plan() path with a stubbed OpenAI client — no network."""
+    from app.services.llm.provider import OpenAIProvider
+    from app.services.llm.settings import LlmSettings
+
+    class FakeMsg:
+        content = '{"reply": "done", "operations": [{"op_type": "change_tempo", "params": {"bpm": 100}}]}'
+
+    class FakeChoice:
+        message = FakeMsg()
+
+    class FakeResp:
+        choices = [FakeChoice()]
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            assert kwargs["model"] == "test-model"
+            assert kwargs["messages"][0]["role"] == "system"
+            return FakeResp()
+
+    class FakeChat:
+        completions = FakeCompletions()
+
+    class FakeClient:
+        chat = FakeChat()
+
+    provider = OpenAIProvider(LlmSettings(provider="openai", model="test-model"))
+    monkeypatch.setattr(provider, "_client", lambda: FakeClient())
+    out = provider.plan("system", "make it 100 bpm")
+    assert out["reply"] == "done"
+    assert out["operations"][0]["op_type"] == "change_tempo"
+
+
 def test_system_prompt_contains_only_real_assets(client, workspace):
     from tests.test_sample_analysis import write_tone
     write_tone(workspace.samples_dir / "groove - 120 BPM.wav")

@@ -10,7 +10,8 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 OperationType = Literal[
-    "create_song", "add_section", "update_section", "add_track", "remove_track",
+    "create_song", "add_section", "update_section", "add_track", "update_track",
+    "remove_track",
     "assign_soundfont", "select_sample", "generate_chords", "generate_melody",
     "generate_drums", "generate_bassline", "rewrite_lyrics", "change_key",
     "change_tempo", "import_score", "arrange_from_score", "add_effect",

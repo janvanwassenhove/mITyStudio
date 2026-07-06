@@ -53,7 +53,7 @@ class AnthropicProvider(LlmProvider):
             raise LlmProviderError(
                 "the 'anthropic' package is not installed "
                 "(pip install anthropic)") from e
-        key = get_api_key()
+        key = get_api_key("anthropic")
         if not key:
             raise LlmProviderError(
                 "no API key configured (Settings → LLM, or ANTHROPIC_API_KEY)")
@@ -87,6 +87,96 @@ class AnthropicProvider(LlmProvider):
             return False, f"connection failed: {e}"
 
 
+class OpenAIProvider(LlmProvider):
+    """OpenAI — and, with a base_url, ANY OpenAI-compatible endpoint
+    (OpenRouter, Groq, Mistral, DeepSeek, Ollama, LM Studio, …)."""
+
+    def __init__(self, settings: LlmSettings, provider_key: str = "openai") -> None:
+        self.settings = settings
+        self.provider_key = provider_key   # "openai" | "custom"
+
+    def _client(self):
+        try:
+            from openai import OpenAI
+        except ImportError as e:
+            raise LlmProviderError(
+                "the 'openai' package is not installed (pip install openai)") from e
+        key = get_api_key(self.provider_key)
+        base_url = self.settings.base_url.strip() or None
+        if self.provider_key == "custom" and not base_url:
+            raise LlmProviderError(
+                "the custom provider needs a base URL "
+                "(e.g. https://openrouter.ai/api/v1 or http://localhost:11434/v1)")
+        if not key:
+            if base_url:
+                # local/keyless servers (e.g. Ollama) accept any token
+                key = "not-needed"
+            else:
+                raise LlmProviderError(
+                    "no API key configured (Settings → LLM, or OPENAI_API_KEY)")
+        return OpenAI(api_key=key, base_url=base_url)
+
+    def _model(self) -> str:
+        model = self.settings.model.strip()
+        if not model:
+            raise LlmProviderError("no model configured for this provider")
+        return model
+
+    def _create(self, client, messages: list, max_tokens: int,
+                want_json: bool):
+        """chat.completions.create with parameter negotiation: newer OpenAI
+        models want max_completion_tokens and reject custom temperature;
+        older/compatible servers want max_tokens and may lack
+        response_format. Try the strictest form first, degrade gracefully."""
+        base = {"model": self._model(), "messages": messages}
+        variants: list[dict] = []
+        for tokens_kw in ("max_completion_tokens", "max_tokens"):
+            for extra in ((
+                {"response_format": {"type": "json_object"},
+                 "temperature": self.settings.temperature},
+                {"temperature": self.settings.temperature},
+                {},
+            ) if want_json else ({"temperature": self.settings.temperature}, {})):
+                variants.append({tokens_kw: max_tokens, **extra})
+        last: Exception | None = None
+        for extra in variants:
+            try:
+                return client.chat.completions.create(**base, **extra)
+            except Exception as e:
+                msg = str(e).lower()
+                last = e
+                # only keep negotiating on parameter complaints; real errors
+                # (auth, model not found, network) fail fast
+                if not any(k in msg for k in ("max_tokens", "max_completion",
+                                              "temperature", "response_format",
+                                              "unsupported", "unexpected keyword")):
+                    break
+        raise LlmProviderError(f"LLM request failed: {last}") from last
+
+    def plan(self, system_prompt: str, user_message: str) -> dict:
+        client = self._client()
+        resp = self._create(
+            client,
+            [{"role": "system", "content": system_prompt},
+             {"role": "user", "content": user_message}],
+            self.settings.max_tokens, want_json=True)
+        text = resp.choices[0].message.content or ""
+        return _extract_json(text)
+
+    def test_connection(self) -> tuple[bool, str]:
+        try:
+            client = self._client()
+            self._create(client,
+                         [{"role": "user", "content": "Reply with OK"}],
+                         16, want_json=False)
+            where = self.settings.base_url.strip() or "api.openai.com"
+            return True, f"connected to {where} ({self.settings.model})"
+        except LlmProviderError as e:
+            return False, str(e)
+        except Exception as e:
+            return False, f"connection failed: {e}"
+
+
 def _extract_json(text: str) -> dict:
     """Extract the first JSON object from an LLM response."""
     fence = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
@@ -114,4 +204,8 @@ def _extract_json(text: str) -> dict:
 def get_provider(settings: LlmSettings) -> LlmProvider:
     if settings.provider == "anthropic":
         return AnthropicProvider(settings)
+    if settings.provider == "openai":
+        return OpenAIProvider(settings, "openai")
+    if settings.provider == "custom":
+        return OpenAIProvider(settings, "custom")
     return MockLlmProvider()

@@ -46,7 +46,9 @@ class Config:
     def db_path(self) -> Path: return self.analysis_cache_dir / "studio.db"
     @property
     def local_settings_path(self) -> Path:
-        return Path(__file__).resolve().parents[1] / "local_settings.json"
+        # secrets file at the workspace root (git-ignored); anchored to the
+        # root so tests (MITY_ROOT=tmp) never touch real keys
+        return self.root / "local_settings.json"
 
     def ensure_dirs(self) -> None:
         for d in (self.scores_dir, self.soundfonts_dir, self.samples_dir,

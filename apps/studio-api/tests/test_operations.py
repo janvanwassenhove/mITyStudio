@@ -8,7 +8,8 @@ from tests.test_sample_analysis import write_tone
 def test_llm_settings_roundtrip(client):
     s = client.get("/api/settings/llm").json()
     assert s["provider"] == "mock"
-    assert s["api_key_set"] in (True, False)
+    assert set(s["providers"]) == {"mock", "anthropic", "openai", "custom"}
+    assert set(s["api_keys_set"]) == {"anthropic", "openai", "custom"}
 
     r = client.put("/api/settings/llm", json={
         "provider": "mock", "model": "test-model", "temperature": 0.7,
@@ -20,6 +21,40 @@ def test_llm_settings_roundtrip(client):
 
     t = client.post("/api/settings/llm/test").json()
     assert t["ok"] is True
+
+    # unknown provider rejected
+    assert client.put("/api/settings/llm",
+                      json={"provider": "skynet"}).status_code == 422
+
+
+def test_per_provider_key_storage(client, workspace, monkeypatch):
+    for env in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "MITY_LLM_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+
+    r = client.put("/api/settings/llm", json={
+        "provider": "openai", "model": "gpt-5.2", "api_key": "sk-test-openai"})
+    body = r.json()
+    assert body["api_keys_set"]["openai"] is True
+    assert body["api_keys_set"]["anthropic"] is False
+    assert "sk-test" not in str(body)  # key never echoed
+
+    # key file lives in the isolated workspace root, not in the repo
+    secrets_file = workspace.root / "local_settings.json"
+    assert secrets_file.exists()
+    assert "sk-test-openai" in secrets_file.read_text()
+
+    # switching provider keeps the openai key stored
+    r = client.put("/api/settings/llm", json={
+        "provider": "anthropic", "model": "claude-sonnet-5",
+        "api_key": "sk-ant-test"})
+    keys = r.json()["api_keys_set"]
+    assert keys["openai"] is True and keys["anthropic"] is True
+
+    # empty string clears a key
+    r = client.put("/api/settings/llm", json={
+        "provider": "openai", "model": "gpt-5.2", "api_key": ""})
+    assert r.json()["api_keys_set"]["openai"] is False
+    assert r.json()["api_keys_set"]["anthropic"] is True
 
 
 def test_chat_creates_full_song(client):
@@ -83,6 +118,26 @@ def test_invalid_operations_rejected(client, workspace):
     assert "out of range" in results[2].error
     # project untouched
     assert project.tracks == [] and project.bpm == 120
+
+
+def test_update_track_operation(client, workspace):
+    from app.models.operations import ChatOperation
+    from app.models.song import SongProject, Track
+    from app.services import operation_applier
+
+    project = SongProject(title="t", tracks=[Track(name="Melody", track_type="synth")])
+    results = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="update_track",
+                      params={"track": "Melody", "name": "Synth Hook",
+                              "volume": 0.7, "pan": -0.25, "mute": False}),
+        ChatOperation(op_type="update_track", params={"track": "nope", "name": "x"}),
+        ChatOperation(op_type="update_track", params={"track": "Synth Hook"}),
+    ])
+    assert results[0].applied
+    t = project.tracks[0]
+    assert (t.name, t.volume, t.pan) == ("Synth Hook", 0.7, -0.25)
+    assert not results[1].applied and "not found" in results[1].error
+    assert not results[2].applied and "at least one" in results[2].error
 
 
 def test_failed_op_rolls_back_but_others_apply(client):

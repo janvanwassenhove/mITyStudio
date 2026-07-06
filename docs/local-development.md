@@ -49,5 +49,7 @@ set `MITY_ROOT` to override.
 
 ## Secrets
 
-LLM API keys are stored in `apps/studio-api/local_settings.json`
-(git-ignored) or environment variables. Never commit keys.
+LLM API keys are stored per provider in `local_settings.json` at the
+workspace root (git-ignored), or come from environment variables
+(`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `MITY_LLM_API_KEY`). Never commit
+keys. See docs/llm-providers.md.

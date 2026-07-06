@@ -11,6 +11,7 @@ dist/
 
 # Local settings & secrets
 .env
+local_settings.json
 apps/studio-api/local_settings.json
 
 # Generated data (originals in scores/soundfonts/samples/voices are user assets;
