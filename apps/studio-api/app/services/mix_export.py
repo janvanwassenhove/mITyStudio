@@ -141,6 +141,10 @@ def mixdown(project: SongProject, job: ExportJob) -> np.ndarray:
             "no stems available to mix — render stems first "
             "(instruments require FluidSynth + a SoundFont)")
 
+    # master bus processing
+    master, master_warnings = apply_effect_chain(
+        master, SAMPLE_RATE, project.mix_settings.master_effects)
+    job.warnings.extend(f"master: {w}" for w in master_warnings)
     master *= project.mix_settings.master_volume
     peak = float(np.max(np.abs(master)))
     if project.mix_settings.normalize and peak > 0:

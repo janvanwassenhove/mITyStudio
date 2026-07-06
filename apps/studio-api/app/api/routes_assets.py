@@ -89,6 +89,18 @@ def serve_file(asset_id: str) -> FileResponse:
     return FileResponse(path, media_type=media, filename=asset.filename)
 
 
+@router.get("/{asset_id}/soundfont-presets")
+def soundfont_presets(asset_id: str) -> dict:
+    """Preset inventory (name/bank/program) of a SoundFont asset."""
+    asset = asset_repo.get_asset(asset_id)
+    if asset is None:
+        raise HTTPException(404, "asset not found")
+    if asset.asset_type != "soundfont":
+        raise HTTPException(400, "not a soundfont")
+    from ..services.sf2_parser import get_preset_inventory
+    return get_preset_inventory(asset.id, Path(asset.original_path)) or {}
+
+
 @router.post("/{asset_id}/analyse")
 def analyse(asset_id: str) -> dict:
     from ..services import sample_analysis

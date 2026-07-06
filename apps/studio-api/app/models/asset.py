@@ -9,8 +9,8 @@ AssetType = Literal[
     "rendered_stem", "vocal_stem", "exported_mix",
 ]
 
-SCORE_EXTENSIONS = {".mid", ".midi", ".musicxml", ".xml", ".gp3", ".gp4",
-                    ".gp5", ".gpx", ".mscz", ".pdf"}
+SCORE_EXTENSIONS = {".mid", ".midi", ".musicxml", ".xml", ".mxl", ".gp3",
+                    ".gp4", ".gp5", ".gpx", ".mscz", ".pdf"}
 SOUNDFONT_EXTENSIONS = {".sf2", ".sf3", ".sfz"}
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".aiff", ".aif", ".m4a"}
 

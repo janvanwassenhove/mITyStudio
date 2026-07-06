@@ -82,6 +82,37 @@ def _estimate_bpm_autocorr(mono: np.ndarray, rate: int) -> float | None:
     return round(60.0 * fps / lag, 1)
 
 
+_NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+
+def _estimate_pitch(mono: np.ndarray, rate: int) -> tuple[str | None, float | None]:
+    """Autocorrelation pitch detection on the loudest 0.5 s segment.
+    Returns (note name like 'D#2', frequency) or (None, None) if not tonal."""
+    if len(mono) < rate // 4:
+        return None, None
+    win = min(len(mono), rate // 2)
+    hop = max(1, (len(mono) - win) // 8)
+    starts = range(0, max(len(mono) - win, 1), hop)
+    best_start = max(starts, key=lambda s: float(np.abs(mono[s:s + win]).mean()))
+    seg = mono[best_start:best_start + win].astype(np.float64)
+    seg -= seg.mean()
+    if seg.std() < 1e-5:
+        return None, None
+    ac = np.correlate(seg, seg, mode="full")[win - 1:]
+    lo = int(rate / 1000)  # 1000 Hz max
+    hi = int(rate / 40)    # 40 Hz min
+    if hi >= len(ac) or lo >= hi:
+        return None, None
+    lag = lo + int(np.argmax(ac[lo:hi]))
+    if ac[lag] < 0.35 * ac[0]:  # not periodic enough
+        return None, None
+    freq = rate / lag
+    midi = int(round(69 + 12 * np.log2(freq / 440.0)))
+    if not 12 <= midi <= 108:
+        return None, None
+    return f"{_NOTE_NAMES[midi % 12]}{midi // 12 - 1}", round(freq, 2)
+
+
 def analyse_asset(asset: Asset) -> dict:
     warnings: list[str] = []
     path = Path(asset.original_path)
@@ -126,8 +157,11 @@ def analyse_asset(asset: Asset) -> dict:
         warnings.append("bpm could not be estimated reliably")
 
     key = _key_from_filename(asset.filename)
+    pitch_note, pitch_freq = _estimate_pitch(mono, rate)
+    if key is None and pitch_note is not None:
+        key = pitch_note[:-1] if pitch_note[-1].isdigit() else pitch_note
     if key is None:
-        warnings.append("key not detected (no pitch analysis in v1)")
+        warnings.append("key/pitch could not be detected reliably")
 
     # loopability: audible right up to both edges and >= 1 bar long
     loopability = None
@@ -159,7 +193,8 @@ def analyse_asset(asset: Asset) -> dict:
         "estimated_bpm": bpm,
         "bpm_source": bpm_source,
         "estimated_key": key,
-        "pitch_range": None,  # no pitch tracking in v1 (documented)
+        "pitch_range": ({"note": pitch_note, "frequency": pitch_freq}
+                        if pitch_note else None),
         "transient_density": transient_density,
         "silence_start": round(silence_start, 4),
         "silence_end": round(silence_end, 4),

@@ -275,7 +275,6 @@ _EFFECT_TYPES = {"gain", "pan", "eq", "compressor", "reverb", "delay",
 
 
 def op_add_effect(project: SongProject, p: dict) -> str:
-    t = _find_track(project, p.get("track", ""))
     etype = p.get("effect_type")
     if etype not in _EFFECT_TYPES:
         raise OperationError(f"unknown effect type {etype!r} "
@@ -283,8 +282,14 @@ def op_add_effect(project: SongProject, p: dict) -> str:
     params = p.get("params", {})
     if not isinstance(params, dict):
         raise OperationError("'params' must be an object")
-    t.effects.effects.append(Effect(effect_type=etype, params={
-        k: float(v) for k, v in params.items()}))
+    effect = Effect(effect_type=etype, params={
+        k: float(v) for k, v in params.items()})
+    target = p.get("track", "")
+    if str(target).lower() == "master":
+        project.mix_settings.master_effects.effects.append(effect)
+        return f"added {etype} effect to the master bus"
+    t = _find_track(project, target)
+    t.effects.effects.append(effect)
     return f"added {etype} effect to track {t.name!r}"
 
 
@@ -394,6 +399,7 @@ def apply_operations(project: SongProject,
             project.bpm, project.key = snapshot.bpm, snapshot.key
             project.title, project.style = snapshot.title, snapshot.style
             project.time_signature = snapshot.time_signature
+            project.mix_settings = snapshot.mix_settings
             results.append(OperationResult(op_type=op.op_type, summary="",
                                            applied=False, error=str(e)))
     return results

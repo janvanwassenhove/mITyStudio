@@ -27,24 +27,39 @@ All render results are written under `stems/`, registered as `rendered_stem` /
 `source_fingerprint` — unchanged tracks are skipped on re-render, changed
 tracks re-render automatically (the mix export calls all of this itself).
 
-## SoundFont selection
+## SoundFont selection (smart preset matching)
 
-Each instrument track can set `instrument_config.soundfont_asset_id` (via the
-chat operation `assign_soundfont` or the project API). Tracks without one fall
-back to the first available SoundFont, preferring filenames that look like
-General MIDI banks (`gm`, `general`, `fluidr3`, `musescore`). A warning names
-the fallback used. Missing FluidSynth or missing SoundFonts produce per-track
-errors, never crashes.
+Each instrument track can set `instrument_config.soundfont_asset_id` — via
+the Track inspector UI, the chat operation `assign_soundfont`, or the project
+API. Tracks **without** one are auto-matched at render time: the studio
+parses every `.sf2`'s preset headers (`app/services/sf2_parser.py`, pure
+stdlib, cached in SQLite) and scores fonts per track type — preset-name
+keywords (e.g. "bass" for bass tracks), bank 128 for drum kits, General MIDI
+program ranges. The chosen bank/program is written into the track config and
+the MIDI file (bank-select CC0 + program change), so FluidSynth plays the
+right preset. `GET /api/assets/{id}/soundfont-presets` exposes the inventory
+to the UI. Missing FluidSynth or missing SoundFonts produce per-track errors,
+never crashes.
 
 FluidSynth invocation: `fluidsynth -ni -g 0.7 -r 44100 -F out.wav font.sf2 in.mid`
 
-## Effects (v1)
+## Effects (all real DSP)
 
-Implemented in pure numpy (`app/services/render/effects.py`): `gain`
-(gain_db), `pan` (position −1..1, constant-power), `delay` (time_seconds,
-feedback, mix), `reverb` (mix, decay; comb-bank), `distortion` (drive, mix,
-tanh). `eq` and `compressor` are **documented placeholders** — identity plus a
-warning. Chains apply in order at mixdown; stems on disk stay dry.
+Implemented in pure numpy (`app/services/render/effects.py`):
+
+| Effect | Params |
+|---|---|
+| `gain` | gain_db |
+| `pan` | position −1..1 (constant-power) |
+| `eq` | low/mid/high_gain_db, low/mid/high_freq, mid_q — FFT 3-band (zero-phase, offline) |
+| `compressor` | threshold_db, ratio, attack_seconds, release_seconds, makeup_db — 10 ms envelope follower |
+| `reverb` | mix, decay (comb bank) |
+| `delay` | time_seconds, feedback, mix |
+| `distortion` | drive, mix (tanh) |
+
+Chains apply in order at mixdown; stems on disk stay dry. The **master bus**
+has its own chain (`mix_settings.master_effects`, chat target
+`track: "master"`), applied after track summing, before normalization.
 
 ## Waveforms
 

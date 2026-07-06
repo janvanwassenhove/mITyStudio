@@ -8,10 +8,12 @@ import MixerPanel from '../components/MixerPanel.vue'
 import ChatPanel from '../components/ChatPanel.vue'
 import ExportPanel from '../components/ExportPanel.vue'
 import LyricsKaraokeView from '../components/LyricsKaraokeView.vue'
+import TrackInspector from '../components/TrackInspector.vue'
+import SampleBrowser from '../components/SampleBrowser.vue'
 
 const studio = useStudioStore()
 const rightTab = ref<'chat' | 'export'>('chat')
-const bottomTab = ref<'mixer' | 'karaoke'>('mixer')
+const bottomTab = ref<'mixer' | 'track' | 'samples' | 'karaoke'>('mixer')
 
 onMounted(() => studio.refreshProjects())
 </script>
@@ -28,9 +30,13 @@ onMounted(() => studio.refreshProjects())
         <div class="bottom panel">
           <div class="tabs">
             <button :class="{ active: bottomTab === 'mixer' }" @click="bottomTab = 'mixer'">Mixer</button>
+            <button :class="{ active: bottomTab === 'track' }" @click="bottomTab = 'track'">Track</button>
+            <button :class="{ active: bottomTab === 'samples' }" @click="bottomTab = 'samples'">Samples</button>
             <button :class="{ active: bottomTab === 'karaoke' }" @click="bottomTab = 'karaoke'">Karaoke</button>
           </div>
           <MixerPanel v-if="bottomTab === 'mixer'" />
+          <TrackInspector v-else-if="bottomTab === 'track'" />
+          <SampleBrowser v-else-if="bottomTab === 'samples'" />
           <LyricsKaraokeView v-else />
         </div>
       </section>

@@ -49,11 +49,21 @@ local file / environment variable.
 | [docs/export.md](docs/export.md) | mix + package export |
 | [docs/troubleshooting.md](docs/troubleshooting.md) | common issues |
 
-## Status (v1)
+## Status (v1.1 — "full blown")
 
 Works end-to-end: asset scanning (3k+ samples), chat song creation, MIDI
-export, FluidSynth instrument stems, sample stems, mock vocal stems with
-karaoke timing, effects (gain/pan/delay/reverb/distortion), mixer, combined
-WAV+MP3 export, package export. Mocked/placeholder: singing voice (tone
-synth), EQ/compressor, MusicXML/GuitarPro/MuseScore import. See the docs for
-the full list of limitations.
+export with bank/program selection, FluidSynth instrument stems with **smart
+SoundFont preset matching** (parses all .sf2 preset headers, picks a real
+drum kit / bass / guitar preset per track), sample stems, **formant-synthesis
+vocals** (audible vowels from lyric syllables) with karaoke timing, **seven
+real effects** (gain, pan, 3-band EQ, compressor, reverb, delay, distortion),
+master bus effects, mixer with master strip, **MusicXML/.mxl and Guitar Pro
+(.gp3/.gp4/.gp5) import**, sample pitch detection, track inspector with
+SoundFont/preset picker and effects editor, in-studio sample browser,
+combined WAV+MP3 export, package export. The `anthropic` SDK is installed —
+add an API key in Settings for free-form chat.
+
+Still simplified: the singing voice is synthetic (formant tones, no cloning —
+by design until a consented real engine is integrated), .gpx (GP6) and .mscz
+need re-export, live playback requires rendered stems (no realtime synth in
+the browser).

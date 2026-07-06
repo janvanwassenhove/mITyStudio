@@ -35,6 +35,12 @@ def _track_to_midi(project: SongProject, track: Track,
     if track.instrument_config.is_drum_kit:
         channel = 9
     if not track.instrument_config.is_drum_kit:
+        bank = track.instrument_config.bank
+        if 0 < bank < 128:  # bank select MSB (128 = drum bank, handled by ch10)
+            mtrack.append(mido.Message("control_change", control=0,
+                                       value=bank, channel=channel, time=0))
+            mtrack.append(mido.Message("control_change", control=32,
+                                       value=0, channel=channel, time=0))
         mtrack.append(mido.Message(
             "program_change", program=track.instrument_config.program,
             channel=channel, time=0))

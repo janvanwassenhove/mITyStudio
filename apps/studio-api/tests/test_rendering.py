@@ -128,14 +128,33 @@ def test_effects_chain(workspace):
         Effect(effect_type="gain", params={"gain_db": -6}),
         Effect(effect_type="distortion", params={"drive": 5}),
         Effect(effect_type="reverb", params={"mix": 0.3}),
-        Effect(effect_type="eq", params={}),          # placeholder
-        Effect(effect_type="compressor", params={}),  # placeholder
         Effect(effect_type="delay", params={"time_seconds": 0.1, "mix": 0.4}),
     ])
     out, warnings = apply_effect_chain(audio, rate, chain)
     assert out.shape == audio.shape
     assert not np.array_equal(out, audio)
-    assert len([w for w in warnings if "placeholder" in w]) == 2
+    assert warnings == []
+
+    # real EQ: cutting lows attenuates a 220 Hz tone
+    eq_chain = EffectChain(effects=[
+        Effect(effect_type="eq", params={"low_gain_db": -18, "low_freq": 500})])
+    eq_out, _ = apply_effect_chain(audio, rate, eq_chain)
+    assert np.abs(eq_out).max() < np.abs(audio).max() * 0.5
+    # neutral EQ is identity
+    flat, _ = apply_effect_chain(audio, rate, EffectChain(effects=[
+        Effect(effect_type="eq", params={})]))
+    assert np.allclose(flat, audio)
+
+    # real compressor: loud signal is reduced, quiet passes through
+    comp = EffectChain(effects=[Effect(
+        effect_type="compressor",
+        params={"threshold_db": -20, "ratio": 8, "attack_seconds": 0.001})])
+    loud = audio * 1.8
+    comp_out, _ = apply_effect_chain(loud, rate, comp)
+    assert np.abs(comp_out[rate // 2:]).max() < np.abs(loud[rate // 2:]).max() * 0.7
+    quiet = audio * 0.01
+    quiet_out, _ = apply_effect_chain(quiet, rate, comp)
+    assert np.abs(np.abs(quiet_out).max() - np.abs(quiet).max()) < 0.005
 
     # disabled effect is skipped
     chain2 = EffectChain(effects=[Effect(effect_type="gain", enabled=False,

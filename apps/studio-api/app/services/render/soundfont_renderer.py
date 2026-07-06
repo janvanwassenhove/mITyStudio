@@ -47,16 +47,50 @@ def _resolve_soundfont(track: Track) -> tuple[Asset | None, list[str]]:
         if asset and not asset.is_missing:
             return asset, warnings
         warnings.append(f"soundfont {sf_id} unavailable; falling back")
+    # smart matching: pick a font whose preset inventory suits the track type
+    from ..sf2_parser import find_best_soundfont
+    match = find_best_soundfont(track.track_type)
+    if match is not None:
+        asset, preset = match
+        warnings.append(
+            f"auto-matched soundfont {asset.filename!r} "
+            f"(preset {preset['name']!r}, bank {preset['bank']}, "
+            f"program {preset['program']})")
+        return asset, warnings
     fallbacks = [a for a in asset_repo.list_assets("soundfont", include_missing=False)
                  if a.extension in (".sf2", ".sf3")]
     if not fallbacks:
         return None, warnings + ["no soundfont available in soundfonts/"]
-    # prefer a General MIDI bank for fallback
     gm = next((a for a in fallbacks
                if any(k in a.filename.lower() for k in ("gm", "general", "fluidr3", "musescore"))),
               fallbacks[0])
     warnings.append(f"using fallback soundfont {gm.filename!r}")
     return gm, warnings
+
+
+def auto_assign_soundfonts(project: SongProject) -> list[str]:
+    """Assign the best-matching SoundFont preset to every instrument track
+    that has none. Persists bank/program so MIDI export selects the right
+    preset. Returns log messages."""
+    from ..sf2_parser import find_best_soundfont
+    log_msgs: list[str] = []
+    for track in project.tracks:
+        cfg = track.instrument_config
+        if cfg.soundfont_asset_id or track.track_type in ("sample", "lead_vocal",
+                                                          "backing_vocal"):
+            continue
+        match = find_best_soundfont(track.track_type)
+        if match is None:
+            continue
+        asset, preset = match
+        cfg.soundfont_asset_id = asset.id
+        cfg.bank = preset["bank"]
+        cfg.program = preset["program"]
+        cfg.is_drum_kit = track.track_type == "drums"
+        log_msgs.append(
+            f"{track.name}: auto-assigned {asset.filename!r} → "
+            f"{preset['name']!r} (bank {preset['bank']}, program {preset['program']})")
+    return log_msgs
 
 
 class SoundFontRenderer(InstrumentRenderer):
@@ -97,6 +131,9 @@ def render_instrument_stems(project: SongProject) -> dict:
     renderer = SoundFontRenderer()
     results: dict = {"rendered": [], "skipped": [], "errors": [], "warnings": []}
 
+    # smart preset matching happens BEFORE MIDI export so bank/program land
+    # in the MIDI files
+    results["warnings"].extend(auto_assign_soundfonts(project))
     midi_files = midi_export.export_project_midi(project, include_full_song=True)
     eligible = [t for t in midi_export.exportable_tracks(project)
                 if t.track_type not in ("lead_vocal", "backing_vocal")]

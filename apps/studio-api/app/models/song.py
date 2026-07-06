@@ -139,6 +139,7 @@ class MixSettings(BaseModel):
     master_volume: float = Field(default=1.0, ge=0.0, le=2.0)
     normalize: bool = True
     limiter: bool = True
+    master_effects: EffectChain = Field(default_factory=EffectChain)
 
 
 class StemRef(BaseModel):

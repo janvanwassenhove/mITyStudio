@@ -39,6 +39,18 @@ function queueSave() {
       </div>
       <div class="dim tiny">{{ t.effects.effects.filter(e => e.enabled).length }} fx</div>
     </div>
+    <div v-if="studio.project" class="strip master">
+      <div class="strip-name">Master</div>
+      <input
+        class="fader" type="range" min="0" max="1.5" step="0.01"
+        :value="studio.project.mix_settings.master_volume"
+        @input="studio.project!.mix_settings.master_volume = Number(($event.target as HTMLInputElement).value); queueSave()"
+      />
+      <div class="dim tiny">{{ (20 * Math.log10(studio.project.mix_settings.master_volume || 0.001)).toFixed(1) }} dB</div>
+      <label class="tiny opt"><input type="checkbox" v-model="studio.project.mix_settings.normalize" @change="queueSave()" /> norm</label>
+      <label class="tiny opt"><input type="checkbox" v-model="studio.project.mix_settings.limiter" @change="queueSave()" /> limit</label>
+      <div class="dim tiny">{{ studio.project.mix_settings.master_effects.effects.length }} fx</div>
+    </div>
     <div v-if="saving" class="dim tiny saving">saving…</div>
   </div>
 </template>
@@ -55,5 +67,7 @@ function queueSave() {
 .btns button.on { background: var(--warn); color: #000; border-color: var(--warn); }
 .btns button.on.solo { background: var(--ok); border-color: var(--ok); }
 .tiny { font-size: 10px; }
+.master { border: 1px solid var(--accent-2); margin-left: auto; }
+.opt { display: flex; gap: 3px; align-items: center; color: var(--text-dim); }
 .saving { position: absolute; right: 12px; bottom: 6px; }
 </style>

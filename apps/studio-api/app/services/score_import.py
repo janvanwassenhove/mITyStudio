@@ -129,11 +129,7 @@ def import_midi(path: Path, asset_id: str) -> ScoreImportResult:
     return result
 
 
-_PLACEHOLDER_FORMATS = {
-    ".musicxml": "musicxml", ".xml": "musicxml",
-    ".gp3": "guitarpro", ".gp4": "guitarpro", ".gp5": "guitarpro",
-    ".gpx": "guitarpro", ".mscz": "musescore", ".pdf": "pdf",
-}
+_PLACEHOLDER_FORMATS = {".mscz": "musescore", ".pdf": "pdf"}
 
 
 def import_score(asset: Asset) -> ScoreImportResult:
@@ -141,11 +137,16 @@ def import_score(asset: Asset) -> ScoreImportResult:
     ext = asset.extension
     if ext in (".mid", ".midi"):
         return import_midi(path, asset.id)
+    if ext in (".musicxml", ".xml", ".mxl"):
+        from .musicxml_import import import_musicxml
+        return import_musicxml(path, asset.id)
+    if ext in (".gp3", ".gp4", ".gp5", ".gpx"):
+        from .guitarpro_import import import_guitarpro
+        return import_guitarpro(path, asset.id)
     fmt = _PLACEHOLDER_FORMATS.get(ext, "unknown")
     msg = {
-        "musicxml": "MusicXML import is not implemented yet (planned adapter).",
-        "guitarpro": "Guitar Pro import is not implemented yet (planned adapter).",
-        "musescore": "MuseScore import is not implemented yet; export to MIDI or MusicXML from MuseScore instead.",
+        "musescore": "MuseScore .mscz is not parsed directly — export to MIDI "
+                     "or MusicXML from MuseScore instead.",
         "pdf": "PDF scores are reference-only; no reliable parsing is implemented.",
         "unknown": f"unsupported score format {ext!r}",
     }[fmt]

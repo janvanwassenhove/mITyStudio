@@ -50,7 +50,7 @@ export interface Track {
   id: string
   name: string
   track_type: string
-  instrument_config: { soundfont_asset_id: string | null; program: number; is_drum_kit: boolean }
+  instrument_config: { soundfont_asset_id: string | null; program: number; is_drum_kit: boolean; bank: number }
   clips: Clip[]
   effects: { effects: Effect[] }
   volume: number
@@ -81,7 +81,7 @@ export interface SongProject {
   sections: Section[]
   tracks: Track[]
   lyrics: { id: string; language: string; lines: LyricsLine[] }
-  mix_settings: { master_volume: number; normalize: boolean; limiter: boolean }
+  mix_settings: { master_volume: number; normalize: boolean; limiter: boolean; master_effects: { effects: Effect[] } }
   render_status: string
   stems: StemRef[]
   midi_files: Record<string, string>

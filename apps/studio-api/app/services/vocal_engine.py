@@ -43,10 +43,34 @@ def _note_freq(midi_note: int) -> float:
     return 440.0 * 2 ** ((midi_note - 69) / 12)
 
 
+# vowel formant frequencies (F1, F2, F3) and relative amplitudes — classic
+# soprano/alto averages; consonants are approximated by a short noise burst
+_VOWEL_FORMANTS = {
+    "a": ((800, 1150, 2900), (1.0, 0.50, 0.18)),
+    "e": ((400, 1600, 2700), (1.0, 0.35, 0.15)),
+    "i": ((350, 1700, 2700), (1.0, 0.25, 0.12)),
+    "o": ((450, 800, 2830), (1.0, 0.45, 0.10)),
+    "u": ((325, 700, 2700), (1.0, 0.35, 0.08)),
+}
+
+
+def _vowel_of(syllable: str) -> str:
+    s = syllable.lower()
+    for ch in s:
+        if ch in "aeiou":
+            return "e" if ch == "y" else ch
+    return "a"
+
+
+def _has_leading_consonant(syllable: str) -> bool:
+    return bool(syllable) and syllable[0].lower() not in "aeiouy"
+
+
 class MockSingingVoiceEngine(SingingVoiceEngine):
-    """Sine + soft harmonics with vibrato and per-note envelope. Not a real
-    voice — a placeholder that keeps the entire pipeline (timing, mixing,
-    karaoke) real."""
+    """Formant singing synthesis: a sawtooth-ish glottal source shaped by the
+    vowel formants of each lyric syllable, with vibrato, consonant noise
+    bursts and legato envelopes. Clearly synthetic — no cloning — but sings
+    recognizable vowels in time and in tune."""
 
     def render(self, project: SongProject, track: Track,
                out_path: Path) -> VocalRenderResult:
@@ -54,6 +78,7 @@ class MockSingingVoiceEngine(SingingVoiceEngine):
         total = max(int(project.duration_seconds() * SAMPLE_RATE), SAMPLE_RATE)
         out = np.zeros(total, dtype=np.float32)
         notes_rendered = 0
+        rng = np.random.default_rng(hash(track.id) & 0xFFFFFFFF)
 
         for clip in track.clips:
             if clip.clip_type == "sample":
@@ -66,17 +91,41 @@ class MockSingingVoiceEngine(SingingVoiceEngine):
                 if count <= 0:
                     continue
                 t = np.arange(count) / SAMPLE_RATE
-                vibrato = 1 + 0.006 * np.sin(2 * np.pi * 5.5 * t)
-                f = _note_freq(n.midi_note)
-                tone = (0.6 * np.sin(2 * np.pi * f * vibrato * t)
-                        + 0.25 * np.sin(2 * np.pi * 2 * f * t)
-                        + 0.1 * np.sin(2 * np.pi * 3 * f * t))
+                f0 = _note_freq(n.midi_note)
+                # pitch: slight scoop into the note + 5.5 Hz vibrato
+                scoop = 1 - 0.03 * np.exp(-t / 0.05)
+                vib_depth = 0.008 * np.minimum(t / 0.25, 1.0)  # delayed vibrato
+                freq = f0 * scoop * (1 + vib_depth * np.sin(2 * np.pi * 5.5 * t))
+                phase = 2 * np.pi * np.cumsum(freq) / SAMPLE_RATE
+
+                # glottal-ish source: harmonics shaped by vowel formants
+                formants, amps = _VOWEL_FORMANTS[_vowel_of(n.lyric_syllable)]
+                tone = np.zeros(count)
+                for h in range(1, 13):
+                    hf = f0 * h
+                    if hf > SAMPLE_RATE / 2:
+                        break
+                    # formant resonance gains for this harmonic
+                    g = 0.06  # residual spectral tilt
+                    for (fc, a) in zip(formants, amps):
+                        bw = 90 + fc * 0.06
+                        g += a * np.exp(-0.5 * ((hf - fc) / bw) ** 2)
+                    tone += (g / h ** 0.7) * np.sin(h * phase)
+                tone += 0.01 * rng.standard_normal(count)  # breathiness
+
+                # consonant approximation: 25 ms noise burst at note start
+                if _has_leading_consonant(n.lyric_syllable):
+                    burst = min(int(0.025 * SAMPLE_RATE), count)
+                    tone[:burst] += 0.12 * rng.standard_normal(burst) \
+                        * np.linspace(1, 0, burst)
+
                 attack = min(int(0.02 * SAMPLE_RATE), count)
-                release = min(int(0.06 * SAMPLE_RATE), count)
+                release = min(int(0.08 * SAMPLE_RATE), max(count - attack, 1))
                 env = np.ones(count)
                 env[:attack] = np.linspace(0, 1, attack)
                 env[-release:] *= np.linspace(1, 0, release)
-                out[i0:i0 + count] += (tone * env * (n.velocity / 127) * 0.35).astype(np.float32)
+                out[i0:i0 + count] += (tone * env * (n.velocity / 127) * 0.5
+                                       ).astype(np.float32)
                 notes_rendered += 1
 
         peak = float(np.max(np.abs(out))) if out.size else 0.0
@@ -86,7 +135,7 @@ class MockSingingVoiceEngine(SingingVoiceEngine):
         write_wav(out_path, stereo, SAMPLE_RATE)
         result.stem_path = out_path
         result.render_log.append(
-            f"mock engine rendered {notes_rendered} notes to {out_path.name}")
+            f"formant engine rendered {notes_rendered} notes to {out_path.name}")
         if notes_rendered == 0:
             result.warnings.append(
                 f"vocal track {track.name!r} has no melody notes — stem is silent; "
