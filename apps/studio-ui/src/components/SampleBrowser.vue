@@ -64,6 +64,7 @@ async function addToProject(hit: SearchHit, loop: boolean) {
       instrument_config: { soundfont_asset_id: null, program: 0, is_drum_kit: false, bank: 0 },
       clips: [], effects: { effects: [] },
       volume: 1, pan: 0, mute: false, solo: false, voice_profile_id: null,
+      vocal_style: 'sing',
     }
     p.tracks.push(track)
   }

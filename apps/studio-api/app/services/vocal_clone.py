@@ -94,6 +94,7 @@ def _lines_with_notes(project: SongProject, track: Track):
             notes.append({"start": start,
                           "end": start + timing.beats_to_seconds(project, n.duration_beats),
                           "freq": _note_freq(n.midi_note),
+                          "syl": n.lyric_syllable,
                           "section_id": clip.section_id})
     notes.sort(key=lambda x: x["start"])
     out = []
@@ -149,56 +150,130 @@ def _frame_f0(audio: np.ndarray, rate: int, frame: int = 1024,
     return f0
 
 
-def _sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
-               line_dur: float, line_start: float) -> np.ndarray:
-    """Time-stretch spoken audio to the melody span and pitch-map voiced
-    frames to the note frequencies (44.1 kHz output)."""
-    if rate != SAMPLE_RATE:
-        spoken = resample_linear(spoken[:, None], rate, SAMPLE_RATE)[:, 0]
-    n_in = len(spoken)
-    n_out = max(int(line_dur * SAMPLE_RATE), 1)
-    if n_in < 512:
-        return np.zeros(n_out, dtype=np.float32)
+def _trim_silence(audio: np.ndarray, rate: int,
+                  thresh: float = 0.015) -> np.ndarray:
+    loud = np.flatnonzero(np.abs(audio) > thresh)
+    if not loud.size:
+        return audio
+    pad = int(0.02 * rate)
+    return audio[max(loud[0] - pad, 0):min(loud[-1] + pad, len(audio))]
 
+
+def _syllable_segments(spoken: np.ndarray, rate: int,
+                       syllables: list[str]) -> list[np.ndarray]:
+    """Split spoken audio into one segment per syllable.
+
+    Strategy: energy-valley boundaries near the proportional positions
+    predicted from syllable text weights — the valleys snap the cuts to the
+    real pauses between syllables so segments contain whole phonemes."""
+    n = len(syllables)
+    if n <= 1 or len(spoken) < 256:
+        return [spoken]
+    weights = np.array([len(s) + 1.5 for s in syllables], dtype=np.float64)
+    targets = np.cumsum(weights)[:-1] / weights.sum() * len(spoken)
+
+    hop = 128
+    frames = len(spoken) // hop
+    env = np.abs(spoken[:frames * hop]).reshape(frames, hop).mean(axis=1)
+    # smooth the envelope
+    k = 9
+    env = np.convolve(env, np.ones(k) / k, mode="same")
+
+    cuts = [0]
+    for t in targets:
+        f = int(t // hop)
+        radius = max(int(0.06 * rate / hop), 2)
+        lo = max(f - radius, cuts[-1] // hop + 1)
+        hi = min(f + radius, frames - 1)
+        if hi <= lo:
+            cut = int(t)
+        else:
+            cut = (lo + int(np.argmin(env[lo:hi]))) * hop  # nearest valley
+        cuts.append(max(cut, cuts[-1] + hop))
+    cuts.append(len(spoken))
+    return [spoken[cuts[i]:cuts[i + 1]] for i in range(n)]
+
+
+def _stretch_pitch_segment(seg: np.ndarray, n_out: int, tgt_freq: float | None,
+                           vibrato: bool) -> np.ndarray:
+    """Stretch one syllable segment to its note length; map voiced frames to
+    the note frequency (None = rap: keep natural pitch). Unvoiced audio
+    passes through pitch-untouched so consonants stay crisp."""
+    n_in = len(seg)
+    out = np.zeros(n_out, dtype=np.float32)
+    if n_in < 64 or n_out < 64:
+        return out
     hop = 256
-    f0 = _frame_f0(spoken, SAMPLE_RATE)
+    f0 = _frame_f0(seg, SAMPLE_RATE, frame=min(1024, n_in), hop=hop)
 
-    def target_freq(t_abs: float) -> float:
-        for nd in line_notes:
-            if nd["start"] - 0.02 <= t_abs < nd["end"] + 0.02:
-                return nd["freq"]
-        return line_notes[-1]["freq"] if line_notes else 220.0
-
-    block = 4096
-    fade = 512
+    block = 2048
+    fade = 384
     step = block - fade
     win = np.ones(block, dtype=np.float32)
     win[:fade] = np.linspace(0, 1, fade)
     win[-fade:] = np.linspace(1, 0, fade)
-    out = np.zeros(n_out + block, dtype=np.float32)
+    buf = np.zeros(n_out + block, dtype=np.float32)
     norm = np.zeros(n_out + block, dtype=np.float32)
-    stretch = n_in / n_out  # input samples per output sample
+    stretch = n_in / n_out
 
     pos = 0
     while pos < n_out:
         in_center = pos * stretch
         k = int(in_center // hop)
         src_f0 = f0[min(k, len(f0) - 1)] if len(f0) else 0.0
-        if src_f0 > 0:
-            tgt = target_freq(line_start + pos / SAMPLE_RATE)
-            ratio = float(np.clip(tgt / src_f0, 0.35, 3.0))
+        if tgt_freq is not None and src_f0 > 0:
+            t = pos / SAMPLE_RATE
+            # glide into the note over 35 ms, delayed vibrato on long notes
+            glide = 1 - 0.06 * np.exp(-t / 0.035)
+            vib = 1.0
+            if vibrato and n_out > int(0.35 * SAMPLE_RATE):
+                vib = 1 + 0.02 * min(t / 0.25, 1.0) * np.sin(2 * np.pi * 5.4 * t)
+            ratio = float(np.clip(tgt_freq * glide * vib / src_f0, 0.35, 3.0))
         else:
-            ratio = 1.0  # consonants/breaths untouched → crisp words
+            ratio = 1.0
         idx = in_center + (np.arange(block) - block / 2) * ratio
         idx = np.clip(idx, 0, n_in - 1.001)
         i0 = idx.astype(np.int64)
         frac = (idx - i0).astype(np.float32)
-        grain = spoken[i0] * (1 - frac) + spoken[np.minimum(i0 + 1, n_in - 1)] * frac
-        out[pos:pos + block] += grain * win
+        grain = seg[i0] * (1 - frac) + seg[np.minimum(i0 + 1, n_in - 1)] * frac
+        buf[pos:pos + block] += grain * win
         norm[pos:pos + block] += win
         pos += step
     norm = np.maximum(norm, 1e-6)
-    return (out[:n_out] / norm[:n_out]).astype(np.float32)
+    return (buf[:n_out] / norm[:n_out]).astype(np.float32)
+
+
+def _sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
+               line_dur: float, line_start: float,
+               rap: bool = False) -> np.ndarray:
+    """Syllable-to-note alignment: each spoken syllable is stretched onto its
+    exact note and pitched to it (or kept natural for rap). Every word lands
+    on the beat — this is what makes it sound sung instead of warped."""
+    if rate != SAMPLE_RATE:
+        spoken = resample_linear(spoken[:, None], rate, SAMPLE_RATE)[:, 0]
+    spoken = _trim_silence(spoken, SAMPLE_RATE)
+    n_out = max(int(line_dur * SAMPLE_RATE), 1)
+    if len(spoken) < 512 or not line_notes:
+        return np.zeros(n_out, dtype=np.float32)
+
+    syllables = [nd.get("syl") or "la" for nd in line_notes]
+    segments = _syllable_segments(spoken, SAMPLE_RATE, syllables)
+    out = np.zeros(n_out, dtype=np.float32)
+    for nd, seg in zip(line_notes, segments):
+        note_len = max(int((nd["end"] - nd["start"]) * SAMPLE_RATE), 64)
+        sung = _stretch_pitch_segment(
+            seg, note_len, None if rap else nd["freq"], vibrato=not rap)
+        i0 = int((nd["start"] - line_start) * SAMPLE_RATE)
+        if i0 < 0 or i0 >= n_out:
+            continue
+        seglen = min(len(sung), n_out - i0)
+        # short crossfade edges to avoid clicks between syllables
+        edge = min(int(0.008 * SAMPLE_RATE), seglen // 2)
+        if edge > 0:
+            sung[:edge] *= np.linspace(0, 1, edge)
+            sung[seglen - edge:seglen] *= np.linspace(1, 0, edge)
+        out[i0:i0 + seglen] += sung[:seglen]
+    return out
 
 
 class CloneSingingEngine(SingingVoiceEngine):
@@ -248,6 +323,7 @@ class CloneSingingEngine(SingingVoiceEngine):
         total = max(int(project.duration_seconds() * SAMPLE_RATE), SAMPLE_RATE)
         out = np.zeros(total, dtype=np.float32)
         sung = 0
+        rap = getattr(track, "vocal_style", "sing") == "rap"
         for text, line_notes in pairs:
             try:
                 spoken, rate = _tts_line(text, speaker, language)
@@ -256,7 +332,8 @@ class CloneSingingEngine(SingingVoiceEngine):
                 continue
             line_start = line_notes[0]["start"]
             line_dur = max(line_notes[-1]["end"] - line_start, 0.3)
-            sung_line = _sing_line(spoken, rate, line_notes, line_dur, line_start)
+            sung_line = _sing_line(spoken, rate, line_notes, line_dur,
+                                   line_start, rap=rap)
             i0 = int(line_start * SAMPLE_RATE)
             seglen = min(len(sung_line), total - i0)
             if seglen > 0:

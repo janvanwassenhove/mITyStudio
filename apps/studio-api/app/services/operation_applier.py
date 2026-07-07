@@ -234,10 +234,25 @@ def op_generate_melody(project: SongProject, p: dict) -> str:
     section = _find_section(project, p.get("section"))
     lines = [l.text for l in project.lyrics.lines
              if l.section_id == section.id] or None
+    track_type = p.get("track_type", "lead_vocal" if lines else "synth")
+
+    if lines and track_type in ("lead_vocal", "backing_vocal"):
+        # sung/rapped vocals: one note per syllable (clone-engine aligned)
+        rap = str(p.get("style", "")).lower() == "rap"
+        track_ref = p.get("track")
+        if not rap and track_ref:
+            existing = next((t for t in project.tracks
+                             if t.id == track_ref
+                             or t.name.lower() == str(track_ref).lower()), None)
+            rap = existing is not None and existing.vocal_style == "rap"
+
+        def gen(proj, sec):
+            return music_gen.generate_vocal_melody(proj, sec, lines, rap=rap)
+        return _generate(project, p, "rap flow" if rap else "vocal melody",
+                         track_type, gen)
 
     def gen(proj, sec):
         return music_gen.generate_melody(proj, sec, lines)
-    track_type = p.get("track_type", "lead_vocal" if lines else "synth")
     return _generate(project, p, "melody", track_type, gen)
 
 
@@ -374,6 +389,8 @@ def op_create_vocal_track(project: SongProject, p: dict) -> str:
     name = p.get("name") or ("Lead Vocal" if track_type == "lead_vocal"
                              else "Backing Vocal")
     track = Track(name=name, track_type=track_type)
+    if str(p.get("vocal_style", "")).lower() == "rap" or "rap" in name.lower():
+        track.vocal_style = "rap"
     if p.get("voice_profile_id"):
         from . import voice_profiles
         profile = voice_profiles.get_profile(p["voice_profile_id"])

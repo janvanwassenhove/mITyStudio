@@ -110,6 +110,7 @@ class Track(BaseModel):
     solo: bool = False
     # vocal tracks
     voice_profile_id: str | None = None
+    vocal_style: Literal["sing", "rap"] = "sing"
 
 
 class Section(BaseModel):

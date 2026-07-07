@@ -60,6 +60,7 @@ class QuickAddTrackRequest(BaseModel):
     generate: bool = True                 # create a starter part for the song
     voice_profile_id: str | None = None   # vocal tracks: sing with this voice
     lyrics: list[str] | None = None       # vocal tracks: custom lyric lines
+    vocal_style: str = "sing"             # sing | rap
 
 
 _GENERATOR_FOR_TYPE = {
@@ -97,7 +98,8 @@ def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
                                              "energy": energy}))
 
     if is_vocal:
-        params: dict = {"name": name, "track_type": req.track_type}
+        params: dict = {"name": name, "track_type": req.track_type,
+                        "vocal_style": req.vocal_style}
         if req.voice_profile_id:
             params["voice_profile_id"] = req.voice_profile_id
         ops.append(ChatOperation(op_type="create_vocal_track", params=params))

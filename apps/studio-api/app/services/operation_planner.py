@@ -57,7 +57,8 @@ Key params per operation:
 - rewrite_lyrics: lines (list of strings), section?, language?
 - change_key: key; change_tempo: bpm (number, or "+10"/"-10")
 - add_effect: track, effect_type (gain|pan|eq|compressor|reverb|delay|distortion), params
-- create_vocal_track: name?, track_type, voice_profile_id?
+- create_vocal_track: name?, track_type, voice_profile_id?, vocal_style? (sing|rap)
+- generate_melody with style: "rap" produces a rap flow instead of a sung melody
 - assign_voice_profile: track, voice_profile_id
 
 STRICT RULES:

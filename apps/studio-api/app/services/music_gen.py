@@ -387,6 +387,95 @@ def _make_motif(rng: random.Random, bpb: float) -> list[tuple[float, float, int]
     return contour
 
 
+def generate_vocal_melody(project: SongProject, section: Section,
+                          lyrics_lines: list[str],
+                          rap: bool = False) -> Clip:
+    """Singable vocal melody: exactly ONE note per syllable, phrased per
+    lyric line with breaths between lines, contour arcs that resolve to
+    chord tones. Rap mode keeps a tight monotone-ish rhythm instead.
+
+    The 1:1 syllable↔note mapping is what lets the clone-singing engine
+    place every word exactly on its note (fluent, on-beat vocals).
+    """
+    bpb = project.beats_per_bar
+    length = section.length_bars * bpb
+    scale = scale_notes(project.key)
+    chords = chord_progression(project.key, project.style.lower(),
+                               section.length_bars)
+    rng = _rng(project, section, "vocal")
+    notes: list[NoteEvent] = []
+
+    lines = [(l, _syllables(l)) for l in lyrics_lines if _syllables(l)]
+    if not lines:
+        return Clip(section_id=section.id, clip_type="midi",
+                    start_beat=section.start_bar * bpb,
+                    duration_beats=length, note_events=[])
+
+    slot = length / len(lines)          # beats available per line
+    center = 65 if section.energy > 0.6 else 62
+
+    for li, (line, syls) in enumerate(lines):
+        line_start = li * slot
+        breath = min(1.0, slot * 0.18)  # rest at the end of every line
+        usable = slot - breath
+        n = len(syls)
+        # rhythm: mostly even syllables, stretched last syllable of the line
+        base_dur = max(min(usable / n, 1.0), 0.22)
+        durs = [base_dur] * n
+        durs[-1] = min(base_dur * 2.2, usable - base_dur * (n - 1) + base_dur)
+        if not rap:
+            for i in range(0, n - 1):
+                if rng.random() < 0.2:  # occasional pushed short pair
+                    durs[i] *= 0.75
+        total_needed = sum(durs)
+        if total_needed > usable and total_needed > 0:
+            scalef = usable / total_needed
+            durs = [d * scalef for d in durs]
+
+        bar0 = int(line_start // bpb) % len(chords)
+        chord = chords[bar0]
+        if rap:
+            # rap: 1-3 pitches around the root, rhythm carries everything
+            root = _nearest_octave(chord[0], center)
+            beat = line_start
+            for i, syl in enumerate(syls):
+                pitch = root + rng.choice([0, 0, 0, 2, -1]) if i % 4 else root
+                _note(notes, pitch, beat, durs[i] * 0.92,
+                      104 if i % 2 == 0 else 92, rng, length, 0.01,
+                      syllable=syl)
+                beat += durs[i]
+            continue
+
+        # sung contour: arc up to a mid-line peak, resolve to a chord tone
+        start_pitch = _nearest_octave(rng.choice(chord), center)
+        peak_i = max(n // 2, 1)
+        degree = scale.index(start_pitch % 12) if start_pitch % 12 in scale else 0
+        beat = line_start
+        pitch = start_pitch
+        for i, syl in enumerate(syls):
+            if i == 0:
+                pitch = start_pitch
+            elif i == n - 1:
+                bar_i = int(beat // bpb) % len(chords)
+                pitch = _nearest_octave(
+                    min(chords[bar_i], key=lambda c: abs(_nearest_octave(c, pitch) - pitch)),
+                    pitch)  # land on a chord tone
+            else:
+                move = 1 if i < peak_i else -1
+                if rng.random() < 0.3:
+                    move = rng.choice([-1, 0, 1])
+                degree = max(-3, min(9, degree + move))
+                pitch = _nearest_octave(scale[degree % 7], center + (4 if i < peak_i else 0))
+            _note(notes, pitch, beat, durs[i] * 0.95,
+                  92 + int(20 * section.energy) + (6 if i == 0 else 0),
+                  rng, length, 0.012, syllable=syl)
+            beat += durs[i]
+
+    return Clip(section_id=section.id, clip_type="midi",
+                start_beat=section.start_bar * bpb,
+                duration_beats=length, note_events=notes)
+
+
 def generate_melody(project: SongProject, section: Section,
                     lyrics_lines: list[str] | None = None) -> Clip:
     bpb = project.beats_per_bar

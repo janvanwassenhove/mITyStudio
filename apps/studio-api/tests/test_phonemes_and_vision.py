@@ -108,6 +108,33 @@ def test_vision_import_builds_project(client, workspace, monkeypatch):
                for n in c["note_events"])
 
 
+def test_vocal_melody_one_note_per_syllable(workspace):
+    """The clone engine needs exactly one note per syllable — verify the
+    dedicated vocal melody generator delivers that, for singing and rap."""
+    from app.models.song import Section, SongProject
+    from app.services.music_gen import _syllables, generate_vocal_melody
+
+    project = SongProject(title="t", bpm=100, key="G major")
+    section = Section(name="V", start_bar=0, length_bars=8)
+    project.sections = [section]
+    lines = ["Hello darkness my old friend", "I've come to talk with you again"]
+    expected = sum(len(_syllables(l)) for l in lines)
+
+    for rap in (False, True):
+        clip = generate_vocal_melody(project, section, lines, rap=rap)
+        assert len(clip.note_events) == expected, f"rap={rap}"
+        assert all(n.lyric_syllable for n in clip.note_events)
+        # notes are sequential (no overlaps) and inside the section
+        notes = sorted(clip.note_events, key=lambda n: n.start_beat)
+        for a, b in zip(notes, notes[1:]):
+            assert b.start_beat >= a.start_beat
+        assert notes[-1].start_beat + notes[-1].duration_beats <= 32.01
+    # rap stays in a tight pitch range
+    rap_clip = generate_vocal_melody(project, section, lines, rap=True)
+    pitches = [n.midi_note for n in rap_clip.note_events]
+    assert max(pitches) - min(pitches) <= 4
+
+
 def test_sing_lyrics_endpoint(client, workspace):
     from tests.test_projects import make_project
     p = make_project(client)

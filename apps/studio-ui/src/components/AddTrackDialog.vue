@@ -30,6 +30,7 @@ const picked = ref<InstrumentCard | null>(null)
 const generate = ref(true)
 const lyricsText = ref('')
 const voiceProfileId = ref('')
+const vocalStyle = ref<'sing' | 'rap'>('sing')
 const profiles = ref<VoiceProfile[]>([])
 const busy = ref(false)
 const error = ref('')
@@ -55,6 +56,7 @@ async function add() {
         generate: picked.value.type === 'sample' ? false : generate.value,
         voice_profile_id: isVocal.value && voiceProfileId.value ? voiceProfileId.value : null,
         lyrics: isVocal.value && lines.length ? lines : null,
+        vocal_style: vocalStyle.value,
       })
     await studio.reloadCurrent()
     if (res.errors.length) {
@@ -102,6 +104,13 @@ async function add() {
         </label>
 
         <template v-if="isVocal">
+          <label class="field">
+            Style
+            <select v-model="vocalStyle">
+              <option value="sing">🎵 Singing — melody with vibrato</option>
+              <option value="rap">🎤 Rap — rhythm-locked flow, natural pitch</option>
+            </select>
+          </label>
           <label class="field">
             Singing voice
             <select v-model="voiceProfileId">

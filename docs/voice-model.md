@@ -46,6 +46,36 @@ Requirements for a real engine adapter:
 - the **mock engine stays available as fallback** when the real engine or its
   dependencies are missing
 
+### The singing pipeline (current best setup)
+
+For fluent, on-pitch vocals every stage matters:
+
+1. **Vocal melody generation** (`generate_vocal_melody`): exactly **one note
+   per syllable**, phrased per lyric line with breaths between lines, contour
+   arcs resolving to chord tones. Rap mode: tight 1-3 pitch flow, rhythm-led.
+2. **Neural voice cloning** (XTTS-v2): each lyric line is spoken in the
+   voice cloned from the profile's source recording. Lines are cached.
+3. **Syllable-to-note alignment**: the spoken line is split into syllable
+   segments (energy-valley cuts near text-proportional positions); each
+   segment is time-stretched onto its exact note and pitch-mapped to the note
+   frequency with a 35 ms glide-in and delayed vibrato on long notes.
+   Unvoiced frames (consonants) keep their natural pitch → words stay crisp.
+   Rap style skips pitch-mapping entirely (natural voice, rhythm-locked).
+4. Vocal stems are normalized to sit on top of the mix; autotune/reverb etc.
+   can be added as track effects.
+
+Recording tips for best cloning: 10–30 s of clean, dry, single-speaker audio
+(no music underneath), normal speaking or sustained singing, in the language
+of the lyrics.
+
+### Going further (upgrade ladder)
+
+- **RVC voice conversion** (train a per-voice model, ~10 min of recordings,
+  GPU): convert a well-sung base vocal into the target voice — best timbre
+  fidelity. Fits behind `SingingVoiceEngine` as a post-processor.
+- **DiffSinger-class SVS**: true singing synthesis (phoneme+pitch score in,
+  singing out) — highest ceiling, heaviest integration.
+
 ### Engines
 
 - **MockSingingVoiceEngine (formant)** — default. Formant-synthesized vowels

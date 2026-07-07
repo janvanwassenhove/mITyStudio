@@ -275,9 +275,17 @@ loadLibraries()
             <option v-for="p in profiles" :key="p.id" :value="p.id">{{ p.name }} — AI voice from recording</option>
           </select>
         </label>
+        <label class="field">Vocal style
+          <select :value="track.vocal_style ?? 'sing'"
+                  @change="track.vocal_style = ($event.target as HTMLSelectElement).value as 'sing' | 'rap'; save()">
+            <option value="sing">🎵 Singing — pitched to the melody, vibrato</option>
+            <option value="rap">🎤 Rap — natural voice pitch, rhythm-locked flow</option>
+          </select>
+        </label>
         <p class="dim small">
-          With a consented profile, the vocal renders in that voice (pitch-shifted
-          from its source recording). Without one, the formant engine sings the vowels.
+          With a consented profile the AI clones that voice and sings/raps the
+          actual lyrics (re-render happens on ▶). Without one, a synthetic
+          voice is used.
         </p>
         <div class="field">
           <span>Record a take (live singing onto this track)</span>
