@@ -144,12 +144,12 @@ def preview_instrument(req: InstrumentPreviewRequest) -> FileResponse:
     mid.tracks.append(t)
     t.append(mido.MetaMessage("set_tempo", tempo=mido.bpm2tempo(req.bpm), time=0))
     channel = 9 if req.is_drum_kit else 0
-    if not req.is_drum_kit:
-        if 0 < req.bank < 128:
-            t.append(mido.Message("control_change", control=0, value=req.bank,
-                                  channel=channel, time=0))
-        t.append(mido.Message("program_change", program=req.program,
+    if not req.is_drum_kit and 0 < req.bank < 128:
+        t.append(mido.Message("control_change", control=0, value=req.bank,
                               channel=channel, time=0))
+    # drums too: the program selects WHICH kit inside bank 128
+    t.append(mido.Message("program_change", program=req.program,
+                          channel=channel, time=0))
     events = []
     for n in req.notes:
         on = round(n.start_beat * 480)

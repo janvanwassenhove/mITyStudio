@@ -80,7 +80,14 @@ let loopTimer: ReturnType<typeof setTimeout> | null = null
 
 function loopNotes() {
   const bpb = studio.manifest?.beats_per_bar ?? 4
-  const span = bpb * 2  // first two bars of the clip
+  const span = bpb * 2  // two-bar loop
+  // smart drums preview the designed BUFFER; other surfaces loop the clip
+  if (props.track.track_type === 'drums' && drumMode.value === 'smart') {
+    return smartBuffer.value
+      .filter((h) => h.beat < span)
+      .map((h) => ({ midi_note: h.midi, start_beat: h.beat,
+                     duration_beats: 0.2, velocity: h.vel }))
+  }
   return props.clip.note_events
     .filter((n) => n.start_beat < span)
     .map((n) => ({ midi_note: n.midi_note, start_beat: n.start_beat,
@@ -200,9 +207,8 @@ function pickKit(delta: number) {
 
 function resetBoard() {
   for (const e of smartEls.value) e.placed = false
-  props.clip.note_events = []
+  smartBuffer.value = []
   lastInsert.value = 'board cleared'
-  emit('changed')
 }
 interface SmartEl { midis: number[]; label: string; icon: string; placed: boolean; x: number; y: number }
 const smartEls = ref<SmartEl[]>([
@@ -219,15 +225,17 @@ const smartEls = ref<SmartEl[]>([
 
 const beatsPerBar = computed(() => studio.manifest?.beats_per_bar ?? 4)
 
+const SMART_BARS = 4
+
 function smartPattern(el: SmartEl): { beat: number; midi: number; vel: number }[] {
   const c = el.x            // simple → complex
   const loud = 1 - el.y     // board top = loud
-  const bars = Math.max(Math.floor(props.clip.duration_beats / beatsPerBar.value), 1)
+  const bars = SMART_BARS
   const base = Math.round(45 + 75 * loud)
   const out: { beat: number; midi: number; vel: number }[] = []
   const push = (bar: number, b: number, midi: number, velScale = 1) => {
     const beat = bar * beatsPerBar.value + b
-    if (beat < props.clip.duration_beats) {
+    if (beat < SMART_BARS * beatsPerBar.value) {
       out.push({ beat, midi, vel: Math.max(25, Math.min(127, Math.round(base * velScale + (b % 1 === 0 ? 8 : -6)))) })
     }
   }
@@ -271,16 +279,41 @@ function smartPattern(el: SmartEl): { beat: number; midi: number; vel: number }[
   return out
 }
 
+// smart drums design into a BUFFER — "＋ Add as clip" drops it in the song
+const smartBuffer = ref<{ beat: number; midi: number; vel: number }[]>([])
+
 function regenerateSmart() {
-  props.clip.note_events = smartEls.value
+  smartBuffer.value = smartEls.value
     .filter((e) => e.placed)
-    .flatMap((e) => smartPattern(e).map((h) => ({
+    .flatMap((e) => smartPattern(e))
+  lastInsert.value = `pattern: ${smartBuffer.value.length} hits over ${SMART_BARS} bars`
+  queueLoopRefresh()
+}
+
+function addSmartAsClip() {
+  const p = studio.project
+  const m = studio.manifest
+  if (!p || !m) return
+  if (!smartBuffer.value.length) regenerateSmart()
+  if (!smartBuffer.value.length) { lastInsert.value = 'place some pieces first'; return }
+  const track = p.tracks.find((t) => t.id === props.track.id)
+  if (!track) return
+  const bpb = m.beats_per_bar
+  const startBar = Math.round(((playback.playhead * m.bpm) / 60) / bpb)
+  const clip: Clip = {
+    id: uid(), section_id: '', clip_type: 'midi',
+    start_beat: startBar * bpb, duration_beats: SMART_BARS * bpb,
+    note_events: smartBuffer.value.map((h) => ({
       id: uid(), pitch: '', midi_note: h.midi, start_beat: h.beat,
       duration_beats: 0.2, velocity: h.vel, lyric_syllable: '',
-    } as NoteEvent)))
-  lastInsert.value = 'pattern updated'
+    } as NoteEvent)),
+    source_asset_id: null, gain_db: 0, loop: false,
+    fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
+  }
+  track.clips.push(clip)
+  studio.selectedClip = { trackId: track.id, clipId: clip.id }
+  lastInsert.value = `✓ ${SMART_BARS}-bar clip added at bar ${startBar + 1} — fine-tune it in ✎ Edit`
   emit('changed')
-  queueLoopRefresh()
 }
 
 function diceSmart() {
@@ -457,7 +490,9 @@ const bgImage = computed(() => {
         <button :class="{ on: drumMode === 'pads' }" @click="drumMode = 'pads'">Pads</button>
         <template v-if="drumMode === 'smart'">
           <button class="dice" title="random groove" @click="diceSmart">🎲</button>
-          <button class="reset" title="clear the board" @click="resetBoard">⏻ Reset</button>
+          <button class="reset" title="clear the board" @click="resetBoard">Reset</button>
+          <button class="add-clip" title="add this groove to the song as a new 4-bar clip at the playhead"
+                  @click="addSmartAsClip">＋ Add as clip</button>
         </template>
       </div>
       <div v-if="drumMode === 'smart'" class="smart-wrap">
@@ -548,6 +583,7 @@ const bgImage = computed(() => {
 .drum-mode button.on { color: var(--text); background: var(--bg-elevated); }
 .drum-mode .dice { font-size: 14px; margin-left: auto; }
 .drum-mode .reset { font-size: 11px; }
+.drum-mode .add-clip { font-size: 11px; border-color: var(--accent); color: var(--accent); }
 /* kit picker */
 .kit-panel { width: 110px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; background: rgba(22,25,31,0.85); border: 1px solid #3a3f49; border-radius: 12px; padding: 12px 6px; }
 .kit-visual { color: var(--text-dim); display: flex; }

@@ -2,11 +2,13 @@
 import { computed, onBeforeUnmount, ref } from 'vue'
 import type { Clip, NoteEvent, Track } from '../api/types'
 import { useStudioStore } from '../stores/studio'
+import { usePlaybackStore } from '../stores/playback'
 import { DRUM_SVG } from '../lib/drumIcons'
 
 const props = defineProps<{ track: Track; clip: Clip }>()
 const emit = defineEmits<{ changed: [] }>()
 const studio = useStudioStore()
+const playback = usePlaybackStore()
 const uid = () => crypto.randomUUID().replace(/-/g, '')
 
 // GarageBand-style lanes, each with its own color
@@ -30,35 +32,36 @@ const stepCount = computed(() => Math.round(bars.value * beatsPerBar.value / STE
 
 type EditTool = 'toggle' | 'velocity'
 const tool = ref<EditTool>('toggle')
+const msg = ref('')
 
-function noteAt(midi: number, step: number): NoteEvent | undefined {
-  return props.clip.note_events.find((n) =>
-    n.midi_note === midi && Math.abs(n.start_beat - step * STEP) < STEP / 2)
+// --- the pattern lives in a buffer, NOT in the clip: design freely, then
+// "＋ Add as clip" drops it into the song where you fine-tune it ---
+interface Hit { midi: number; step: number; vel: number }
+const grid = ref<Hit[]>(
+  props.clip.note_events
+    .filter((n) => n.start_beat < 2 * (studio.manifest?.beats_per_bar ?? 4))
+    .map((n) => ({ midi: n.midi_note,
+                   step: Math.round(n.start_beat / STEP),
+                   vel: n.velocity })))
+
+function hitAt(midi: number, step: number): Hit | undefined {
+  return grid.value.find((h) => h.midi === midi && h.step === step)
 }
 
 function tapStep(midi: number, step: number) {
-  const existing = noteAt(midi, step)
+  const existing = hitAt(midi, step)
   if (tool.value === 'velocity') {
     if (existing) {
-      // cycle soft → medium → accent
-      existing.velocity = existing.velocity < 75 ? 95 : existing.velocity < 110 ? 122 : 60
+      existing.vel = existing.vel < 75 ? 95 : existing.vel < 110 ? 122 : 60
     } else {
-      addNote(midi, step, 95)
+      grid.value.push({ midi, step, vel: 95 })
     }
   } else if (existing) {
-    props.clip.note_events = props.clip.note_events.filter((n) => n.id !== existing.id)
+    grid.value = grid.value.filter((h) => h !== existing)
   } else {
-    addNote(midi, step, step % 4 === 0 ? 110 : 90)
+    grid.value.push({ midi, step, vel: step % 4 === 0 ? 110 : 90 })
   }
-  emit('changed')
   queueLoopRefresh()
-}
-
-function addNote(midi: number, step: number, vel: number) {
-  props.clip.note_events.push({
-    id: uid(), pitch: '', midi_note: midi, start_beat: step * STEP,
-    duration_beats: 0.2, velocity: vel, lyric_syllable: '',
-  } as NoteEvent)
 }
 
 // --- pattern presets (steps are 16th indices within one bar) ---
@@ -75,44 +78,48 @@ const patternName = ref('')
 function applyPattern(name: string) {
   const pat = PATTERNS[name]
   if (!pat) return
-  const seqMidis = new Set(LANES.map((l) => l.midi))
-  const span = stepCount.value * STEP
-  props.clip.note_events = props.clip.note_events.filter(
-    (n) => n.start_beat >= span || !seqMidis.has(n.midi_note))
+  grid.value = []
   for (let bar = 0; bar < bars.value; bar++) {
     for (const [midi, steps] of Object.entries(pat)) {
       for (const s of steps ?? []) {
-        addNote(Number(midi), bar * 16 + s, s % 4 === 0 ? 110 : 90)
+        grid.value.push({ midi: Number(midi), step: bar * 16 + s,
+                          vel: s % 4 === 0 ? 110 : 90 })
       }
     }
   }
   patternName.value = name
-  emit('changed')
   queueLoopRefresh()
 }
 
 function clearGrid() {
-  const seqMidis = new Set(LANES.map((l) => l.midi))
-  const span = stepCount.value * STEP
-  props.clip.note_events = props.clip.note_events.filter(
-    (n) => n.start_beat >= span || !seqMidis.has(n.midi_note))
-  emit('changed')
+  grid.value = []
   queueLoopRefresh()
 }
 
-function applyToClip() {
-  // tile the sequencer bars across the whole clip
-  const span = stepCount.value * STEP
-  const pattern = props.clip.note_events.filter((n) => n.start_beat < span)
-  const out = [...pattern]
-  for (let offset = span; offset < props.clip.duration_beats - 0.01; offset += span) {
-    for (const n of pattern) {
-      if (offset + n.start_beat < props.clip.duration_beats) {
-        out.push({ ...n, id: uid(), start_beat: offset + n.start_beat })
-      }
-    }
+// --- add the pattern to the song as a NEW clip on this track --------------
+function addAsClip() {
+  const p = studio.project
+  const m = studio.manifest
+  if (!p || !m) return
+  const track = p.tracks.find((t) => t.id === props.track.id)
+  if (!track) return
+  if (!grid.value.length) { msg.value = 'the grid is empty'; return }
+  const bpb = m.beats_per_bar
+  const startBar = Math.round(((playback.playhead * m.bpm) / 60) / bpb)
+  const clip: Clip = {
+    id: uid(), section_id: '', clip_type: 'midi',
+    start_beat: startBar * bpb,
+    duration_beats: stepCount.value * STEP,
+    note_events: grid.value.map((h) => ({
+      id: uid(), pitch: '', midi_note: h.midi, start_beat: h.step * STEP,
+      duration_beats: 0.2, velocity: h.vel, lyric_syllable: '',
+    } as NoteEvent)),
+    source_asset_id: null, gain_db: 0, loop: false,
+    fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
   }
-  props.clip.note_events = out
+  track.clips.push(clip)
+  studio.selectedClip = { trackId: track.id, clipId: clip.id }
+  msg.value = `✓ clip added at bar ${startBar + 1} — selected in the timeline, fine-tune it in ✎ Edit`
   emit('changed')
 }
 
@@ -132,14 +139,13 @@ const loopSeconds = computed(() => {
 async function fetchLoop(): Promise<HTMLAudioElement | null> {
   const p = studio.project
   if (!p) return null
+  if (!grid.value.length) { msg.value = 'the grid is empty — tap steps or pick a pattern'; return null }
   const span = stepCount.value * STEP
-  const notes = props.clip.note_events
-    .filter((n) => n.start_beat < span)
-    .map((n) => ({ midi_note: n.midi_note, start_beat: n.start_beat,
-                   duration_beats: Math.min(n.duration_beats, span - n.start_beat),
-                   velocity: n.velocity }))
-  if (!notes.length) return null
-  // a silent tail-guard note keeps the render exactly loop-length
+  const notes = grid.value
+    .filter((h) => h.step < stepCount.value)
+    .map((h) => ({ midi_note: h.midi, start_beat: h.step * STEP,
+                   duration_beats: 0.2, velocity: h.vel }))
+  // a near-silent tail-guard keeps the render exactly loop-length
   notes.push({ midi_note: 36, start_beat: span - 0.01, duration_beats: 0.01, velocity: 1 })
   const cfg = props.track.instrument_config
   const res = await fetch('/api/projects/preview/instrument', {
@@ -172,15 +178,25 @@ async function togglePower() {
     return
   }
   loading.value = true
+  msg.value = ''
   try {
     const el = await fetchLoop()
     if (!el) return
     audio = el
     playing.value = true
-    void el.play()
+    try {
+      await el.play()
+    } catch (e) {
+      msg.value = 'browser blocked audio — click anywhere, then ⏻ again'
+      playing.value = false
+      return
+    }
     raf = requestAnimationFrame(tick)
-  } catch { /* preview unavailable */ }
-  finally { loading.value = false }
+  } catch (e) {
+    msg.value = String(e)
+  } finally {
+    loading.value = false
+  }
 }
 
 function queueLoopRefresh() {
@@ -211,11 +227,11 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
         <div class="seq-cells">
           <div v-for="s in stepCount" :key="s" class="seq-cell"
                :class="{ beat: (s - 1) % 4 === 0, playhead: currentStep === s - 1 }"
-               :style="{ background: noteAt(lane.midi, s - 1)
+               :style="{ background: hitAt(lane.midi, s - 1)
                  ? lane.color : lane.color + '22' }"
                @pointerdown.prevent="tapStep(lane.midi, s - 1)">
-            <div v-if="tool === 'velocity' && noteAt(lane.midi, s - 1)" class="vel-dot"
-                 :style="{ opacity: (noteAt(lane.midi, s - 1)?.velocity ?? 90) / 127 }" />
+            <div v-if="tool === 'velocity' && hitAt(lane.midi, s - 1)" class="vel-dot"
+                 :style="{ opacity: (hitAt(lane.midi, s - 1)?.vel ?? 90) / 127 }" />
           </div>
         </div>
       </div>
@@ -227,7 +243,9 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
         <option v-for="(_, name) in PATTERNS" :key="name" :value="name">{{ name }}</option>
       </select>
       <button class="power" :class="{ on: playing }" :disabled="loading"
-              title="start/stop the loop (real kit sound)" @click="togglePower">⏻</button>
+              title="start/stop the loop (real kit sound)" @click="togglePower">
+        {{ loading ? '⏳' : '⏻' }}
+      </button>
       <div class="tools">
         <button :class="{ on: tool === 'toggle' }" @click="tool = 'toggle'">Step On/Off</button>
         <button :class="{ on: tool === 'velocity' }" @click="tool = 'velocity'">Velocity</button>
@@ -236,9 +254,10 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
         <button :class="{ on: bars === 1 }" @click="bars = 1">1 bar</button>
         <button :class="{ on: bars === 2 }" @click="bars = 2">2 bars</button>
       </div>
-      <button class="tb" title="repeat this pattern across the whole clip" @click="applyToClip">⇥ Fill clip</button>
+      <button class="tb add" title="add this pattern to the song as a new clip at the playhead" @click="addAsClip">＋ Add as clip</button>
       <button class="tb" @click="clearGrid">✕ Clear</button>
     </div>
+    <div v-if="msg" class="dim seq-msg">{{ msg }}</div>
   </div>
 </template>
 
@@ -262,4 +281,6 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
 .tools button { border: none; background: transparent; color: var(--text-dim); font-size: 11px; padding: 2px 10px; }
 .tools button.on { background: var(--bg-elevated); color: var(--text); border-radius: 4px; }
 .tb { font-size: 11px; padding: 2px 10px; }
+.tb.add { border-color: var(--accent); color: var(--accent); }
+.seq-msg { font-size: 11px; padding-top: 4px; }
 </style>

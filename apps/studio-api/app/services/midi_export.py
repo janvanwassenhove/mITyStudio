@@ -34,16 +34,17 @@ def _track_to_midi(project: SongProject, track: Track,
     mtrack.append(mido.MetaMessage("track_name", name=track.name, time=0))
     if track.instrument_config.is_drum_kit:
         channel = 9
-    if not track.instrument_config.is_drum_kit:
-        bank = track.instrument_config.bank
-        if 0 < bank < 128:  # bank select MSB (128 = drum bank, handled by ch10)
-            mtrack.append(mido.Message("control_change", control=0,
-                                       value=bank, channel=channel, time=0))
-            mtrack.append(mido.Message("control_change", control=32,
-                                       value=0, channel=channel, time=0))
-        mtrack.append(mido.Message(
-            "program_change", program=track.instrument_config.program,
-            channel=channel, time=0))
+    bank = track.instrument_config.bank
+    if not track.instrument_config.is_drum_kit and 0 < bank < 128:
+        # bank select MSB (128 = drum bank, implied by channel 10)
+        mtrack.append(mido.Message("control_change", control=0,
+                                   value=bank, channel=channel, time=0))
+        mtrack.append(mido.Message("control_change", control=32,
+                                   value=0, channel=channel, time=0))
+    # ALWAYS send the program — for drums it selects which kit in bank 128
+    mtrack.append(mido.Message(
+        "program_change", program=track.instrument_config.program,
+        channel=channel, time=0))
 
     events: list[tuple[int, int, mido.Message]] = []  # (tick, order, msg)
     for clip in track.clips:
