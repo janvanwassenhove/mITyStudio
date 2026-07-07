@@ -31,9 +31,14 @@ class InstrumentRenderer(ABC):
         """Render one track to a WAV file. Returns warnings."""
 
 
+# bump when a rendering engine changes so cached stems re-render
+ENGINE_VERSION = "3"
+
+
 def track_fingerprint(project: SongProject, track: Track) -> str:
     """Hash of everything that affects a track's rendered audio."""
     h = hashlib.sha256()
+    h.update(ENGINE_VERSION.encode())
     h.update(f"{project.bpm}:{project.time_signature}".encode())
     h.update(track.model_dump_json(exclude={"volume", "pan", "mute", "solo"}).encode())
     return h.hexdigest()[:16]

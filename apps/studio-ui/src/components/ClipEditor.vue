@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { Clip, NoteEvent, Track } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
+import InstrumentPlayView from './InstrumentPlayView.vue'
 
 const studio = useStudioStore()
 const playback = usePlaybackStore()
@@ -30,6 +31,7 @@ const TYPE_ICONS: Record<string, string> = {
 
 const isDrums = computed(() => found.value?.track.track_type === 'drums')
 const isSample = computed(() => found.value?.clip.clip_type === 'sample')
+const viewMode = ref<'edit' | 'play'>('edit')
 
 const saving = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
@@ -235,6 +237,10 @@ onBeforeUnmount(stopPh)
       <span class="ed-icon">{{ TYPE_ICONS[found.track.track_type] }}</span>
       <strong>{{ found.track.name }}</strong>
       <span class="dim small">{{ isSample ? 'audio clip' : isDrums ? 'beat grid' : 'piano roll' }} · {{ found.clip.duration_beats }} beats</span>
+      <div v-if="!isSample" class="view-toggle">
+        <button :class="{ on: viewMode === 'edit' }" @click="viewMode = 'edit'">✎ Edit</button>
+        <button :class="{ on: viewMode === 'play' }" @click="viewMode = 'play'">🎹 Play</button>
+      </div>
       <span class="spacer" />
       <template v-if="!isSample">
         <template v-if="!isDrums">
@@ -261,6 +267,11 @@ onBeforeUnmount(stopPh)
       <label>Fade out (s) <input type="number" step="0.05" min="0" v-model.number="found.clip.fade_out_seconds" @change="save" /></label>
       <label>Start offset (s) <input type="number" step="0.1" min="0" v-model.number="found.clip.source_offset_seconds" @change="save" /></label>
     </div>
+
+    <!-- playable instrument surface (GarageBand-style) -->
+    <InstrumentPlayView v-else-if="viewMode === 'play'"
+                        :track="found.track" :clip="found.clip"
+                        @changed="save" />
 
     <!-- drum beat grid -->
     <div v-else-if="isDrums" class="grid-scroll">
@@ -335,6 +346,9 @@ onBeforeUnmount(stopPh)
 .small { font-size: 11px; }
 .tb { padding: 2px 8px; font-size: 11px; }
 .tb.danger { border-color: var(--err); color: var(--err); }
+.view-toggle { display: flex; gap: 2px; background: var(--bg); border-radius: 6px; padding: 2px; }
+.view-toggle button { border: none; background: transparent; padding: 2px 10px; font-size: 11px; color: var(--text-dim); }
+.view-toggle button.on { background: var(--bg-elevated); color: var(--text); border-radius: 4px; }
 .grid-scroll { flex: 1; overflow: auto; position: relative; }
 .sample-props { display: flex; gap: 18px; padding: 16px; flex-wrap: wrap; align-items: center; }
 .sample-props label { display: flex; gap: 6px; align-items: center; font-size: 12px; color: var(--text-dim); }

@@ -141,8 +141,8 @@ class MockSingingVoiceEngine(SingingVoiceEngine):
                 notes_rendered += 1
 
         peak = float(np.max(np.abs(out))) if out.size else 0.0
-        if peak > 1.0:
-            out /= peak
+        if peak > 0.005:
+            out *= 0.85 / peak   # vocals sit clearly on top of the band
         stereo = np.repeat(out[:, None], 2, axis=1)
         write_wav(out_path, stereo, SAMPLE_RATE)
         result.stem_path = out_path
@@ -379,8 +379,8 @@ class RecordingVoiceEngine(SingingVoiceEngine):
             notes_rendered += 1
 
         peak = float(np.max(np.abs(out))) if out.size else 0.0
-        if peak > 1.0:
-            out /= peak
+        if peak > 0.005:
+            out *= 0.85 / peak   # vocals sit clearly on top of the band
         write_wav(out_path, np.repeat(out[:, None], 2, axis=1), SAMPLE_RATE)
         result.stem_path = out_path
         result.render_log.append(
@@ -445,11 +445,23 @@ def render_vocal_stems(project: SongProject) -> dict:
 
     all_alignment: list[dict] = []
     from .midi_export import _safe_name
+    from . import voice_profiles as vp
     for track in vocal_tracks:
         profile = None
         if track.voice_profile_id:
-            from . import voice_profiles
-            profile = voice_profiles.get_profile(track.voice_profile_id)
+            profile = vp.get_profile(track.voice_profile_id)
+        if profile is None:
+            # default singer: the user's first consented voice profile, so
+            # uploaded voices are heard without extra setup (user-requested
+            # default; consent was given at profile creation)
+            consented = [p for p in vp.list_profiles()
+                         if p.consent_confirmed and p.source_recording_ids
+                         and p.status != "disabled"]
+            if consented:
+                profile = consented[0]
+                results["render_log"].append(
+                    f"{track.name}: no voice selected — singing with your "
+                    f"voice profile {profile.name!r} (change it in the Track tab)")
         engine = get_engine("mock", profile)
         fp = track_fingerprint(project, track)
         out_path = cfg.stems_dir / project.id / f"vocal_{_safe_name(track.name)}_{track.id[:8]}.wav"

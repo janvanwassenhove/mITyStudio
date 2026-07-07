@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { api } from '../api/client'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 import AddTrackDialog from './AddTrackDialog.vue'
@@ -53,6 +54,39 @@ function setVolume(trackId: string, v: number) {
   const t = projTrack(trackId)
   if (t) { t.volume = v; void save() }
 }
+
+// --- quick instrument switch (popover on the track header) -----------------
+interface PresetHit { asset_id: string; soundfont: string; preset: string; bank: number; program: number }
+const instSwitch = ref<string | null>(null)
+const instQuery = ref('')
+const instHits = ref<PresetHit[]>([])
+let instTimer: ReturnType<typeof setTimeout> | null = null
+
+function openInstSwitch(trackId: string) {
+  instSwitch.value = instSwitch.value === trackId ? null : trackId
+  instQuery.value = ''
+  instHits.value = []
+}
+function queueInstSearch() {
+  if (instTimer) clearTimeout(instTimer)
+  instTimer = setTimeout(async () => {
+    const q = instQuery.value.trim()
+    if (q.length < 2) { instHits.value = []; return }
+    instHits.value = (await api.get<PresetHit[]>(
+      `/assets/soundfont-presets/search?q=${encodeURIComponent(q)}`)).slice(0, 12)
+  }, 300)
+}
+async function pickInstrument(hit: PresetHit) {
+  const t = projTrack(instSwitch.value ?? '')
+  if (!t) return
+  t.instrument_config.soundfont_asset_id = hit.asset_id
+  t.instrument_config.bank = hit.bank
+  t.instrument_config.program = hit.program
+  instSwitch.value = null
+  await save()
+}
+const canSwitchInstrument = (type: string) =>
+  !['sample', 'lead_vocal', 'backing_vocal'].includes(type)
 
 const TRACK_COLORS: Record<string, string> = {
   drums: '#e6a23c', bass: '#f2555a', guitar: '#f78fb3', keys: '#4f9cf9',
@@ -406,8 +440,24 @@ async function deleteClip() {
                      :value="projTrack(tl.track.track_id)?.volume ?? 1"
                      @click.stop
                      @input="setVolume(tl.track.track_id, Number(($event.target as HTMLInputElement).value))" />
+              <button v-if="canSwitchInstrument(tl.track.track_type)" class="mini"
+                      title="switch instrument sound"
+                      @click.stop="openInstSwitch(tl.track.track_id)">🎛</button>
               <button class="mini" title="instrument & effects"
                       @click.stop="studio.openTrackInspector(tl.track.track_id)">✎</button>
+            </div>
+            <div v-if="instSwitch === tl.track.track_id" class="inst-pop" @click.stop @dblclick.stop>
+              <input v-model="instQuery" placeholder="Search instruments… (conga, sax, organ)"
+                     autofocus @input="queueInstSearch" @pointerdown.stop />
+              <div class="inst-hits">
+                <div v-for="(h, i) in instHits" :key="i" class="inst-hit" @click="pickInstrument(h)">
+                  <strong>{{ h.preset }}</strong>
+                  <span class="dim small">{{ h.soundfont }}</span>
+                </div>
+                <div v-if="instQuery.length >= 2 && !instHits.length" class="dim small" style="padding: 6px">
+                  no matches
+                </div>
+              </div>
             </div>
           </div>
           <div class="lane track-lane" :style="{ width: contentWidth + 'px', height: TRACK_H + 'px' }">
@@ -468,6 +518,13 @@ async function deleteClip() {
 .mini.mute { background: var(--warn); color: #000; border-color: var(--warn); }
 .mini.solo { background: var(--ok); color: #000; border-color: var(--ok); }
 .mini-vol { width: 70px; height: 14px; }
+.inst-pop { position: absolute; top: 100%; left: 4px; width: 260px; background: var(--bg-elevated); border: 1px solid var(--accent); border-radius: 8px; padding: 6px; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
+.inst-pop input { width: 100%; }
+.inst-hits { max-height: 160px; overflow-y: auto; margin-top: 4px; }
+.inst-hit { padding: 4px 6px; border-radius: 4px; cursor: pointer; display: flex; flex-direction: column; }
+.inst-hit:hover { background: var(--bg-panel); }
+.inst-hit strong { font-size: 12px; }
+.small { font-size: 10px; }
 .lane { position: relative; flex: none; }
 .ruler { height: 24px; cursor: pointer; }
 .bar-tick { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--border); pointer-events: none; }
