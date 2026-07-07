@@ -100,19 +100,42 @@ def train_voice(profile: dict) -> None:
 
     if not run(["preprocess", "--model_name", model,
                 "--dataset_path", str(ds),
-                "--sample_rate", SAMPLE_RATE], "preprocess"):
+                "--sample_rate", SAMPLE_RATE,
+                "--cut_preprocess", "Automatic",
+                "--cpu_cores", "4",
+                "--process_effects", "True",
+                "--noise_reduction", "False",
+                "--chunk_len", "3.0",
+                "--overlap_len", "0.3",
+                "--normalization_mode", "post"], "preprocess"):
         return
     if not run(["extract", "--model_name", model,
                 "--f0_method", "rmvpe",
-                "--sample_rate", SAMPLE_RATE], "extract"):
+                "--sample_rate", SAMPLE_RATE,
+                "--cpu_cores", "4",
+                "--gpu", "0",
+                "--embedder_model", "contentvec",
+                "--include_mutes", "2"], "extract"):
         return
     if not run(["train", "--model_name", model,
                 "--sample_rate", SAMPLE_RATE,
                 "--total_epoch", EPOCHS,
                 "--batch_size", BATCH,
-                "--save_every_epoch", SAVE_EVERY], "train"):
+                "--save_every_epoch", SAVE_EVERY,
+                "--save_every_weights", "True",
+                "--save_only_latest", "True",
+                "--gpu", "0",
+                "--vocoder", "HiFi-GAN",
+                "--pretrained", "True",
+                "--custom_pretrained", "False",
+                "--cache_data_in_gpu", "False",
+                "--checkpointing", "False",
+                "--overtraining_detector", "False",
+                "--overtraining_threshold", "50",
+                "--cleanup", "False",
+                "--index_algorithm", "Auto"], "train"):
         return
-    run(["index", "--model_name", model], "index")
+    run(["index", "--model_name", model, "--index_algorithm", "Auto"], "index")
     log(f"=== {model} COMPLETE ===")
 
 
