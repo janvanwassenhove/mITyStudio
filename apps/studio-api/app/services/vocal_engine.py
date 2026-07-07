@@ -514,11 +514,17 @@ class RecordingVoiceEngine(SingingVoiceEngine):
 
 
 def get_engine(engine_name: str = "mock", profile=None) -> SingingVoiceEngine:
-    """Factory for singing engines. A consented voice profile with source
-    recordings selects the recording-based engine; real neural engines
-    register here later (Phase 23 contract)."""
+    """Factory for singing engines. With a consented voice profile:
+    neural clone-singing (XTTS — real words in the cloned voice) when
+    installed, else the PSOLA recording engine. Without a profile: formant
+    synthesis."""
     if profile is not None and profile.consent_confirmed \
             and profile.source_recording_ids:
+        import os
+        if not os.environ.get("MITY_DISABLE_CLONE_ENGINE"):
+            from .vocal_clone import CloneSingingEngine, clone_engine_available
+            if clone_engine_available():
+                return CloneSingingEngine(profile)
         return RecordingVoiceEngine(profile)
     if engine_name == "mock":
         return MockSingingVoiceEngine()
@@ -570,6 +576,10 @@ def render_vocal_stems(project: SongProject) -> dict:
         profile = None
         if track.voice_profile_id:
             profile = vp.get_profile(track.voice_profile_id)
+            if profile is None:
+                results["warnings"].append(
+                    f"{track.name}: selected voice profile no longer exists "
+                    "— falling back to the default voice")
         if profile is None:
             # default singer: the user's first consented voice profile, so
             # uploaded voices are heard without extra setup (user-requested

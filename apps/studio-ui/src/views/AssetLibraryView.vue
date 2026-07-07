@@ -75,6 +75,31 @@ async function rescan() {
   }
 }
 
+const tagging = ref(false)
+const tagProgress = ref('')
+async function autoTagAll() {
+  tagging.value = true
+  try {
+    let remaining = 1
+    let done = 0
+    while (remaining > 0) {
+      const r = await api.post<{ analysed: number; remaining: number }>(
+        '/assets/analyse-batch?limit=150')
+      done += r.analysed
+      remaining = r.remaining
+      tagProgress.value = `${done} done, ${remaining} left`
+      if (r.analysed === 0) break
+    }
+    tagProgress.value = ''
+    scanMsg.value = `auto-tagged ${done} samples (BPM, key, type)`
+    await load()
+  } catch (e) {
+    scanMsg.value = String(e)
+  } finally {
+    tagging.value = false
+  }
+}
+
 async function uploadScore(e: Event) {
   const input = e.target as HTMLInputElement
   const f = input.files?.[0]
@@ -156,6 +181,9 @@ onMounted(load)
       <input v-model="search" placeholder="Search filename / description…" style="width: 220px" />
       <input v-model="tagFilter" placeholder="Filter by tag…" style="width: 140px" />
       <span class="spacer" />
+      <button v-if="tab === 'sample'" :disabled="tagging" @click="autoTagAll">
+        {{ tagging ? `auto-tagging… ${tagProgress}` : '🏷 Auto-tag all samples' }}
+      </button>
       <template v-if="tab === 'score'">
         <input ref="scoreFile" type="file" accept=".mid,.midi,.musicxml,.xml,.mxl,.gp3,.gp4,.gp5,.mscz,.pdf,.jpg,.jpeg,.png"
                style="display: none" @change="uploadScore" />
@@ -188,6 +216,14 @@ onMounted(load)
           <div class="dim small">{{ selected.relative_path }} · {{ fmtSize(selected.file_size) }}</div>
 
           <audio v-if="isAudio && !selected.is_missing" controls :src="`/api/assets/${selected.id}/file`" style="width: 100%" />
+
+          <!-- score viewer: PDFs embedded, images inline -->
+          <template v-if="tab === 'score' && !selected.is_missing">
+            <iframe v-if="selected.extension === '.pdf'" class="score-view"
+                    :src="`/api/assets/${selected.id}/file`" />
+            <img v-else-if="['.jpg', '.jpeg', '.png'].includes(selected.extension)"
+                 class="score-view img" :src="`/api/assets/${selected.id}/file`" />
+          </template>
 
           <label class="field">Tags (comma-separated)
             <input v-model="editTags" />
@@ -241,4 +277,6 @@ h3 { margin: 0; font-size: 15px; word-break: break-all; }
 .gen-desc { font-size: 12px; }
 .analysis { font-size: 11px; background: var(--bg); border-radius: 6px; padding: 8px; overflow-x: auto; }
 .err-text { color: var(--err); }
+.score-view { width: 100%; height: 420px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.score-view.img { height: auto; max-height: 480px; object-fit: contain; background: transparent; }
 </style>

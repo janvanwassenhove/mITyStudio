@@ -86,6 +86,13 @@ def get_profile(profile_id: str) -> VoiceProfile:
     return p
 
 
+@router.delete("/profiles/{profile_id}")
+def delete_profile(profile_id: str) -> dict:
+    if not voice_profiles.delete_profile(profile_id):
+        raise HTTPException(404, "voice profile not found")
+    return {"deleted": profile_id}
+
+
 @router.patch("/profiles/{profile_id}")
 def update_profile_notes(profile_id: str, body: dict) -> VoiceProfile:
     p = voice_profiles.get_profile(profile_id)

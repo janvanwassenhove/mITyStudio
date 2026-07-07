@@ -112,6 +112,16 @@ async function load() {
   profiles.value = await api.get<VoiceProfile[]>('/voice/profiles')
 }
 
+async function deleteProfile(p: VoiceProfile) {
+  if (!confirm(`Delete voice profile "${p.name}"? The source recordings stay.`)) return
+  try {
+    await api.del(`/voice/profiles/${p.id}`)
+    await load()
+  } catch (e) {
+    error.value = String(e)
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -169,7 +179,11 @@ onMounted(load)
       </div>
 
       <div v-for="p in profiles" :key="p.id" class="profile-item">
-        <div class="fname">{{ p.name }} <span class="dim small">({{ p.status }})</span></div>
+        <div class="profile-head">
+          <div class="fname">{{ p.name }} <span class="dim small">({{ p.status }})</span></div>
+          <button class="del-btn" title="delete this voice profile (recordings are kept)"
+                  @click="deleteProfile(p)">🗑</button>
+        </div>
         <div class="dim small">
           {{ p.source_recording_ids.length }} source recording(s)
           <span v-if="p.performer_alias"> · {{ p.performer_alias }}</span>
@@ -197,6 +211,8 @@ h3 { margin: 0 0 8px; }
 .profile-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
 .consent { flex-direction: row !important; align-items: flex-start; gap: 8px !important; color: var(--warn) !important; }
 .profile-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
+.profile-head { display: flex; justify-content: space-between; align-items: center; }
+.del-btn { padding: 1px 7px; font-size: 12px; border-color: var(--err); }
 .row-btns { display: flex; gap: 8px; }
 .err-box { position: absolute; bottom: 12px; left: 12px; right: 12px; border: 1px solid var(--err); color: var(--err); border-radius: 6px; padding: 8px; font-size: 12px; background: var(--bg-panel); }
 .err-text { color: var(--err); }

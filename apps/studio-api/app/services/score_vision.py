@@ -102,7 +102,9 @@ Rules:
 - chords: one symbol per bar in playing order (repeat a symbol for repeated bars);
   standard notation (Em, C, G7, Am7, F#m, Bb, Dsus4...).
 - If the document shows tab numbers instead of chord names, infer the chords.
-- lyrics: the sung lines belonging to that section, [] if none.
+- lyrics: transcribe EVERY lyric line VERBATIM and COMPLETELY — do not skip,
+  summarize or paraphrase any line; include repeated choruses each time they
+  appear. [] only if the section truly has no words.
 - Create sections as marked (Intro/Verse/Chorus...); if unmarked, split
   sensibly into 1-4 sections. If the key isn't marked, infer it from the chords.
 - If the image is NOT readable music, return {"error": "reason"}."""

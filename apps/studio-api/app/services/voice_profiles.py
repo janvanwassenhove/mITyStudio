@@ -58,3 +58,15 @@ def update_profile(profile: VoiceProfile) -> None:
     get_db().execute("UPDATE voice_profiles SET data=? WHERE id=?",
                      (profile.model_dump_json(), profile.id))
     get_db().commit()
+
+
+def delete_profile(profile_id: str) -> bool:
+    """Remove a voice profile (and its asset-library mirror). Source
+    recordings are never touched. Tracks referencing it fall back to the
+    default voice at render time."""
+    cur = get_db().execute("DELETE FROM voice_profiles WHERE id=?",
+                           (profile_id,))
+    get_db().execute("DELETE FROM assets WHERE id=? AND asset_type='voice_profile'",
+                     (profile_id,))
+    get_db().commit()
+    return cur.rowcount > 0

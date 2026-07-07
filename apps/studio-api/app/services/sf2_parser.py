@@ -173,6 +173,84 @@ def score_soundfont_for_track(inventory: dict, track_type: str,
     return best
 
 
+# --- categorized instrument catalog ----------------------------------------
+
+_CATEGORY_KEYWORDS: list[tuple[str, tuple[str, ...]]] = [
+    ("Drum Kits", ("drum kit", "drumkit", "standard kit", "808", "909", "tr-")),
+    ("Percussion", ("conga", "bongo", "tabla", "timbale", "cowbell", "shaker",
+                    "perc", "timpani", "marimba", "xylo", "vibraphone",
+                    "glocken", "steel dr")),
+    ("Piano & Keys", ("piano", "rhodes", "wurl", "clav", "harpsi", "e.piano",
+                      "epiano", "keys")),
+    ("Organ", ("organ", "accordion", "harmonica")),
+    ("Guitar", ("guitar", "gtr", "nylon", "strat", "les paul", "telecaster",
+                "overdrive", "distort", "12-string", "banjo", "mandolin",
+                "ukulele", "sitar")),
+    ("Bass", ("bass",)),
+    ("Strings", ("violin", "viola", "cello", "contrabass", "string", "fiddle",
+                 "pizzicato", "harp", "orchestra")),
+    ("Brass", ("trumpet", "trombone", "tuba", "horn", "brass", "flugel")),
+    ("Sax & Winds", ("sax", "clarinet", "oboe", "bassoon", "flute", "piccolo",
+                     "recorder", "pan flute", "whistle", "ocarina", "wind")),
+    ("Voice & Choir", ("choir", "voice", "vox", "aah", "ooh", "vocal")),
+    ("Synth Lead", ("lead", "saw", "square", "chiff", "charang")),
+    ("Synth Pad", ("pad", "warm", "polysynth", "halo", "sweep", "atmosphere",
+                   "new age", "soundtrack")),
+    ("FX", ("fx", "effect", "goblin", "echoes", "sci-fi", "rain", "crystal",
+            "noise", "helicopter", "seashore", "birds")),
+]
+
+_GM_CATEGORY = [
+    (7, "Piano & Keys"), (15, "Percussion"), (23, "Organ"), (31, "Guitar"),
+    (39, "Bass"), (47, "Strings"), (55, "Strings"), (63, "Brass"),
+    (79, "Sax & Winds"), (87, "Synth Lead"), (95, "Synth Pad"), (103, "FX"),
+    (111, "Guitar"), (119, "Percussion"), (127, "FX"),
+]
+
+
+def _categorize_preset(name: str, bank: int, program: int) -> str:
+    if bank == 128:
+        return "Drum Kits"
+    low = name.lower()
+    for cat, keys in _CATEGORY_KEYWORDS:
+        if any(k in low for k in keys):
+            return cat
+    if bank == 0:
+        for hi, cat in _GM_CATEGORY:
+            if program <= hi:
+                return cat
+    return "Other"
+
+
+def instrument_catalog() -> list[dict]:
+    """Every preset of every SoundFont, grouped into musician-friendly
+    categories with proper instrument names (never filenames)."""
+    from . import asset_repo
+    by_cat: dict[str, dict[str, dict]] = {}
+    for asset in asset_repo.list_assets("soundfont", include_missing=False):
+        if asset.extension not in (".sf2", ".sf3"):
+            continue
+        inv = get_preset_inventory(asset.id, Path(asset.original_path)) or {}
+        for p in inv.get("presets", []):
+            name = p["name"].strip()
+            if not name:
+                continue
+            cat = _categorize_preset(name, p["bank"], p["program"])
+            bucket = by_cat.setdefault(cat, {})
+            key = name.lower()
+            if key not in bucket:  # dedupe identical preset names
+                bucket[key] = {"label": name, "asset_id": asset.id,
+                               "soundfont": asset.filename,
+                               "bank": p["bank"], "program": p["program"]}
+    # stable, musician-friendly category order
+    ordered = ["Piano & Keys", "Organ", "Guitar", "Bass", "Strings", "Brass",
+               "Sax & Winds", "Voice & Choir", "Synth Lead", "Synth Pad",
+               "Drum Kits", "Percussion", "FX", "Other"]
+    return [{"category": cat,
+             "presets": sorted(by_cat[cat].values(), key=lambda x: x["label"].lower())}
+            for cat in ordered if cat in by_cat and by_cat[cat]]
+
+
 def find_best_soundfont(track_type: str) -> tuple[object, dict] | None:
     """Search the whole registry for the best (asset, preset) for a track
     type. Returns None if nothing suitable exists."""

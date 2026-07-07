@@ -17,6 +17,9 @@ def workspace(tmp_path, monkeypatch):
     from app import db as db_mod
 
     monkeypatch.setenv("MITY_ROOT", str(tmp_path))
+    # unit tests exercise the DSP engines; the neural clone engine (XTTS)
+    # is too heavy for tests and is validated manually
+    monkeypatch.setenv("MITY_DISABLE_CLONE_ENGINE", "1")
     config_mod.reset_config()
     cfg = config_mod.get_config()
     cfg.ensure_dirs()

@@ -52,6 +52,30 @@ def search(text: str | None = None, tags: str | None = None,
         key=key, asset_type=asset_type)
 
 
+@router.get("/instruments")
+def instruments() -> list[dict]:
+    """Categorized catalog of every instrument preset across all SoundFonts —
+    proper instrument names, grouped for browsing."""
+    from ..services.sf2_parser import instrument_catalog
+    return instrument_catalog()
+
+
+@router.post("/analyse-batch")
+def analyse_batch(limit: int = 150) -> dict:
+    """Analyse the next batch of un-analysed samples (auto-tagging: BPM, key,
+    sound type, loopability). Call repeatedly until remaining is 0."""
+    from ..services import sample_analysis
+    pending = [a for a in asset_repo.list_assets("sample", include_missing=False)
+               if a.analysis_status == "pending"]
+    for asset in pending[:limit]:
+        try:
+            sample_analysis.analyse_asset(asset)
+        except Exception:  # noqa: BLE001 — keep batch going
+            asset_repo.update_metadata(asset.id, analysis_status="failed")
+    return {"analysed": min(limit, len(pending)),
+            "remaining": max(len(pending) - limit, 0)}
+
+
 @router.get("/soundfont-presets/search")
 def search_presets(q: str, limit: int = 40) -> list[dict]:
     """Search preset names across ALL SoundFonts — 'conga', 'trombone',

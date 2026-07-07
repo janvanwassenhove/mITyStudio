@@ -55,28 +55,38 @@ function setVolume(trackId: string, v: number) {
   if (t) { t.volume = v; void save() }
 }
 
-// --- quick instrument switch (popover on the track header) -----------------
-interface PresetHit { asset_id: string; soundfont: string; preset: string; bank: number; program: number }
+// --- quick instrument switch: categorized catalog popover ------------------
+interface CatalogPreset { label: string; asset_id: string; soundfont: string; bank: number; program: number }
+interface CatalogCategory { category: string; presets: CatalogPreset[] }
+const CATEGORY_ICONS: Record<string, string> = {
+  'Piano & Keys': '🎹', Organ: '🪗', Guitar: '🎸', Bass: '🎸', Strings: '🎻',
+  Brass: '🎺', 'Sax & Winds': '🎷', 'Voice & Choir': '🎤', 'Synth Lead': '🎛️',
+  'Synth Pad': '🌫️', 'Drum Kits': '🥁', Percussion: '🪘', FX: '✨', Other: '🎵',
+}
+const catalog = ref<CatalogCategory[]>([])
 const instSwitch = ref<string | null>(null)
 const instQuery = ref('')
-const instHits = ref<PresetHit[]>([])
-let instTimer: ReturnType<typeof setTimeout> | null = null
+const instCategory = ref('')
 
-function openInstSwitch(trackId: string) {
+async function openInstSwitch(trackId: string) {
   instSwitch.value = instSwitch.value === trackId ? null : trackId
   instQuery.value = ''
-  instHits.value = []
+  if (instSwitch.value && !catalog.value.length) {
+    catalog.value = await api.get<CatalogCategory[]>('/assets/instruments')
+    if (!instCategory.value && catalog.value.length) instCategory.value = catalog.value[0].category
+  }
 }
-function queueInstSearch() {
-  if (instTimer) clearTimeout(instTimer)
-  instTimer = setTimeout(async () => {
-    const q = instQuery.value.trim()
-    if (q.length < 2) { instHits.value = []; return }
-    instHits.value = (await api.get<PresetHit[]>(
-      `/assets/soundfont-presets/search?q=${encodeURIComponent(q)}`)).slice(0, 12)
-  }, 300)
-}
-async function pickInstrument(hit: PresetHit) {
+
+const instHits = computed<CatalogPreset[]>(() => {
+  const q = instQuery.value.trim().toLowerCase()
+  if (q.length >= 2) {
+    return catalog.value.flatMap((c) => c.presets)
+      .filter((p) => p.label.toLowerCase().includes(q)).slice(0, 30)
+  }
+  return catalog.value.find((c) => c.category === instCategory.value)?.presets.slice(0, 100) ?? []
+})
+
+async function pickInstrument(hit: CatalogPreset) {
   const t = projTrack(instSwitch.value ?? '')
   if (!t) return
   t.instrument_config.soundfont_asset_id = hit.asset_id
@@ -448,15 +458,25 @@ async function deleteClip() {
                       @click.stop="studio.openTrackInspector(tl.track.track_id)">✎</button>
             </div>
             <div v-if="instSwitch === tl.track.track_id" class="inst-pop" @click.stop @dblclick.stop>
-              <input v-model="instQuery" placeholder="Search instruments… (conga, sax, organ)"
-                     autofocus @input="queueInstSearch" @pointerdown.stop />
+              <input v-model="instQuery" placeholder="Search all instruments…"
+                     autofocus @pointerdown.stop />
+              <div v-if="instQuery.trim().length < 2" class="cat-row">
+                <button v-for="c in catalog" :key="c.category" class="cat-chip"
+                        :class="{ on: instCategory === c.category }"
+                        :title="c.category"
+                        @click="instCategory = c.category">
+                  {{ CATEGORY_ICONS[c.category] ?? '🎵' }}
+                </button>
+              </div>
+              <div v-if="instQuery.trim().length < 2" class="dim tiny cat-name">
+                {{ CATEGORY_ICONS[instCategory] }} {{ instCategory }}
+              </div>
               <div class="inst-hits">
                 <div v-for="(h, i) in instHits" :key="i" class="inst-hit" @click="pickInstrument(h)">
-                  <strong>{{ h.preset }}</strong>
-                  <span class="dim small">{{ h.soundfont }}</span>
+                  <strong>{{ h.label }}</strong>
                 </div>
-                <div v-if="instQuery.length >= 2 && !instHits.length" class="dim small" style="padding: 6px">
-                  no matches
+                <div v-if="!instHits.length" class="dim small" style="padding: 6px">
+                  {{ catalog.length ? 'no matches' : 'loading instruments…' }}
                 </div>
               </div>
             </div>
@@ -521,12 +541,17 @@ async function deleteClip() {
 .mini.mute { background: var(--warn); color: #000; border-color: var(--warn); }
 .mini.solo { background: var(--ok); color: #000; border-color: var(--ok); }
 .mini-vol { width: 70px; height: 14px; }
-.inst-pop { position: absolute; top: 100%; left: 4px; width: 260px; background: var(--bg-elevated); border: 1px solid var(--accent); border-radius: 8px; padding: 6px; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
+.inst-pop { position: absolute; top: 100%; left: 4px; width: 280px; background: var(--bg-elevated); border: 1px solid var(--accent); border-radius: 8px; padding: 6px; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
 .inst-pop input { width: 100%; }
-.inst-hits { max-height: 160px; overflow-y: auto; margin-top: 4px; }
-.inst-hit { padding: 4px 6px; border-radius: 4px; cursor: pointer; display: flex; flex-direction: column; }
+.cat-row { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 5px; }
+.cat-chip { padding: 2px 5px; font-size: 14px; border-radius: 5px; border: 1px solid transparent; background: transparent; }
+.cat-chip.on { border-color: var(--accent); background: var(--bg-panel); }
+.cat-name { padding: 3px 4px 0; }
+.tiny { font-size: 10px; }
+.inst-hits { max-height: 170px; overflow-y: auto; margin-top: 4px; }
+.inst-hit { padding: 3px 6px; border-radius: 4px; cursor: pointer; }
 .inst-hit:hover { background: var(--bg-panel); }
-.inst-hit strong { font-size: 12px; }
+.inst-hit strong { font-size: 12px; font-weight: 500; }
 .small { font-size: 10px; }
 .lane { position: relative; flex: none; }
 .ruler { height: 24px; cursor: pointer; }

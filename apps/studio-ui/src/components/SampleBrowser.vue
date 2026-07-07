@@ -18,11 +18,26 @@ const hits = ref<SearchHit[]>([])
 const busy = ref(false)
 const message = ref('')
 
+const CATEGORIES = [
+  { tag: 'kick', icon: '🦶' }, { tag: 'snare', icon: '🥁' },
+  { tag: 'hihat', icon: '🎩' }, { tag: '808', icon: '🔊' },
+  { tag: 'bass', icon: '🎸' }, { tag: 'pad', icon: '🌫️' },
+  { tag: 'loop', icon: '🔁' }, { tag: 'vocal', icon: '🎤' },
+  { tag: 'guitar', icon: '🎸' }, { tag: 'piano', icon: '🎹' },
+  { tag: 'synth', icon: '🎛️' }, { tag: 'fx', icon: '✨' },
+]
+const activeTag = ref('')
+function toggleTag(tag: string) {
+  activeTag.value = activeTag.value === tag ? '' : tag
+  void search()
+}
+
 async function search() {
   busy.value = true
   try {
     const params = new URLSearchParams({ asset_type: 'sample' })
     if (query.value.trim()) params.set('text', query.value.trim())
+    if (activeTag.value) params.set('tags', activeTag.value)
     if (bpmMin.value != null) params.set('bpm_min', String(bpmMin.value))
     if (bpmMax.value != null) params.set('bpm_max', String(bpmMax.value))
     hits.value = (await api.get<SearchHit[]>(`/assets/search?${params}`)).slice(0, 100)
@@ -68,8 +83,15 @@ onMounted(search)
 
 <template>
   <div class="browser">
+    <div class="cat-chips">
+      <button v-for="c in CATEGORIES" :key="c.tag" class="chip"
+              :class="{ on: activeTag === c.tag }" @click="toggleTag(c.tag)">
+        {{ c.icon }} {{ c.tag }}
+      </button>
+      <span class="dim small">chips need auto-tagging (Assets → Samples → 🏷)</span>
+    </div>
     <div class="controls">
-      <input v-model="query" placeholder="Search 2969 samples…" style="flex: 1" @keyup.enter="search" />
+      <input v-model="query" placeholder="Search samples…" style="flex: 1" @keyup.enter="search" />
       <input v-model.number="bpmMin" type="number" placeholder="min BPM" style="width: 80px" />
       <input v-model.number="bpmMax" type="number" placeholder="max BPM" style="width: 80px" />
       <button :disabled="busy" @click="search">Search</button>
@@ -99,6 +121,9 @@ onMounted(search)
 <style scoped>
 .browser { display: flex; flex-direction: column; height: 100%; }
 .controls { display: flex; gap: 6px; align-items: center; padding: 8px; border-bottom: 1px solid var(--border); flex: none; }
+.cat-chips { display: flex; gap: 4px; flex-wrap: wrap; padding: 8px 8px 0; align-items: center; }
+.chip { padding: 2px 8px; font-size: 11px; border-radius: 12px; }
+.chip.on { border-color: var(--accent); color: var(--accent); }
 .small { font-size: 11px; }
 .results { flex: 1; overflow-y: auto; }
 .hit { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-bottom: 1px solid var(--border); }
