@@ -136,6 +136,12 @@ def train_voice(profile: dict) -> None:
                 "--index_algorithm", "Auto"], "train"):
         return
     run(["index", "--model_name", model, "--index_algorithm", "Auto"], "index")
+    # export the small inference weight the studio's converter uses
+    export = subprocess.run(
+        [str(PYTHON), str(ROOT / "tools" / "export_rvc_weight.py"), model],
+        cwd=str(APPLIO), capture_output=True, text=True)
+    log(f"export weight: rc={export.returncode} "
+        f"{(export.stdout or '').strip()[-120:]}")
     log(f"=== {model} COMPLETE ===")
 
 
