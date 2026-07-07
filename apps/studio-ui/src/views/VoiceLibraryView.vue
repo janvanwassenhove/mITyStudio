@@ -134,20 +134,36 @@ async function loadRvcStatus() {
   } catch { /* backend without rvc — badges just hide */ }
 }
 
-function rvcBadge(p: VoiceProfile): { text: string; cls: string } | null {
+function rvcBadge(p: VoiceProfile): { text: string; cls: string; canTrain?: boolean } | null {
   const m = rvcModels.value[p.id]
   if (!m) return null
   if (m.stage === 'complete' || (m.ready && !m.training_active)) {
     return { text: '🎓 high-fidelity model ready', cls: 'ok' }
   }
-  if (m.stage === 'failed') return { text: '⚠ training failed — see tools/rvc-training.log', cls: 'err' }
+  if (m.stage === 'failed') return { text: '⚠ training failed — see tools/rvc-training.log', cls: 'err', canTrain: true }
   if (m.training_active || ['preprocess', 'extract', 'train', 'index', 'preparing'].includes(m.stage ?? '')) {
     const detail = m.stage === 'train' || m.current_epoch > 0
       ? `epoch ${m.current_epoch}/${m.total_epochs}`
       : m.stage
     return { text: `🏋 training… ${detail}${m.ready ? ' (checkpoint already in use)' : ''}`, cls: 'busy' }
   }
-  return { text: '⏳ not trained yet — run tools/train_rvc.py', cls: 'dim' }
+  return { text: '⏳ not trained yet', cls: 'dim', canTrain: true }
+}
+
+const anyTraining = computed(() =>
+  Object.values(rvcModels.value).some((m) => m.training_active))
+const trainMsg = ref('')
+
+async function startTraining(p: VoiceProfile) {
+  trainMsg.value = ''
+  try {
+    const r = await api.post<{ started: boolean; message: string }>(
+      `/voice/profiles/${p.id}/train`)
+    trainMsg.value = r.message
+    setTimeout(loadRvcStatus, 3000)
+  } catch (e) {
+    trainMsg.value = String(e)
+  }
 }
 
 onMounted(() => {
@@ -259,9 +275,14 @@ onMounted(load)
           <audio controls autoplay :src="testResults[p.id].url" style="width: 100%; height: 32px" />
           <span class="dim small">{{ testResults[p.id].rvc ? '✓ trained RVC model applied — this is the learned voice' : 'zero-shot clone (RVC model not trained yet)' }}</span>
         </div>
-        <div v-if="rvcBadge(p)" class="rvc-badge" :class="rvcBadge(p)!.cls">
-          {{ rvcBadge(p)!.text }}
+        <div v-if="rvcBadge(p)" class="badge-row">
+          <span class="rvc-badge" :class="rvcBadge(p)!.cls">{{ rvcBadge(p)!.text }}</span>
+          <button v-if="rvcBadge(p)!.canTrain" class="small-btn train-btn"
+                  :disabled="anyTraining"
+                  :title="anyTraining ? 'another voice is training — one at a time' : 'train a high-fidelity model on this voice (hours, runs in background)'"
+                  @click="startTraining(p)">🏋 Start training</button>
         </div>
+        <div v-if="trainMsg" class="dim small">{{ trainMsg }}</div>
         <div class="dim small">
           {{ p.source_recording_ids.length }} source recording(s)
           <span v-if="p.performer_alias"> · {{ p.performer_alias }}</span>
@@ -291,7 +312,9 @@ h3 { margin: 0 0 8px; }
 .profile-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .profile-head { display: flex; justify-content: space-between; align-items: center; }
 .profile-actions { display: flex; gap: 6px; }
-.rvc-badge { font-size: 11px; margin: 3px 0; padding: 2px 8px; border-radius: 10px; display: inline-block; }
+.badge-row { display: flex; gap: 8px; align-items: center; margin: 3px 0; }
+.train-btn { border-color: var(--accent); }
+.rvc-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; display: inline-block; }
 .rvc-badge.ok { color: var(--ok); border: 1px solid var(--ok); }
 .rvc-badge.busy { color: var(--warn); border: 1px solid var(--warn); }
 .rvc-badge.err { color: var(--err); border: 1px solid var(--err); }

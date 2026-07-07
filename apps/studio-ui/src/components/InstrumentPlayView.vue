@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../api/client'
 import type { Clip, NoteEvent, Track } from '../api/types'
 import { useStudioStore } from '../stores/studio'
@@ -80,6 +80,71 @@ function playDrum(midi: number) {
   if ([45, 47, 50].includes(midi)) playTone(midi + 12, 0.25, 0, 0.2) // tom body
 }
 
+// ---------------- write vs practice + step record ----------------
+const writeMode = ref(false)   // practice by default: tap to hear only
+
+// ---------------- loop preview with the REAL instrument sound -------------
+const looping = ref(false)
+const loopLoading = ref(false)
+let loopAudio: HTMLAudioElement | null = null
+let loopTimer: ReturnType<typeof setTimeout> | null = null
+
+function loopNotes() {
+  const bpb = studio.manifest?.beats_per_bar ?? 4
+  const span = bpb * 2  // first two bars of the clip
+  return props.clip.note_events
+    .filter((n) => n.start_beat < span)
+    .map((n) => ({ midi_note: n.midi_note, start_beat: n.start_beat,
+                   duration_beats: Math.min(n.duration_beats, span - n.start_beat),
+                   velocity: n.velocity }))
+}
+
+async function refreshLoop() {
+  const p = studio.project
+  if (!p || !looping.value) return
+  const notes = loopNotes()
+  if (!notes.length) { lastInsert.value = 'nothing to loop yet — place some pieces'; return }
+  loopLoading.value = true
+  try {
+    const cfg = props.track.instrument_config
+    const res = await fetch('/api/projects/preview/instrument', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        soundfont_asset_id: cfg.soundfont_asset_id, bank: cfg.bank,
+        program: cfg.program, is_drum_kit: cfg.is_drum_kit,
+        bpm: p.bpm, notes,
+      }),
+    })
+    if (!res.ok) throw new Error((await res.json()).detail ?? res.statusText)
+    const url = URL.createObjectURL(await res.blob())
+    const next = new Audio(url)
+    next.loop = true
+    if (loopAudio) { loopAudio.pause() }
+    loopAudio = next
+    if (looping.value) void next.play()
+  } catch (e) {
+    lastInsert.value = String(e)
+    looping.value = false
+  } finally {
+    loopLoading.value = false
+  }
+}
+
+function toggleLoop() {
+  looping.value = !looping.value
+  if (looping.value) void refreshLoop()
+  else if (loopAudio) { loopAudio.pause(); loopAudio = null }
+}
+
+function queueLoopRefresh() {
+  if (!looping.value) return
+  if (loopTimer) clearTimeout(loopTimer)
+  loopTimer = setTimeout(refreshLoop, 700)
+}
+
+onBeforeUnmount(() => { if (loopAudio) loopAudio.pause() })
+
 // ---------------- insert into clip ----------------
 const lastInsert = ref('')
 function playheadBeatInClip(): number {
@@ -90,6 +155,7 @@ function playheadBeatInClip(): number {
   return Math.min(Math.max(snapped, 0), Math.max(props.clip.duration_beats - 0.25, 0))
 }
 function insertNotes(midis: number[], dur: number, vel = 100, stagger = 0) {
+  if (!writeMode.value) return   // practice mode: hear only
   const at = playheadBeatInClip()
   midis.forEach((m, i) => {
     props.clip.note_events.push({
@@ -99,8 +165,12 @@ function insertNotes(midis: number[], dur: number, vel = 100, stagger = 0) {
       velocity: vel, lyric_syllable: '',
     } as NoteEvent)
   })
-  lastInsert.value = `added at beat ${(at + props.clip.start_beat).toFixed(2)}`
+  // step record: advance the playhead so the next tap lands after this note
+  const p = studio.project
+  if (p) playback.playhead += (dur * 60) / p.bpm
+  lastInsert.value = `♪ written at beat ${(at + props.clip.start_beat).toFixed(2)}`
   emit('changed')
+  queueLoopRefresh()
 }
 
 // ---------------- smart drums (GarageBand-style board) ----------------
@@ -133,9 +203,10 @@ function pickKit(delta: number) {
   props.track.instrument_config.bank = k.bank
   props.track.instrument_config.program = k.program
   props.track.instrument_config.is_drum_kit = true
-  playDrum(36)
   lastInsert.value = `kit: ${k.label}`
   emit('changed')
+  if (looping.value) void refreshLoop()   // hear the new kit immediately
+  else playDrum(36)
 }
 
 function resetBoard() {
@@ -220,6 +291,7 @@ function regenerateSmart() {
     } as NoteEvent)))
   lastInsert.value = 'pattern updated'
   emit('changed')
+  queueLoopRefresh()
 }
 
 function diceSmart() {
@@ -366,8 +438,26 @@ const bgImage = computed(() => {
 
 <template>
   <div class="play-surface" :style="bgImage ? { backgroundImage: `linear-gradient(rgba(10,12,16,0.55), rgba(10,12,16,0.7)), url(${bgImage})` } : {}">
-    <div class="hint dim">
-      tap to hear & write at the playhead <span v-if="lastInsert">· {{ lastInsert }}</span>
+    <div class="hint-bar">
+      <div class="mode-switch">
+        <button :class="{ on: !writeMode }" @click="writeMode = false">👂 Practice</button>
+        <button :class="{ on: writeMode }" class="write" @click="writeMode = true">● Write</button>
+      </div>
+      <button class="loop-btn" :class="{ on: looping }" :disabled="loopLoading"
+              title="loop the first 2 bars with the real instrument sound"
+              @click="toggleLoop">
+        {{ loopLoading ? '⏳' : looping ? '■ Stop loop' : '▶ Loop' }}
+      </button>
+      <span class="dim hint-text">
+        {{ writeMode ? 'taps are written at the playhead and step forward'
+                     : 'taps just play — switch to ● Write to record' }}
+        <span v-if="lastInsert"> · {{ lastInsert }}</span>
+      </span>
+    </div>
+    <div v-if="['lead_vocal', 'backing_vocal'].includes(track.track_type)" class="vocal-note dim">
+      🎤 This keyboard writes the <strong>vocal melody</strong> — the AI voice sings your
+      lyrics on these notes. Manage lyrics in the <strong>Lyrics</strong> tab
+      (“Sing these lyrics” writes melodies automatically).
     </div>
 
     <!-- drums: smart board or pads -->
@@ -450,7 +540,15 @@ const bgImage = computed(() => {
 
 <style scoped>
 .play-surface { height: 100%; display: flex; flex-direction: column; background-size: cover; background-position: center; border-radius: 0 0 8px 8px; overflow: hidden; position: relative; }
-.hint { font-size: 11px; padding: 6px 12px; flex: none; }
+.hint-bar { display: flex; align-items: center; gap: 10px; padding: 5px 12px; flex: none; }
+.mode-switch { display: flex; gap: 2px; background: rgba(0,0,0,0.45); border-radius: 6px; padding: 2px; }
+.mode-switch button { border: none; background: transparent; color: var(--text-dim); font-size: 11px; padding: 2px 10px; }
+.mode-switch button.on { background: var(--bg-elevated); color: var(--text); border-radius: 4px; }
+.mode-switch button.write.on { background: var(--err); color: #fff; }
+.loop-btn { font-size: 11px; padding: 2px 10px; }
+.loop-btn.on { border-color: var(--accent); color: var(--accent); }
+.hint-text { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vocal-note { font-size: 11px; padding: 0 12px 4px; }
 /* smart drums */
 .drum-mode { display: flex; gap: 4px; padding: 0 12px 4px; align-items: center; }
 .drum-mode button { padding: 2px 10px; font-size: 11px; border: none; background: rgba(0,0,0,0.4); color: var(--text-dim); border-radius: 5px; }

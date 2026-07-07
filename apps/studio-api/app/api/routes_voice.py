@@ -133,6 +133,43 @@ def test_voice(profile_id: str, req: VoiceTestRequest) -> FileResponse:
                         headers={"X-RVC-Applied": str(rvc_used)})
 
 
+@router.post("/profiles/{profile_id}/train")
+def start_training(profile_id: str) -> dict:
+    """Launch async RVC training for this voice (detached process, hours on
+    GPU). One training at a time; progress shows in the profile badge."""
+    import subprocess
+
+    from ..services.rvc_convert import (_applio_dir, _applio_python,
+                                        rvc_available, training_status)
+    profile = voice_profiles.get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(404, "voice profile not found")
+    if not profile.consent_confirmed:
+        raise HTTPException(403, "profile has no confirmed consent")
+    if not rvc_available():
+        raise HTTPException(503, "training stack not installed (tools/Applio)")
+    status = training_status(profile)
+    if status["ready"] and status["stage"] == "complete":
+        return {"started": False, "message": "this voice is already trained"}
+    for other in voice_profiles.list_profiles():
+        if training_status(other)["training_active"]:
+            raise HTTPException(409, f"another voice ({other.name!r}) is "
+                                     "training — the GPU handles one at a time")
+
+    script = get_config().root / "tools" / "train_rvc.py"
+    log_dir = get_config().root / "tools"
+    creationflags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP
+    with open(log_dir / "rvc-training-stdout.log", "ab") as out, \
+         open(log_dir / "rvc-training-stderr.log", "ab") as err:
+        subprocess.Popen([str(_applio_python()), str(script), profile_id],
+                         cwd=str(_applio_dir()), stdout=out, stderr=err,
+                         creationflags=creationflags)
+    return {"started": True,
+            "message": f"training {profile.name!r} started — this runs for "
+                       "hours in the background; the badge shows progress and "
+                       "renders improve as checkpoints land"}
+
+
 @router.get("/rvc-status")
 def rvc_status() -> dict:
     """Training/readiness of the per-voice RVC fidelity models."""

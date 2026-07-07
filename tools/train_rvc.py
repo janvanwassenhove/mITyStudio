@@ -146,8 +146,11 @@ def train_voice(profile: dict) -> None:
 
 
 def main() -> None:
-    log("RVC training job starting")
+    only = sys.argv[1] if len(sys.argv) > 1 else None
+    log(f"RVC training job starting{f' (profile {only})' if only else ''}")
     for p in profiles():
+        if only and p["id"] != only:
+            continue
         if p.get("consent_confirmed") and p.get("source_recording_ids"):
             train_voice(p)
     log("RVC training job finished")
