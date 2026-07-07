@@ -504,6 +504,18 @@ class CloneSingingEngine(SingingVoiceEngine):
         result.render_log.append(
             f"clone-singing engine (XTTS, voice {self.profile.name!r}) sang "
             f"{sung}/{len(pairs)} lyric lines")
+
+        # final fidelity stage: trained RVC model of this exact voice
+        from .rvc_convert import convert_stem, rvc_model_ready
+        if rvc_model_ready(self.profile):
+            rvc_out = out_path.with_name(out_path.stem + "_rvc.wav")
+            warnings = convert_stem(out_path, rvc_out, self.profile)
+            if not warnings and rvc_out.exists():
+                rvc_out.replace(out_path)
+                result.render_log.append(
+                    f"RVC conversion applied (trained {self.profile.name!r} model)")
+            else:
+                result.warnings.extend(warnings)
         if sung == 0:
             result.warnings.append(
                 "no lines could be sung — check lyrics + melody exist "

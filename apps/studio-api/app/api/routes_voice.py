@@ -86,6 +86,14 @@ def get_profile(profile_id: str) -> VoiceProfile:
     return p
 
 
+@router.get("/rvc-status")
+def rvc_status() -> dict:
+    """Training/readiness of the per-voice RVC fidelity models."""
+    from ..services.rvc_convert import rvc_available, training_status
+    return {"rvc_installed": rvc_available(),
+            "models": [training_status(p) for p in voice_profiles.list_profiles()]}
+
+
 @router.delete("/profiles/{profile_id}")
 def delete_profile(profile_id: str) -> dict:
     if not voice_profiles.delete_profile(profile_id):
