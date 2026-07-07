@@ -424,7 +424,8 @@ async function deleteClip() {
         <div v-for="tl in layout" :key="tl.track.track_id" class="row track-row"
              :class="{ selected: studio.selectedTrackId === tl.track.track_id }"
              @click="studio.selectedTrackId = tl.track.track_id">
-          <div class="label track-label" :style="{ width: LABEL_W + 'px' }"
+          <div class="label track-label" :class="{ 'pop-open': instSwitch === tl.track.track_id }"
+               :style="{ width: LABEL_W + 'px' }"
                title="double-click for instrument & effects"
                @dblclick="studio.openTrackInspector(tl.track.track_id)">
             <div class="label-top">
@@ -508,10 +509,12 @@ async function deleteClip() {
 .grid { min-width: 100%; position: relative; }
 .playhead-overlay { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: var(--err); z-index: 4; pointer-events: none; will-change: transform; }
 .row { display: flex; border-bottom: 1px solid var(--border); }
-.label { flex: none; padding: 4px 8px; display: flex; align-items: center; gap: 6px; position: sticky; left: 0; background: var(--bg-panel); z-index: 5; border-right: 1px solid var(--border); overflow: hidden; }
+.label { flex: none; padding: 4px 8px; display: flex; align-items: center; gap: 6px; position: sticky; left: 0; background: var(--bg-panel); z-index: 5; border-right: 1px solid var(--border); }
+.ruler-row .label, .row .label.small { overflow: hidden; }
 .track-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .track-label { flex-direction: column; align-items: stretch !important; gap: 3px !important; justify-content: center; cursor: default; }
+.track-label.pop-open { z-index: 30; }
 .label-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .label-controls { display: flex; align-items: center; gap: 4px; }
 .mini { padding: 0 6px; font-size: 10px; height: 18px; line-height: 1; }

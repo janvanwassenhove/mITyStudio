@@ -43,6 +43,91 @@ def _note_freq(midi_note: int) -> float:
     return 440.0 * 2 ** ((midi_note - 69) / 12)
 
 
+# --- phoneme layer: consonants around the sung vowels ----------------------
+# Words become intelligible because every syllable gets its onset and coda
+# consonants synthesized (plosive bursts, fricative noise, nasal hums,
+# liquid glides) around the vowel body.
+
+_DIGRAPHS = ("sh", "ch", "th", "ng", "ck", "ph", "wh")
+
+
+def _syllable_parts(syl: str) -> tuple[str, str, str]:
+    """'straight' → ('str', 'a', 'ght'): onset, first vowel, coda."""
+    m = re.match(r"([^aeiouy]*)([aeiouy])[aeiouy]*([^aeiouy]*)$",
+                 syl.lower().strip("'"))
+    if not m:
+        return "", "a", ""
+    return m.group(1), m.group(2), m.group(3)
+
+
+def _bandnoise(n: int, center: float, bw: float, rng) -> np.ndarray:
+    x = rng.standard_normal(n).astype(np.float32)
+    freqs = np.fft.rfftfreq(n, 1 / SAMPLE_RATE)
+    g = np.exp(-0.5 * ((freqs - center) / bw) ** 2)
+    return np.fft.irfft(np.fft.rfft(x) * g, n=n).astype(np.float32)
+
+
+def _one_consonant(ch: str, f0: float, rng) -> np.ndarray:
+    """A single consonant sound, peak-normalized to 1.0."""
+    sr = SAMPLE_RATE
+    if ch in ("p", "b", "t", "d", "k", "g", "ck"):
+        center = {"p": 800, "b": 600, "t": 4000, "d": 3000,
+                  "k": 1900, "g": 1500, "ck": 1900}[ch]
+        gap = np.zeros(int(0.012 * sr), np.float32)
+        burst = _bandnoise(int(0.030 * sr), center, 1400, rng)
+        burst *= np.linspace(1, 0, len(burst)).astype(np.float32) ** 1.5
+        out = np.concatenate([gap, burst])
+    elif ch in ("s", "z"):
+        out = _bandnoise(int(0.085 * sr), 6800, 2200, rng)
+    elif ch in ("sh", "ch"):
+        out = _bandnoise(int(0.08 * sr), 3200, 1800, rng)
+        if ch == "ch":
+            out[:len(out) // 3] *= np.linspace(0, 1, len(out) // 3) ** 0.3
+    elif ch in ("f", "v", "th", "ph"):
+        out = _bandnoise(int(0.07 * sr), 2600, 2400, rng)
+    elif ch in ("h", "wh"):
+        out = _bandnoise(int(0.06 * sr), 1200, 900, rng)
+    elif ch in ("m", "n", "ng"):
+        n = int(0.075 * sr)
+        t = np.arange(n) / sr
+        out = (np.sin(2 * np.pi * f0 * t)
+               + 0.25 * np.sin(2 * np.pi * 2 * f0 * t)).astype(np.float32)
+        out *= np.hanning(n).astype(np.float32) ** 0.5
+    elif ch in ("l", "r", "w", "y", "j"):
+        n = int(0.05 * sr)
+        t = np.arange(n) / sr
+        glide = f0 * (0.85 + 0.15 * t / (n / sr))
+        out = (np.sin(2 * np.pi * np.cumsum(glide) / sr)
+               + 0.2 * np.sin(2 * np.pi * 3 * f0 * t)).astype(np.float32)
+        out *= np.hanning(n).astype(np.float32) ** 0.5
+    else:  # unknown letters: soft neutral burst
+        out = _bandnoise(int(0.04 * sr), 2000, 1500, rng)
+    # smooth edges + normalize
+    edge = max(int(0.004 * sr), 1)
+    out[:edge] *= np.linspace(0, 1, edge)
+    out[-edge:] *= np.linspace(1, 0, edge)
+    peak = float(np.max(np.abs(out)))
+    return out / peak if peak > 0 else out
+
+
+def _render_cluster(cluster: str, f0: float, rng) -> np.ndarray | None:
+    """Render a consonant cluster ('str', 'ght'…) as concatenated phonemes."""
+    if not cluster:
+        return None
+    parts = []
+    i = 0
+    while i < len(cluster) and len(parts) < 3:
+        two = cluster[i:i + 2]
+        ch = two if two in _DIGRAPHS else cluster[i]
+        i += len(ch)
+        if ch in ("gh",):  # silent-ish
+            continue
+        parts.append(_one_consonant(ch, f0, rng))
+    if not parts:
+        return None
+    return np.concatenate(parts)
+
+
 # vowel formant frequencies (F1, F2, F3) and relative amplitudes — classic
 # soprano/alto averages; consonants are approximated by a short noise burst
 _VOWEL_FORMANTS = {
@@ -125,11 +210,21 @@ class MockSingingVoiceEngine(SingingVoiceEngine):
                     tone += (g / h ** 0.7) * np.sin(h * phase)
                 tone += 0.01 * rng.standard_normal(count)  # breathiness
 
-                # consonant approximation: 25 ms noise burst at note start
-                if _has_leading_consonant(n.lyric_syllable):
-                    burst = min(int(0.025 * SAMPLE_RATE), count)
-                    tone[:burst] += 0.12 * rng.standard_normal(burst) \
-                        * np.linspace(1, 0, burst)
+                # phonemes: onset + coda consonants make words intelligible
+                if n.lyric_syllable:
+                    on_str, _vow, coda_str = _syllable_parts(n.lyric_syllable)
+                    amp_c = 0.9 * (n.velocity / 127)
+                    onset = _render_cluster(on_str, f0, rng)
+                    if onset is not None:
+                        o = onset[:max(count - 8, 0)]
+                        out[i0:i0 + len(o)] += o * amp_c
+                        fade = min(len(o), count)
+                        tone[:fade] *= np.linspace(0.15, 1, fade) ** 0.7
+                    coda = _render_cluster(coda_str, f0, rng)
+                    if coda is not None:
+                        cd = coda[:max(count // 2, 1)]
+                        ic = i0 + count - len(cd)
+                        out[ic:ic + len(cd)] += cd * amp_c * 0.8
 
                 attack = min(int(0.02 * SAMPLE_RATE), count)
                 release = min(int(0.08 * SAMPLE_RATE), max(count - attack, 1))
@@ -348,32 +443,57 @@ class RecordingVoiceEngine(SingingVoiceEngine):
                        * np.sin(2 * np.pi * 5.3 * t))
             freq = freq * vib
 
-            # TD-PSOLA: place source grains at the target pitch period,
-            # walking forward-and-back through the grain bank (natural motion,
-            # no seams), with tiny jitter for realism
-            note_buf = np.zeros(count + grain_len, dtype=np.float32)
+            # phonemes: onset consonants before the vowel, coda at the end
+            seg_peak = float(np.max(np.abs(seg))) or 0.3
+            onset = coda = None
+            if n.lyric_syllable:
+                on_str, _vow, coda_str = _syllable_parts(n.lyric_syllable)
+                onset = _render_cluster(on_str, target, rng_g)
+                coda = _render_cluster(coda_str, target, rng_g)
+            amp_c = seg_peak * 0.75 * (n.velocity / 127)
+            vowel_delay = 0
+            if onset is not None:
+                o = onset[:max(count - 8, 0)]
+                out[i0:i0 + len(o)] += o * amp_c
+                vowel_delay = int(len(o) * 0.6)
+            if coda is not None:
+                cd = coda[:max(count // 2, 1)]
+                ic = i0 + count - len(cd)
+                out[ic:ic + len(cd)] += cd * amp_c * 0.8
+
+            # TD-PSOLA vowel body: place source grains at the target pitch
+            # period, walking forward-and-back through the grain bank
+            vcount = count - vowel_delay
+            if vcount <= 8:
+                prev_freq = target
+                prev_end = t0 + dur
+                notes_rendered += 1
+                continue
+            vfreq = freq[vowel_delay:]
+            note_buf = np.zeros(vcount + grain_len, dtype=np.float32)
             pos = 0
             gi = 0
             direction = 1
-            while pos < count:
+            while pos < vcount:
                 g = grains[gi]
                 note_buf[pos:pos + grain_len] += g[:min(grain_len, len(note_buf) - pos)]
-                f = float(freq[min(pos, count - 1)])
+                f = float(vfreq[min(pos, vcount - 1)])
                 period = max(int(SAMPLE_RATE / max(f, 30.0)), 8)
                 pos += period + rng_g.integers(-1, 2)
                 gi += direction
                 if gi >= n_grains - 1 or gi <= 0:
                     direction *= -1
                     gi = max(0, min(n_grains - 1, gi))
-            note = note_buf[:count]
+            note = note_buf[:vcount]
 
-            attack = min(int(0.015 * SAMPLE_RATE), count)
-            release = min(int(0.05 * SAMPLE_RATE), max(count - attack, 1))
-            env = np.ones(count, dtype=np.float32)
+            tv = t[vowel_delay:]
+            attack = min(int(0.015 * SAMPLE_RATE), vcount)
+            release = min(int(0.05 * SAMPLE_RATE), max(vcount - attack, 1))
+            env = np.ones(vcount, dtype=np.float32)
             env[:attack] = np.linspace(0, 1, attack)
             env[-release:] *= np.linspace(1, 0, release)
-            env *= 0.85 + 0.15 * np.sin(np.pi * np.minimum(t / max(dur, 1e-3), 1.0))
-            out[i0:i0 + count] += note * env * (n.velocity / 127) * 0.8
+            env *= 0.85 + 0.15 * np.sin(np.pi * np.minimum(tv / max(dur, 1e-3), 1.0))
+            out[i0 + vowel_delay:i0 + count] += note * env * (n.velocity / 127) * 0.8
             prev_freq = target
             prev_end = t0 + dur
             notes_rendered += 1

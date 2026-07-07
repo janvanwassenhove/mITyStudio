@@ -1,0 +1,127 @@
+"""Phoneme singing, chord-symbol parsing, vision import plumbing,
+score upload."""
+from __future__ import annotations
+
+import numpy as np
+import soundfile as sf
+
+from tests.test_studio_features import _make_voice_project
+
+
+def test_syllable_parts_and_consonants(workspace):
+    from app.services.vocal_engine import (_one_consonant, _render_cluster,
+                                           _syllable_parts)
+
+    assert _syllable_parts("straight") == ("str", "a", "ght")
+    assert _syllable_parts("sing") == ("s", "i", "ng")
+    assert _syllable_parts("oh") == ("", "o", "h")
+
+    rng = np.random.default_rng(1)
+    for ch in ("t", "s", "sh", "m", "l", "k"):
+        c = _one_consonant(ch, 220.0, rng)
+        assert len(c) > 100
+        assert abs(np.abs(c).max() - 1.0) < 0.01  # normalized
+
+    cluster = _render_cluster("str", 220.0, rng)
+    assert cluster is not None and len(cluster) > 3000
+    assert _render_cluster("", 220.0, rng) is None
+
+
+def test_vocal_render_contains_sibilance(client, workspace):
+    """A syllable starting with 's' must add high-frequency energy at note
+    onsets — i.e. words get consonants, not just vowels."""
+    p, _ = _make_voice_project(client, workspace, with_profile=True)
+    proj = client.get(f"/api/projects/{p['id']}").json()
+    notes = proj["tracks"][0]["clips"][0]["note_events"]
+    notes[0]["lyric_syllable"] = "sun"
+    notes[1]["lyric_syllable"] = "shine"
+    client.put(f"/api/projects/{p['id']}", json=proj)
+
+    r = client.post(f"/api/projects/{p['id']}/vocals/render").json()
+    assert r["errors"] == []
+    proj = client.get(f"/api/projects/{p['id']}").json()
+    data, rate = sf.read(str(workspace.root / proj["stems"][0]["path"]))
+    mono = data.mean(axis=1)
+
+    def hf_ratio(seg):
+        spec = np.abs(np.fft.rfft(seg))
+        freqs = np.fft.rfftfreq(len(seg), 1 / rate)
+        return spec[freqs > 4000].sum() / (spec.sum() + 1e-9)
+
+    onset = mono[: int(0.07 * rate)]              # the 's' of "sun"
+    vowel = mono[int(0.25 * rate): int(0.45 * rate)]  # sustained vowel
+    assert hf_ratio(onset) > hf_ratio(vowel) * 3  # sibilant onset
+
+
+def test_chord_symbol_parser(workspace):
+    from app.services.score_vision import chord_to_midis
+
+    assert chord_to_midis("C") == [48, 52, 55]
+    assert chord_to_midis("Em") == [52, 55, 59]
+    assert chord_to_midis("G7") == [55, 59, 62, 65]
+    assert chord_to_midis("F#m7") == [54, 57, 61, 64]
+    assert chord_to_midis("Bb") == [58, 62, 65]
+    assert chord_to_midis("Dsus4") == [50, 55, 57]
+    assert chord_to_midis("Adim") == [57, 60, 63]
+    assert chord_to_midis("??") is None
+
+
+def test_vision_import_builds_project(client, workspace, monkeypatch):
+    """Vision path with a mocked LLM response — no network needed."""
+    (workspace.scores_dir / "sheet.png").write_bytes(b"\x89PNG fake")
+    client.post("/api/assets/rescan")
+    score = next(s for s in client.get("/api/assets/scores").json()
+                 if s["extension"] == ".png")
+
+    from app.services import score_vision
+    monkeypatch.setattr(score_vision, "_load_image_bytes",
+                        lambda p: (b"img", "image/png"))
+    monkeypatch.setattr(score_vision, "extract_song_data", lambda i, m: {
+        "title": "Linoleum", "bpm": 168, "key": "E minor",
+        "time_signature": "4/4",
+        "sections": [
+            {"name": "Verse", "chords": ["Em", "C", "G", "D"],
+             "lyrics": ["Possessions never meant anything to me"]},
+            {"name": "Chorus", "chords": ["C", "D", "Em", "Em"],
+             "lyrics": ["And that's okay"]},
+        ]})
+
+    r = client.post(f"/api/scores/{score['id']}/import",
+                    json={"create_project": True, "title": "From Sheet"})
+    assert r.status_code == 200, r.text
+    pid = r.json()["project_id"]
+    proj = client.get(f"/api/projects/{pid}").json()
+    assert proj["bpm"] == 168
+    assert proj["key"] == "E minor"
+    assert [s["name"] for s in proj["sections"]] == ["Verse", "Chorus"]
+    assert proj["sections"][1]["start_bar"] == 4
+    assert {t["track_type"] for t in proj["tracks"]} == {"guitar", "bass"}
+    total_notes = sum(len(c["note_events"]) for t in proj["tracks"]
+                      for c in t["clips"])
+    assert total_notes > 40
+    assert any("Possessions" in l["text"] for l in proj["lyrics"]["lines"])
+
+
+def test_vision_import_fails_gracefully_without_key(client, workspace, monkeypatch):
+    for env in ("OPENAI_API_KEY", "MITY_LLM_API_KEY"):
+        monkeypatch.delenv(env, raising=False)
+    (workspace.scores_dir / "photo.jpg").write_bytes(b"\xff\xd8 fake jpeg")
+    client.post("/api/assets/rescan")
+    score = client.get("/api/assets/scores").json()[0]
+    r = client.post(f"/api/scores/{score['id']}/import", json={})
+    body = r.json()
+    assert body["supported"] is False
+    assert any("key" in w.lower() for w in body["warnings"])
+
+
+def test_score_upload(client, workspace):
+    r = client.post("/api/scores/upload",
+                    files={"file": ("my chords.png", b"\x89PNG data", "image/png")})
+    assert r.status_code == 201, r.text
+    asset = r.json()
+    assert asset["asset_type"] == "score"
+    assert asset["relative_path"].startswith("scores/")
+    assert (workspace.root / asset["relative_path"]).exists()
+    # bad extension rejected
+    assert client.post("/api/scores/upload",
+                       files={"file": ("x.exe", b"MZ", "app/x")}).status_code == 422

@@ -10,7 +10,8 @@ AssetType = Literal[
 ]
 
 SCORE_EXTENSIONS = {".mid", ".midi", ".musicxml", ".xml", ".mxl", ".gp3",
-                    ".gp4", ".gp5", ".gpx", ".mscz", ".pdf"}
+                    ".gp4", ".gp5", ".gpx", ".mscz", ".pdf",
+                    ".jpg", ".jpeg", ".png"}  # images read via vision LLM
 SOUNDFONT_EXTENSIONS = {".sf2", ".sf3", ".sfz"}
 AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac", ".ogg", ".aiff", ".aif", ".m4a"}
 

@@ -129,7 +129,7 @@ def import_midi(path: Path, asset_id: str) -> ScoreImportResult:
     return result
 
 
-_PLACEHOLDER_FORMATS = {".mscz": "musescore", ".pdf": "pdf"}
+_PLACEHOLDER_FORMATS = {".mscz": "musescore"}
 
 
 def import_score(asset: Asset) -> ScoreImportResult:
@@ -143,11 +143,13 @@ def import_score(asset: Asset) -> ScoreImportResult:
     if ext in (".gp3", ".gp4", ".gp5", ".gpx"):
         from .guitarpro_import import import_guitarpro
         return import_guitarpro(path, asset.id)
+    if ext in (".pdf", ".jpg", ".jpeg", ".png"):
+        from .score_vision import import_score_vision
+        return import_score_vision(asset)
     fmt = _PLACEHOLDER_FORMATS.get(ext, "unknown")
     msg = {
         "musescore": "MuseScore .mscz is not parsed directly — export to MIDI "
                      "or MusicXML from MuseScore instead.",
-        "pdf": "PDF scores are reference-only; no reliable parsing is implemented.",
         "unknown": f"unsupported score format {ext!r}",
     }[fmt]
     return ScoreImportResult(source_asset_id=asset.id, format=fmt,
@@ -189,8 +191,22 @@ def project_from_import(result: ScoreImportResult, title: str,
     num = int(ts.split("/")[0])
     den = int(ts.split("/")[1])
     beats_per_bar = num * 4.0 / den
-    total_bars = max(int(max_beat // beats_per_bar) + (1 if max_beat % beats_per_bar else 0), 1)
-    project.sections = [Section(name="Imported", start_bar=0, length_bars=total_bars,
-                                description=f"imported from asset {result.source_asset_id}")]
+    if result.sections:
+        # structured sections (e.g. vision import), with per-section lyrics
+        from ..models.song import LyricsLine
+        for s in result.sections:
+            section = Section(name=s.get("name", "Section"),
+                              start_bar=int(s.get("start_bar", 0)),
+                              length_bars=max(int(s.get("length_bars", 4)), 1))
+            project.sections.append(section)
+            for line in s.get("lyrics", []):
+                project.lyrics.lines.append(
+                    LyricsLine(section_id=section.id, text=str(line)))
+    else:
+        total_bars = max(int(max_beat // beats_per_bar)
+                         + (1 if max_beat % beats_per_bar else 0), 1)
+        project.sections = [Section(name="Imported", start_bar=0,
+                                    length_bars=total_bars,
+                                    description=f"imported from asset {result.source_asset_id}")]
     project.tracks = tracks
     return project

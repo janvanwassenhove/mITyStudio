@@ -89,6 +89,127 @@ function insertNotes(midis: number[], dur: number, vel = 100, stagger = 0) {
   emit('changed')
 }
 
+// ---------------- smart drums (GarageBand-style board) ----------------
+const drumMode = ref<'smart' | 'pads'>('smart')
+interface SmartEl { midis: number[]; label: string; icon: string; placed: boolean; x: number; y: number }
+const smartEls = ref<SmartEl[]>([
+  { midis: [36], label: 'Kick', icon: '🦶', placed: true, x: 0.4, y: 0.65 },
+  { midis: [38], label: 'Snare', icon: '🥁', placed: true, x: 0.35, y: 0.6 },
+  { midis: [42], label: 'Hi-Hat', icon: '🎩', placed: true, x: 0.5, y: 0.5 },
+  { midis: [46], label: 'Open Hat', icon: '✨', placed: false, x: 0.5, y: 0.5 },
+  { midis: [51], label: 'Ride', icon: '🛎', placed: false, x: 0.4, y: 0.4 },
+  { midis: [49], label: 'Crash', icon: '💥', placed: false, x: 0.3, y: 0.6 },
+  { midis: [45, 47, 50], label: 'Toms', icon: '🥁', placed: false, x: 0.5, y: 0.5 },
+  { midis: [39], label: 'Clap', icon: '👏', placed: false, x: 0.4, y: 0.5 },
+  { midis: [70], label: 'Shaker', icon: '🪇', placed: false, x: 0.5, y: 0.4 },
+])
+
+const beatsPerBar = computed(() => studio.manifest?.beats_per_bar ?? 4)
+
+function smartPattern(el: SmartEl): { beat: number; midi: number; vel: number }[] {
+  const c = el.x            // simple → complex
+  const loud = 1 - el.y     // board top = loud
+  const bars = Math.max(Math.floor(props.clip.duration_beats / beatsPerBar.value), 1)
+  const base = Math.round(45 + 75 * loud)
+  const out: { beat: number; midi: number; vel: number }[] = []
+  const push = (bar: number, b: number, midi: number, velScale = 1) => {
+    const beat = bar * beatsPerBar.value + b
+    if (beat < props.clip.duration_beats) {
+      out.push({ beat, midi, vel: Math.max(25, Math.min(127, Math.round(base * velScale + (b % 1 === 0 ? 8 : -6)))) })
+    }
+  }
+  for (let bar = 0; bar < bars; bar++) {
+    const m = el.midis[0]
+    if (m === 36) {          // kick
+      push(bar, 0, m, 1.05); push(bar, 2, m)
+      if (c > 0.35) push(bar, 2.5, m, 0.85)
+      if (c > 0.6) push(bar, 3.5, m, 0.8)
+      if (c > 0.85) push(bar, 1.75, m, 0.7)
+    } else if (m === 38) {   // snare + ghosts
+      push(bar, 1, m, 1.05); push(bar, 3, m, 1.05)
+      if (c > 0.45) push(bar, 3.75, m, 0.35)
+      if (c > 0.7) { push(bar, 1.75, m, 0.3); push(bar, 2.25, m, 0.3) }
+    } else if (m === 42) {   // hi-hat
+      const step = c < 0.33 ? 1 : c < 0.7 ? 0.5 : 0.25
+      for (let b = 0; b < beatsPerBar.value; b += step) push(bar, b, m, b % 1 === 0 ? 0.95 : 0.7)
+    } else if (m === 46) {   // open hat pushes
+      push(bar, beatsPerBar.value - 0.5, m, 0.9)
+      if (c > 0.5) push(bar, 1.5, m, 0.8)
+    } else if (m === 51) {   // ride
+      for (let b = 0; b < beatsPerBar.value; b++) {
+        push(bar, b, m, 0.9)
+        if (c > 0.5) push(bar, b + 0.66, m, 0.6)
+      }
+    } else if (m === 49) {   // crash
+      if (bar % (c > 0.6 ? 2 : 4) === 0) push(bar, 0, m, 1)
+    } else if (el.midis.length === 3) {  // toms fill
+      if (bar % 4 === 3) {
+        const hits = c < 0.4 ? 2 : c < 0.75 ? 3 : 4
+        for (let i = 0; i < hits; i++) push(bar, beatsPerBar.value - 1 + i * 0.25, el.midis[Math.min(i, 2)], 0.85 + i * 0.05)
+      }
+    } else if (m === 39) {   // clap layers the backbeat
+      push(bar, 1, m, 0.9); push(bar, 3, m, 0.9)
+      if (c > 0.6) push(bar, 3.5, m, 0.6)
+    } else if (m === 70) {   // shaker
+      const step = c < 0.5 ? 0.5 : 0.25
+      for (let b = 0; b < beatsPerBar.value; b += step) push(bar, b, m, 0.6)
+    }
+  }
+  return out
+}
+
+function regenerateSmart() {
+  props.clip.note_events = smartEls.value
+    .filter((e) => e.placed)
+    .flatMap((e) => smartPattern(e).map((h) => ({
+      id: uid(), pitch: '', midi_note: h.midi, start_beat: h.beat,
+      duration_beats: 0.2, velocity: h.vel, lyric_syllable: '',
+    } as NoteEvent)))
+  lastInsert.value = 'pattern updated'
+  emit('changed')
+}
+
+function diceSmart() {
+  for (const e of smartEls.value) {
+    e.placed = Math.random() < (['Kick', 'Snare', 'Hi-Hat'].includes(e.label) ? 0.95 : 0.45)
+    e.x = 0.15 + Math.random() * 0.7
+    e.y = 0.15 + Math.random() * 0.7
+  }
+  regenerateSmart()
+}
+
+// chip dragging on the board
+const boardEl = ref<HTMLElement | null>(null)
+let dragEl: SmartEl | null = null
+function chipDown(e: PointerEvent, el: SmartEl) {
+  dragEl = el
+  window.addEventListener('pointermove', chipMove)
+  window.addEventListener('pointerup', chipUp, { once: true })
+  chipMove(e)
+}
+function chipMove(e: PointerEvent) {
+  const b = boardEl.value
+  if (!dragEl || !b) return
+  const r = b.getBoundingClientRect()
+  const x = (e.clientX - r.left) / r.width
+  const y = (e.clientY - r.top) / r.height
+  if (x >= -0.08 && x <= 1.08 && y >= -0.08 && y <= 1.08) {
+    dragEl.placed = true
+    dragEl.x = Math.min(Math.max(x, 0.02), 0.98)
+    dragEl.y = Math.min(Math.max(y, 0.02), 0.98)
+  } else {
+    dragEl.placed = false
+  }
+}
+function chipUp() {
+  window.removeEventListener('pointermove', chipMove)
+  if (dragEl) {
+    playDrum(dragEl.midis[0])
+    regenerateSmart()
+  }
+  dragEl = null
+}
+
 // ---------------- drums: pad grid ----------------
 const PADS = [
   { midi: 49, label: 'Crash', icon: '💥' }, { midi: 51, label: 'Ride', icon: '🛎' },
@@ -196,14 +317,41 @@ const bgImage = computed(() => {
       tap to hear & write at the playhead <span v-if="lastInsert">· {{ lastInsert }}</span>
     </div>
 
-    <!-- drum pads -->
-    <div v-if="surface === 'drums'" class="pads">
-      <button v-for="p in PADS" :key="p.midi" class="pad-btn"
-              :class="{ hit: hitPad === p.midi }" @pointerdown="tapPad(p.midi)">
-        <span class="pad-icon">{{ p.icon }}</span>
-        <span class="pad-label">{{ p.label }}</span>
-      </button>
-    </div>
+    <!-- drums: smart board or pads -->
+    <template v-if="surface === 'drums'">
+      <div class="drum-mode">
+        <button :class="{ on: drumMode === 'smart' }" @click="drumMode = 'smart'">Smart Drums</button>
+        <button :class="{ on: drumMode === 'pads' }" @click="drumMode = 'pads'">Pads</button>
+        <button v-if="drumMode === 'smart'" class="dice" title="random groove" @click="diceSmart">🎲</button>
+      </div>
+      <div v-if="drumMode === 'smart'" class="smart-wrap">
+        <div ref="boardEl" class="smart-board">
+          <span class="axis top">loud</span>
+          <span class="axis bottom">quiet</span>
+          <span class="axis left">simple</span>
+          <span class="axis right">complex</span>
+          <div v-for="el in smartEls.filter(e => e.placed)" :key="el.label" class="smart-chip on-board"
+               :style="{ left: el.x * 100 + '%', top: el.y * 100 + '%' }"
+               @pointerdown.prevent="chipDown($event, el)">
+            <span>{{ el.icon }}</span><span class="chip-label">{{ el.label }}</span>
+          </div>
+        </div>
+        <div class="smart-tray">
+          <div class="dim tiny">drag onto the board</div>
+          <div v-for="el in smartEls.filter(e => !e.placed)" :key="el.label" class="smart-chip"
+               @pointerdown.prevent="chipDown($event, el)">
+            <span>{{ el.icon }}</span><span class="chip-label">{{ el.label }}</span>
+          </div>
+        </div>
+      </div>
+      <div v-else class="pads">
+        <button v-for="p in PADS" :key="p.midi" class="pad-btn"
+                :class="{ hit: hitPad === p.midi }" @pointerdown="tapPad(p.midi)">
+          <span class="pad-icon">{{ p.icon }}</span>
+          <span class="pad-label">{{ p.label }}</span>
+        </button>
+      </div>
+    </template>
 
     <!-- chord strips -->
     <div v-else-if="surface === 'chords'" class="strips">
@@ -233,6 +381,24 @@ const bgImage = computed(() => {
 <style scoped>
 .play-surface { height: 100%; display: flex; flex-direction: column; background-size: cover; background-position: center; border-radius: 0 0 8px 8px; overflow: hidden; position: relative; }
 .hint { font-size: 11px; padding: 6px 12px; flex: none; }
+/* smart drums */
+.drum-mode { display: flex; gap: 4px; padding: 0 12px 4px; align-items: center; }
+.drum-mode button { padding: 2px 10px; font-size: 11px; border: none; background: rgba(0,0,0,0.4); color: var(--text-dim); border-radius: 5px; }
+.drum-mode button.on { color: var(--text); background: var(--bg-elevated); }
+.drum-mode .dice { font-size: 14px; margin-left: auto; }
+.smart-wrap { flex: 1; display: flex; gap: 10px; padding: 0 12px 12px; min-height: 0; }
+.smart-board { flex: 1; position: relative; border: 2px solid #3a3f49; border-radius: 12px; background: radial-gradient(ellipse at center, rgba(45,49,58,0.85), rgba(18,20,24,0.92)); }
+.axis { position: absolute; font-size: 9px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
+.axis.top { top: 4px; left: 50%; transform: translateX(-50%); }
+.axis.bottom { bottom: 4px; left: 50%; transform: translateX(-50%); }
+.axis.left { left: 6px; top: 50%; transform: translateY(-50%) rotate(-90deg); transform-origin: center; }
+.axis.right { right: 6px; top: 50%; transform: translateY(-50%) rotate(90deg); transform-origin: center; }
+.smart-chip { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; background: rgba(30,33,40,0.95); border: 1px solid #4a5160; border-radius: 50%; width: 52px; height: 52px; justify-content: center; cursor: grab; user-select: none; font-size: 16px; box-shadow: 0 2px 6px rgba(0,0,0,0.6); }
+.smart-chip.on-board { position: absolute; transform: translate(-50%, -50%); border-color: var(--accent); }
+.smart-chip:active { cursor: grabbing; border-color: var(--accent); }
+.chip-label { font-size: 8px; color: var(--text-dim); }
+.smart-tray { width: 120px; flex: none; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; padding-top: 14px; position: relative; }
+.smart-tray .tiny { position: absolute; top: 0; left: 0; font-size: 9px; }
 /* pads */
 .pads { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 4px 12px 12px; }
 .pad-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 10px; background: rgba(30,33,40,0.82); border: 1px solid #3a3f49; box-shadow: inset 0 -3px 8px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.4); cursor: pointer; min-height: 0; }

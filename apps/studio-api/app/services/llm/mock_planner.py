@@ -202,6 +202,21 @@ def plan_from_message(system_prompt: str, user_message: str) -> dict:
         ops.append({"op_type": "generate_melody", "params": {}})
         replies.append("Regenerated the melody.")
 
+    if any(w in msg for w in ("from my score", "from the score", "from my sheet",
+                              "from the sheet", "from my pdf", "from the pdf",
+                              "from my tab", "use the score", "use my score",
+                              "arrange the score", "import the score")):
+        m_score = re.search(r'"scores":\s*\[.*?\{\s*"id":\s*"([^"]+)"',
+                            system_prompt, re.DOTALL)
+        if m_score:
+            ops.append({"op_type": "arrange_from_score",
+                        "params": {"score_asset_id": m_score.group(1)}})
+            replies.append("Arranging the song from your score — chords, "
+                           "bass, sections and any lyrics it contains.")
+        else:
+            replies.append("I don't see any score assets — upload one in "
+                           "Assets → Scores (PDF/photo/MIDI/GP all work).")
+
     if not ops:
         return {"reply": ("(mock planner) I can create songs "
                           "('create a punk song at 170 bpm in E minor'), add "

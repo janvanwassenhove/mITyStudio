@@ -1,12 +1,47 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+import re
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
+from ..config import get_config
+from ..models.asset import SCORE_EXTENSIONS, Asset
 from ..services import asset_repo, project_repo, score_import
 from ..services.score_import import ScoreImportResult
 
 router = APIRouter(prefix="/api/scores", tags=["scores"])
+
+
+@router.post("/upload", status_code=201)
+async def upload_score(file: UploadFile = File(...)) -> Asset:
+    """Upload a score/chord sheet/tab (MIDI, MusicXML, GP, PDF, or a photo
+    as JPG/PNG) into scores/ and register it as a score asset."""
+    cfg = get_config()
+    name = file.filename or "score"
+    ext = Path(name).suffix.lower()
+    if ext not in SCORE_EXTENSIONS:
+        raise HTTPException(422, f"unsupported score format {ext!r} "
+                                 f"(supported: {', '.join(sorted(SCORE_EXTENSIONS))})")
+    stem = re.sub(r"[^\w\- ]+", "_", Path(name).stem)[:80] or "score"
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    dest = cfg.scores_dir / f"{stem}_{stamp}{ext}"
+    content = await file.read()
+    if not content:
+        raise HTTPException(422, "uploaded file is empty")
+    dest.write_bytes(content)
+    asset = Asset(
+        id=uuid.uuid4().hex, asset_type="score", filename=dest.name,
+        original_path=str(dest),
+        relative_path=dest.relative_to(cfg.root).as_posix(),
+        extension=ext, file_size=len(content),
+        modified_at=datetime.now(timezone.utc).isoformat(),
+        created_at=datetime.now(timezone.utc).isoformat(), source="upload")
+    asset_repo.upsert_asset(asset)
+    return asset
 
 
 class ImportToProjectRequest(BaseModel):

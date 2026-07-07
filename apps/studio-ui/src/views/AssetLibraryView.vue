@@ -75,6 +75,44 @@ async function rescan() {
   }
 }
 
+async function uploadScore(e: Event) {
+  const input = e.target as HTMLInputElement
+  const f = input.files?.[0]
+  if (!f) return
+  busy.value = true
+  scanMsg.value = 'uploading…'
+  try {
+    await api.upload('/scores/upload', f, f.name)
+    scanMsg.value = `uploaded ${f.name}`
+    input.value = ''
+    await load()
+  } catch (err) {
+    scanMsg.value = String(err)
+  } finally {
+    busy.value = false
+  }
+}
+
+const importing = ref(false)
+const importMsg = ref('')
+async function importScoreAsSong() {
+  if (!selected.value) return
+  importing.value = true
+  importMsg.value = 'reading the score… (photos/PDFs use the vision AI, can take ~20s)'
+  try {
+    const res = await api.post<{ project_id?: string; supported: boolean; warnings: string[] }>(
+      `/scores/${selected.value.id}/import`,
+      { create_project: true, title: selected.value.filename.replace(/\.[^.]+$/, '') })
+    importMsg.value = res.project_id
+      ? '✓ song created — open it in the Studio'
+      : res.warnings.join('; ')
+  } catch (err) {
+    importMsg.value = String(err)
+  } finally {
+    importing.value = false
+  }
+}
+
 async function analyse() {
   if (!selected.value) return
   busy.value = true
@@ -118,6 +156,13 @@ onMounted(load)
       <input v-model="search" placeholder="Search filename / description…" style="width: 220px" />
       <input v-model="tagFilter" placeholder="Filter by tag…" style="width: 140px" />
       <span class="spacer" />
+      <template v-if="tab === 'score'">
+        <input ref="scoreFile" type="file" accept=".mid,.midi,.musicxml,.xml,.mxl,.gp3,.gp4,.gp5,.mscz,.pdf,.jpg,.jpeg,.png"
+               style="display: none" @change="uploadScore" />
+        <button :disabled="busy" @click="($refs.scoreFile as HTMLInputElement).click()">
+          ⬆ Upload score / chord sheet / photo
+        </button>
+      </template>
       <span class="dim small">{{ scanMsg }}</span>
       <button :disabled="busy" @click="rescan">Rescan folders</button>
     </div>
@@ -156,7 +201,12 @@ onMounted(load)
           <div class="row-btns">
             <button class="primary" @click="saveMetadata">Save metadata</button>
             <button v-if="tab === 'sample' || tab === 'voice_recording'" :disabled="busy" @click="analyse">Analyse</button>
+            <button v-if="tab === 'score' && !selected.is_missing" :disabled="importing"
+                    class="primary" @click="importScoreAsSong">
+              {{ importing ? 'reading…' : '♫ Turn into song' }}
+            </button>
           </div>
+          <div v-if="importMsg" class="dim small">{{ importMsg }}</div>
           <div v-if="selected.generated_description" class="gen-desc">
             <span class="dim small">auto description:</span> {{ selected.generated_description }}
           </div>
