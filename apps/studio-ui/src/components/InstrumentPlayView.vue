@@ -1,8 +1,22 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { api } from '../api/client'
 import type { Clip, NoteEvent, Track } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
+
+// monochrome drum-piece glyphs (GarageBand-style)
+const DRUM_SVG: Record<string, string> = {
+  Kick: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3"/></svg>',
+  Snare: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="8" rx="8" ry="3"/><path d="M4 8v6c0 1.7 3.6 3 8 3s8-1.3 8-3V8"/><path d="M4 11h16" stroke-width="1"/></svg>',
+  'Hi-Hat': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="8" rx="9" ry="2"/><ellipse cx="12" cy="11" rx="9" ry="2"/><path d="M12 12.5V21"/></svg>',
+  'Open Hat': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="6" rx="9" ry="2" transform="rotate(-8 12 6)"/><ellipse cx="12" cy="12" rx="9" ry="2" transform="rotate(6 12 12)"/><path d="M12 14V21"/></svg>',
+  Ride: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="8" rx="10" ry="2.6"/><circle cx="12" cy="7.4" r="1.2"/><path d="M12 10.5V21"/></svg>',
+  Crash: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="12" cy="7" rx="9.5" ry="2.4" transform="rotate(-14 12 7)"/><path d="M12 9.5V21"/><path d="M8 21h8"/></svg>',
+  Toms: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><ellipse cx="7.5" cy="9" rx="5" ry="2"/><path d="M2.5 9v5c0 1.1 2.2 2 5 2s5-.9 5-2V9"/><ellipse cx="17.5" cy="8" rx="4" ry="1.7"/><path d="M13.5 8v4.5c0 .9 1.8 1.6 4 1.6s4-.7 4-1.6V8"/></svg>',
+  Clap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 12 4 7m5 9-6-3m7 7-5-1"/><path d="M12 11c1-3 3-5 6-5 2 0 3 1.5 2 3.5S16 14 14 17c-1.4 2-4 2.5-5.5 1"/></svg>',
+  Shaker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="8" y="4" width="8" height="16" rx="4"/><circle cx="11" cy="9" r="0.7" fill="currentColor"/><circle cx="13.5" cy="12" r="0.7" fill="currentColor"/><circle cx="11.5" cy="15" r="0.7" fill="currentColor"/></svg>',
+}
 
 const props = defineProps<{ track: Track; clip: Clip }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -91,6 +105,45 @@ function insertNotes(midis: number[], dur: number, vel = 100, stagger = 0) {
 
 // ---------------- smart drums (GarageBand-style board) ----------------
 const drumMode = ref<'smart' | 'pads'>('smart')
+
+// --- drum kit picker (real Drum Kit presets from the SoundFont library) ---
+interface KitPreset { label: string; asset_id: string; soundfont: string; bank: number; program: number }
+const kits = ref<KitPreset[]>([])
+const kitIndex = ref(0)
+
+const currentKit = computed(() => kits.value[kitIndex.value] ?? null)
+
+onMounted(async () => {
+  if (props.track.track_type !== 'drums') return
+  try {
+    const catalog = await api.get<{ category: string; presets: KitPreset[] }[]>('/assets/instruments')
+    kits.value = catalog.find((c) => c.category === 'Drum Kits')?.presets ?? []
+    const cfg = props.track.instrument_config
+    const i = kits.value.findIndex((k) =>
+      k.asset_id === cfg.soundfont_asset_id && k.bank === cfg.bank && k.program === cfg.program)
+    if (i >= 0) kitIndex.value = i
+  } catch { /* catalog unavailable — picker hides */ }
+})
+
+function pickKit(delta: number) {
+  if (!kits.value.length) return
+  kitIndex.value = (kitIndex.value + delta + kits.value.length) % kits.value.length
+  const k = kits.value[kitIndex.value]
+  props.track.instrument_config.soundfont_asset_id = k.asset_id
+  props.track.instrument_config.bank = k.bank
+  props.track.instrument_config.program = k.program
+  props.track.instrument_config.is_drum_kit = true
+  playDrum(36)
+  lastInsert.value = `kit: ${k.label}`
+  emit('changed')
+}
+
+function resetBoard() {
+  for (const e of smartEls.value) e.placed = false
+  props.clip.note_events = []
+  lastInsert.value = 'board cleared'
+  emit('changed')
+}
 interface SmartEl { midis: number[]; label: string; icon: string; placed: boolean; x: number; y: number }
 const smartEls = ref<SmartEl[]>([
   { midis: [36], label: 'Kick', icon: '🦶', placed: true, x: 0.4, y: 0.65 },
@@ -322,9 +375,22 @@ const bgImage = computed(() => {
       <div class="drum-mode">
         <button :class="{ on: drumMode === 'smart' }" @click="drumMode = 'smart'">Smart Drums</button>
         <button :class="{ on: drumMode === 'pads' }" @click="drumMode = 'pads'">Pads</button>
-        <button v-if="drumMode === 'smart'" class="dice" title="random groove" @click="diceSmart">🎲</button>
+        <template v-if="drumMode === 'smart'">
+          <button class="dice" title="random groove" @click="diceSmart">🎲</button>
+          <button class="reset" title="clear the board" @click="resetBoard">⏻ Reset</button>
+        </template>
       </div>
       <div v-if="drumMode === 'smart'" class="smart-wrap">
+        <!-- kit picker (GarageBand-style left panel) -->
+        <div v-if="kits.length" class="kit-panel">
+          <div class="kit-visual" v-html="DRUM_SVG['Toms'] + DRUM_SVG['Crash']" />
+          <button class="kit-arrow" title="previous kit" @click="pickKit(-1)">‹</button>
+          <div class="kit-name" :title="currentKit?.soundfont">
+            {{ currentKit?.label ?? 'Drum Kit' }}
+          </div>
+          <button class="kit-arrow" title="next kit" @click="pickKit(1)">›</button>
+          <div class="dim tiny">{{ kitIndex + 1 }} / {{ kits.length }} kits</div>
+        </div>
         <div ref="boardEl" class="smart-board">
           <span class="axis top">loud</span>
           <span class="axis bottom">quiet</span>
@@ -333,14 +399,18 @@ const bgImage = computed(() => {
           <div v-for="el in smartEls.filter(e => e.placed)" :key="el.label" class="smart-chip on-board"
                :style="{ left: el.x * 100 + '%', top: el.y * 100 + '%' }"
                @pointerdown.prevent="chipDown($event, el)">
-            <span>{{ el.icon }}</span><span class="chip-label">{{ el.label }}</span>
+            <span v-if="DRUM_SVG[el.label]" class="chip-svg" v-html="DRUM_SVG[el.label]" />
+            <span v-else>{{ el.icon }}</span>
+            <span class="chip-label">{{ el.label }}</span>
           </div>
         </div>
         <div class="smart-tray">
           <div class="dim tiny">drag onto the board</div>
           <div v-for="el in smartEls.filter(e => !e.placed)" :key="el.label" class="smart-chip"
                @pointerdown.prevent="chipDown($event, el)">
-            <span>{{ el.icon }}</span><span class="chip-label">{{ el.label }}</span>
+            <span v-if="DRUM_SVG[el.label]" class="chip-svg" v-html="DRUM_SVG[el.label]" />
+            <span v-else>{{ el.icon }}</span>
+            <span class="chip-label">{{ el.label }}</span>
           </div>
         </div>
       </div>
@@ -386,6 +456,15 @@ const bgImage = computed(() => {
 .drum-mode button { padding: 2px 10px; font-size: 11px; border: none; background: rgba(0,0,0,0.4); color: var(--text-dim); border-radius: 5px; }
 .drum-mode button.on { color: var(--text); background: var(--bg-elevated); }
 .drum-mode .dice { font-size: 14px; margin-left: auto; }
+.drum-mode .reset { font-size: 11px; }
+/* kit picker */
+.kit-panel { width: 110px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; background: rgba(22,25,31,0.85); border: 1px solid #3a3f49; border-radius: 12px; padding: 12px 6px; }
+.kit-visual { color: var(--text-dim); display: flex; }
+.kit-visual :deep(svg) { width: 34px; height: 34px; }
+.kit-name { font-size: 11px; font-weight: 600; text-align: center; min-height: 28px; }
+.kit-arrow { padding: 0 10px; font-size: 16px; }
+.chip-svg { color: var(--text); display: flex; }
+.chip-svg :deep(svg) { width: 22px; height: 22px; }
 .smart-wrap { flex: 1; display: flex; gap: 10px; padding: 0 12px 12px; min-height: 0; }
 .smart-board { flex: 1; position: relative; border: 2px solid #3a3f49; border-radius: 12px; background: radial-gradient(ellipse at center, rgba(45,49,58,0.85), rgba(18,20,24,0.92)); }
 .axis { position: absolute; font-size: 9px; color: var(--text-dim); letter-spacing: 0.1em; text-transform: uppercase; }
