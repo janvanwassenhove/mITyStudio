@@ -332,7 +332,7 @@ def op_arrange_from_score(project: SongProject, p: dict) -> str:
 
 
 _EFFECT_TYPES = {"gain", "pan", "eq", "compressor", "reverb", "delay",
-                 "distortion", "robot", "telephone", "chorus"}
+                 "distortion", "robot", "telephone", "chorus", "autotune"}
 
 
 def op_add_effect(project: SongProject, p: dict) -> str:

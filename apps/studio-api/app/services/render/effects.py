@@ -197,7 +197,92 @@ def _fx_chorus(data: np.ndarray, rate: int, params: dict) -> np.ndarray:
     return (data * (1 - mix * 0.5) + wet * mix).astype(np.float32)
 
 
+_MAJOR = [0, 2, 4, 5, 7, 9, 11]
+_MINOR = [0, 2, 3, 5, 7, 8, 10]
+
+
+def _fx_autotune(data: np.ndarray, rate: int, params: dict) -> np.ndarray:
+    """Voicetune: granular pitch correction to the nearest scale note.
+    params: root (0-11 pitch class), minor (0/1), strength (0-1, 1 = hard
+    T-Pain-style tune), speed (0-1, higher = snappier correction)."""
+    root = int(params.get("root", 0)) % 12
+    scale = _MINOR if params.get("minor", 0) >= 0.5 else _MAJOR
+    strength = float(np.clip(params.get("strength", 1.0), 0.0, 1.0))
+    speed = float(np.clip(params.get("speed", 0.8), 0.05, 1.0))
+    if strength == 0:
+        return data
+
+    allowed = sorted((root + off) % 12 for off in scale)
+    mono = data.mean(axis=1).astype(np.float64)
+    frame = 2048
+    hop = 512
+    n = len(mono)
+    if n < frame * 2:
+        return data
+
+    # per-frame pitch detection + correction ratio
+    n_frames = (n - frame) // hop + 1
+    ratios = np.ones(n_frames)
+    lo, hi = int(rate / 800), int(rate / 60)   # 60..800 Hz vocal range
+    for k in range(n_frames):
+        seg = mono[k * hop:k * hop + frame]
+        if np.abs(seg).max() < 0.01:
+            continue
+        seg = seg - seg.mean()
+        ac = np.correlate(seg, seg, mode="full")[frame - 1:]
+        if hi >= len(ac):
+            continue
+        lag = lo + int(np.argmax(ac[lo:hi]))
+        if ac[lag] < 0.3 * ac[0]:
+            continue  # unvoiced
+        f0 = rate / lag
+        midi = 69 + 12 * np.log2(f0 / 440.0)
+        pc = midi % 12
+        target_pc = min(allowed, key=lambda a: min(abs(pc - a), 12 - abs(pc - a)))
+        diff = target_pc - pc
+        if diff > 6:
+            diff -= 12
+        if diff < -6:
+            diff += 12
+        ratios[k] = 2 ** ((diff * strength) / 12)
+
+    # smooth the correction curve (speed controls the glide)
+    alpha = 0.15 + 0.8 * speed
+    smoothed = np.ones(n_frames)
+    r = 1.0
+    for k in range(n_frames):
+        r = r + alpha * (ratios[k] - r)
+        smoothed[k] = r
+
+    # resynthesis: sequential blocks resampled at the correction ratio with
+    # short crossfades (low overlap avoids phase cancellation between grains)
+    block = 4096
+    fade = 256
+    step = block - fade
+    win = np.ones(block)
+    win[:fade] = np.linspace(0, 1, fade)
+    win[-fade:] = np.linspace(1, 0, fade)
+    out = np.zeros_like(data)
+    norm = np.zeros(n)
+    pos = 0
+    while pos < n - fade:
+        k = min(pos // hop, n_frames - 1)
+        ratio = smoothed[k]
+        idx = pos + np.arange(block) * ratio
+        idx = np.clip(idx, 0, n - 1.001)
+        i0 = idx.astype(np.int64)
+        frac = (idx - i0)[:, None]
+        grain = data[i0] * (1 - frac) + data[np.minimum(i0 + 1, n - 1)] * frac
+        end = min(pos + block, n)
+        out[pos:end] += grain[:end - pos] * win[:end - pos, None]
+        norm[pos:end] += win[:end - pos]
+        pos += step
+    norm = np.maximum(norm, 1e-6)
+    return (out / norm[:, None]).astype(np.float32)
+
+
 _PROCESSORS = {
+    "autotune": _fx_autotune,
     "gain": _fx_gain,
     "pan": _fx_pan,
     "eq": _fx_eq,

@@ -99,7 +99,7 @@ function pickPreset(p: { bank: number; program: number }) {
 }
 
 const EFFECT_TYPES = ['gain', 'pan', 'eq', 'compressor', 'reverb', 'delay',
-  'distortion', 'robot', 'telephone', 'chorus']
+  'distortion', 'robot', 'telephone', 'chorus', 'autotune']
 const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
   gain: { gain_db: 0 },
   pan: { position: 0 },
@@ -111,16 +111,30 @@ const DEFAULT_PARAMS: Record<string, Record<string, number>> = {
   robot: { carrier_hz: 55, mix: 1, crush: 0.15 },
   telephone: { low_freq: 300, high_freq: 3400, drive: 1.5 },
   chorus: { depth_ms: 8, rate_hz: 0.8, mix: 0.5 },
+  autotune: { root: 0, minor: 0, strength: 1, speed: 0.8 },
 }
 const newEffectType = ref('reverb')
 
+const KEY_ROOTS: Record<string, number> = { C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3,
+  Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10,
+  Bb: 10, B: 11 }
+
 function addEffect() {
   if (!track.value) return
+  const params = { ...DEFAULT_PARAMS[newEffectType.value] }
+  if (newEffectType.value === 'autotune' && studio.project) {
+    // voicetune snaps to the song's key automatically
+    const m = studio.project.key.match(/^([A-G][#b]?)\s*(minor|min|m)?/i)
+    if (m) {
+      params.root = KEY_ROOTS[m[1][0].toUpperCase() + m[1].slice(1)] ?? 0
+      params.minor = m[2] ? 1 : 0
+    }
+  }
   track.value.effects.effects.push({
     id: crypto.randomUUID().replace(/-/g, ''),
     effect_type: newEffectType.value,
     enabled: true,
-    params: { ...DEFAULT_PARAMS[newEffectType.value] },
+    params,
   } as Effect)
   save()
 }

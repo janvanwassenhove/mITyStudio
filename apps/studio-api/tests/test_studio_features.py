@@ -161,6 +161,34 @@ def test_generate_for_all_sections(client, workspace):
     assert {c.section_id for c in piano.clips} == {s.id for s in project.sections}
 
 
+def test_autotune_corrects_pitch(workspace):
+    from app.models.song import Effect, EffectChain
+    from app.services.render.effects import apply_effect_chain
+    from app.services.sample_analysis import _estimate_pitch
+
+    rate = 44100
+    t = np.linspace(0, 1.5, int(1.5 * rate), endpoint=False)
+    # 254 Hz sits between B3 (246.9) and C4 (261.6) — audibly out of tune in C major
+    audio = np.stack([np.sin(2 * np.pi * 254 * t)] * 2, axis=1).astype(np.float32) * 0.5
+
+    out, warnings = apply_effect_chain(audio, rate, EffectChain(effects=[
+        Effect(effect_type="autotune",
+               params={"root": 0, "minor": 0, "strength": 1.0, "speed": 1.0})]))
+    assert warnings == []
+    # measure the corrected pitch in the middle of the note
+    mid = out[rate // 2:rate, 0].astype(np.float32)
+    note, freq = _estimate_pitch(mid, rate)
+    assert freq is not None
+    # snapped to a C-major scale note (B3 or C4), no longer 254 Hz
+    assert min(abs(freq - 246.9), abs(freq - 261.6)) < 6, (note, freq)
+    assert abs(freq - 254) > 5
+
+    # strength 0 = bypass
+    out0, _ = apply_effect_chain(audio, rate, EffectChain(effects=[
+        Effect(effect_type="autotune", params={"strength": 0})]))
+    assert np.allclose(out0, audio)
+
+
 def test_full_song_lyrics_distribution(client, workspace):
     from app.models.operations import ChatOperation
     from app.models.song import Section, SongProject

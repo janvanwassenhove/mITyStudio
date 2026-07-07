@@ -18,7 +18,7 @@ VOCAL_TRACK_TYPES = {"lead_vocal", "backing_vocal"}
 ClipType = Literal["midi", "sample", "vocal"]
 
 EffectType = Literal["gain", "pan", "eq", "compressor", "reverb", "delay",
-                     "distortion", "robot", "telephone", "chorus"]
+                     "distortion", "robot", "telephone", "chorus", "autotune"]
 
 _NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 

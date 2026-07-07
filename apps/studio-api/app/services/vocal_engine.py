@@ -312,9 +312,26 @@ class RecordingVoiceEngine(SingingVoiceEngine):
                 seq.append((t0, dur, n))
         seq.sort(key=lambda x: x[0])
 
+        # resample the source segment to the output rate once, then build the
+        # PSOLA grain bank (formant-preserving pitch shifting: grains keep the
+        # spectral envelope of the voice, so it doesn't chipmunk)
+        if src_rate != SAMPLE_RATE:
+            from .audio_io import resample_linear
+            seg = resample_linear(seg[:, None], src_rate, SAMPLE_RATE)[:, 0]
+        p0 = max(int(SAMPLE_RATE / src_freq), 8)
+        grain_len = 2 * p0
+        window = np.hanning(grain_len).astype(np.float32)
+        marks = list(range(p0, len(seg) - grain_len, p0))
+        if not marks:
+            marks = [0]
+            grain_len = min(grain_len, len(seg))
+            window = np.hanning(grain_len).astype(np.float32)
+        grains = [seg[m:m + grain_len] * window for m in marks]
+        n_grains = len(grains)
+        rng_g = np.random.default_rng(hash(track.id) & 0xFFFFFF)
+
         prev_freq: float | None = None
         prev_end = -1.0
-        L = len(seg)
         for t0, dur, n in seq:
             i0 = int(t0 * SAMPLE_RATE)
             count = min(int(dur * SAMPLE_RATE), total - i0)
@@ -322,29 +339,41 @@ class RecordingVoiceEngine(SingingVoiceEngine):
                 continue
             target = _note_freq(n.midi_note)
             t = np.arange(count) / SAMPLE_RATE
-            # portamento: glide from the previous note when legato (<60 ms gap)
             if prev_freq is not None and t0 - prev_end < 0.06:
                 glide = min(0.07, dur * 0.3)
                 freq = target + (prev_freq - target) * np.exp(-t / max(glide, 1e-3))
             else:
                 freq = target * (1 - 0.04 * np.exp(-t / 0.04))  # scoop in
-            # delayed vibrato
-            vib = 1 + (0.009 * np.minimum(t / 0.3, 1.0)
+            vib = 1 + (0.010 * np.minimum(t / 0.3, 1.0)
                        * np.sin(2 * np.pi * 5.3 * t))
-            ratio = (freq * vib / src_freq) * (src_rate / SAMPLE_RATE)
-            # ping-pong (mirror) read: no loop-seam clicks
-            phase = np.cumsum(ratio)
-            m = np.mod(phase, 2 * L)
-            idx = np.where(m < L, m, 2 * L - 1 - m).astype(np.int64)
-            tile = np.take(seg, np.clip(idx, 0, L - 1))
+            freq = freq * vib
+
+            # TD-PSOLA: place source grains at the target pitch period,
+            # walking forward-and-back through the grain bank (natural motion,
+            # no seams), with tiny jitter for realism
+            note_buf = np.zeros(count + grain_len, dtype=np.float32)
+            pos = 0
+            gi = 0
+            direction = 1
+            while pos < count:
+                g = grains[gi]
+                note_buf[pos:pos + grain_len] += g[:min(grain_len, len(note_buf) - pos)]
+                f = float(freq[min(pos, count - 1)])
+                period = max(int(SAMPLE_RATE / max(f, 30.0)), 8)
+                pos += period + rng_g.integers(-1, 2)
+                gi += direction
+                if gi >= n_grains - 1 or gi <= 0:
+                    direction *= -1
+                    gi = max(0, min(n_grains - 1, gi))
+            note = note_buf[:count]
+
             attack = min(int(0.015 * SAMPLE_RATE), count)
             release = min(int(0.05 * SAMPLE_RATE), max(count - attack, 1))
             env = np.ones(count, dtype=np.float32)
             env[:attack] = np.linspace(0, 1, attack)
             env[-release:] *= np.linspace(1, 0, release)
-            # gentle phrase dynamics
             env *= 0.85 + 0.15 * np.sin(np.pi * np.minimum(t / max(dur, 1e-3), 1.0))
-            out[i0:i0 + count] += tile * env * (n.velocity / 127) * 0.9
+            out[i0:i0 + count] += note * env * (n.velocity / 127) * 0.8
             prev_freq = target
             prev_end = t0 + dur
             notes_rendered += 1
