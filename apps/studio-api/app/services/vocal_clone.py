@@ -34,7 +34,7 @@ from .vocal_engine import (SingingVoiceEngine, VocalRenderResult,
 
 log = logging.getLogger(__name__)
 
-CLONE_ENGINE_VERSION = "1"
+CLONE_ENGINE_VERSION = "2"
 
 _tts_model = None
 _tts_failed: str | None = None
@@ -111,19 +111,24 @@ def _lines_with_notes(project: SongProject, track: Track):
     return out
 
 
-def _tts_line(text: str, speaker_wav: Path, language: str) -> tuple[np.ndarray, int]:
-    """Cloned speech for one line, cached on disk."""
+def _tts_line(text: str, speaker_wavs: list[Path],
+              language: str) -> tuple[np.ndarray, int]:
+    """Cloned speech for one line, cached on disk. Multiple reference
+    recordings improve the clone's fidelity."""
     cfg = get_config()
     cache_dir = cfg.analysis_cache_dir / "tts"
     cache_dir.mkdir(parents=True, exist_ok=True)
+    refs = ";".join(str(p) for p in speaker_wavs)
     key = hashlib.sha256(
-        f"{CLONE_ENGINE_VERSION}:{language}:{speaker_wav}:{text}".encode()).hexdigest()[:24]
+        f"{CLONE_ENGINE_VERSION}:{language}:{refs}:{text}".encode()).hexdigest()[:24]
     cached = cache_dir / f"{key}.wav"
     if cached.exists():
         data, rate = read_audio(cached)
         return data[:, 0], rate
     tts = _get_tts()
-    wav = tts.tts(text=text, speaker_wav=str(speaker_wav), language=language)
+    wav = tts.tts(text=text,
+                  speaker_wav=[str(p) for p in speaker_wavs],
+                  language=language)
     audio = np.asarray(wav, dtype=np.float32)
     rate = 24000  # XTTS output rate
     write_wav(cached, audio[:, None], rate)
@@ -159,23 +164,22 @@ def _trim_silence(audio: np.ndarray, rate: int,
     return audio[max(loud[0] - pad, 0):min(loud[-1] + pad, len(audio))]
 
 
-def _syllable_segments(spoken: np.ndarray, rate: int,
-                       syllables: list[str]) -> list[np.ndarray]:
-    """Split spoken audio into one segment per syllable.
+def _syllable_cuts(spoken: np.ndarray, rate: int,
+                   syllables: list[str]) -> list[int]:
+    """Sample indices of syllable boundaries (len = n_syllables + 1).
 
-    Strategy: energy-valley boundaries near the proportional positions
-    predicted from syllable text weights — the valleys snap the cuts to the
-    real pauses between syllables so segments contain whole phonemes."""
+    Energy-valley boundaries near the proportional positions predicted from
+    syllable text weights — valleys snap the cuts to the real pauses between
+    syllables so segments contain whole phonemes."""
     n = len(syllables)
     if n <= 1 or len(spoken) < 256:
-        return [spoken]
+        return [0, len(spoken)]
     weights = np.array([len(s) + 1.5 for s in syllables], dtype=np.float64)
     targets = np.cumsum(weights)[:-1] / weights.sum() * len(spoken)
 
     hop = 128
     frames = len(spoken) // hop
     env = np.abs(spoken[:frames * hop]).reshape(frames, hop).mean(axis=1)
-    # smooth the envelope
     k = 9
     env = np.convolve(env, np.ones(k) / k, mode="same")
 
@@ -191,7 +195,13 @@ def _syllable_segments(spoken: np.ndarray, rate: int,
             cut = (lo + int(np.argmin(env[lo:hi]))) * hop  # nearest valley
         cuts.append(max(cut, cuts[-1] + hop))
     cuts.append(len(spoken))
-    return [spoken[cuts[i]:cuts[i + 1]] for i in range(n)]
+    return cuts
+
+
+def _syllable_segments(spoken: np.ndarray, rate: int,
+                       syllables: list[str]) -> list[np.ndarray]:
+    cuts = _syllable_cuts(spoken, rate, syllables)
+    return [spoken[cuts[i]:cuts[i + 1]] for i in range(len(cuts) - 1)]
 
 
 def _stretch_pitch_segment(seg: np.ndarray, n_out: int, tgt_freq: float | None,
@@ -243,12 +253,151 @@ def _stretch_pitch_segment(seg: np.ndarray, n_out: int, tgt_freq: float | None,
     return (buf[:n_out] / norm[:n_out]).astype(np.float32)
 
 
+def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
+                     line_dur: float, line_start: float,
+                     rap: bool = False) -> np.ndarray:
+    """WORLD-vocoder singing resynthesis (the speech-to-singing technique):
+    the whole line is decomposed into pitch / spectral envelope /
+    aperiodicity, time-warped so each syllable spans exactly its note, and
+    resynthesized with one CONTINUOUS musical pitch curve — portamento
+    between notes, delayed vibrato, slight overshoot, phrase-end fall,
+    human micro-drift. Formants (the voice's identity) are untouched.
+    """
+    import pyworld
+
+    spoken = _trim_silence(spoken, rate)
+    n_out_samples = max(int(line_dur * SAMPLE_RATE), 1)
+    if len(spoken) < 512 or not line_notes:
+        return np.zeros(n_out_samples, dtype=np.float32)
+
+    fp_ms = 5.0
+    x = spoken.astype(np.float64)
+    f0_in, sp, ap = pyworld.wav2world(x, rate, frame_period=fp_ms)
+    n_in = len(f0_in)
+    if n_in < 4:
+        return np.zeros(n_out_samples, dtype=np.float32)
+    med_f0 = float(np.median(f0_in[f0_in > 0])) if np.any(f0_in > 0) else 180.0
+
+    syllables = [nd.get("syl") or "la" for nd in line_notes]
+    cuts = _syllable_cuts(spoken, rate, syllables)
+    # input frame boundary per syllable
+    in_bounds = [min(int(c / rate * 1000 / fp_ms), n_in - 1) for c in cuts]
+    if len(in_bounds) - 1 != len(line_notes):
+        in_bounds = list(np.linspace(0, n_in - 1, len(line_notes) + 1).astype(int))
+
+    fp_s = fp_ms / 1000.0
+    n_out = max(int(line_dur / fp_s), 2)
+    frame_map = np.zeros(n_out, dtype=np.int64)
+    f0_out = np.zeros(n_out)
+    audible = np.zeros(n_out, dtype=bool)
+
+    rng = np.random.default_rng(len(spoken))
+    drift = np.cumsum(rng.standard_normal(n_out)) * 0.0015
+    drift -= np.linspace(drift[0], drift[-1], n_out)  # zero-mean wander
+
+    prev_freq: float | None = None
+    for i, nd in enumerate(line_notes):
+        t0 = int((nd["start"] - line_start) / fp_s)
+        t1 = int((nd["end"] - line_start) / fp_s)
+        t0 = max(min(t0, n_out - 1), 0)
+        t1 = max(min(t1, n_out), t0 + 1)
+        span = t1 - t0
+        # time-warp: this syllable's input frames stretched over the note
+        a, b = in_bounds[i], max(in_bounds[i + 1], in_bounds[i] + 1)
+        frame_map[t0:t1] = np.clip(
+            np.linspace(a, b - 1, span).astype(np.int64), 0, n_in - 1)
+        audible[t0:t1] = True
+
+        target = nd["freq"]
+        is_last = i == len(line_notes) - 1
+        tt = np.arange(span) * fp_s
+        curve = np.full(span, float(target))
+        if prev_freq is not None:
+            # portamento from the previous note over ~70 ms, slight overshoot
+            gl = np.exp(-tt / 0.05)
+            curve = target + (prev_freq - target) * gl
+            curve += (target - prev_freq) * 0.06 * np.exp(-((tt - 0.09) / 0.03) ** 2)
+        else:
+            curve = target * (1 - 0.05 * np.exp(-tt / 0.05))  # scoop in
+        note_dur = span * fp_s
+        if note_dur > 0.3:
+            vib_on = np.clip((tt - 0.4 * note_dur) / (0.25 * note_dur), 0, 1)
+            curve *= 1 + 0.018 * vib_on * np.sin(2 * np.pi * 5.3 * tt)
+        if is_last and span > 8:
+            tail = max(int(span * 0.25), 2)
+            curve[-tail:] *= np.linspace(1.0, 0.975, tail)  # phrase-end fall
+        f0_out[t0:t1] = curve
+        prev_freq = target
+
+    # fill gaps between notes by holding the boundary frame (silenced later)
+    for t in range(n_out):
+        if not audible[t]:
+            frame_map[t] = frame_map[t - 1] if t > 0 else 0
+
+    src_f0 = f0_in[frame_map]
+    voiced = src_f0 > 0
+    if rap:
+        f0_final = np.where(voiced, src_f0, 0.0)   # natural speech pitch
+    else:
+        f0_final = np.where(voiced, f0_out * (1 + drift), 0.0)
+        # keep the melody in a comfortable register for the voice
+        vv = f0_final[voiced]
+        if vv.size and np.median(vv) > med_f0 * 1.9:
+            f0_final[voiced] = vv / 2
+        elif vv.size and np.median(vv) < med_f0 * 0.45:
+            f0_final[voiced] = vv * 2
+
+    sp_out = np.ascontiguousarray(sp[frame_map])
+    ap_out = np.ascontiguousarray(ap[frame_map])
+    y = pyworld.synthesize(np.ascontiguousarray(f0_final), sp_out, ap_out,
+                           rate, fp_ms).astype(np.float32)
+
+    # silence the inter-note gaps with short fades (bre. pauses)
+    env = np.ones(len(y), dtype=np.float32)
+    spf = int(rate * fp_s)
+    fade = max(spf, 1)
+    t = 0
+    while t < n_out:
+        if not audible[t]:
+            g0 = t
+            while t < n_out and not audible[t]:
+                t += 1
+            s0, s1 = g0 * spf, min(t * spf, len(y))
+            if s1 > s0:
+                env[s0:s1] = 0
+                if s0 - fade >= 0:
+                    env[s0 - fade:s0] *= np.linspace(1, 0, fade)
+                if s1 + fade <= len(y):
+                    env[s1:s1 + fade] *= np.linspace(0, 1, fade)
+        else:
+            t += 1
+    y *= env
+
+    if rate != SAMPLE_RATE:
+        y = resample_linear(y[:, None], rate, SAMPLE_RATE)[:, 0]
+    if len(y) < n_out_samples:
+        y = np.concatenate([y, np.zeros(n_out_samples - len(y), np.float32)])
+    return y[:n_out_samples]
+
+
 def _sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
                line_dur: float, line_start: float,
                rap: bool = False) -> np.ndarray:
-    """Syllable-to-note alignment: each spoken syllable is stretched onto its
-    exact note and pitched to it (or kept natural for rap). Every word lands
-    on the beat — this is what makes it sound sung instead of warped."""
+    """Sing one spoken line onto its notes. WORLD resynthesis when available
+    (smooth, human), granular fallback otherwise."""
+    try:
+        return _world_sing_line(spoken, rate, line_notes, line_dur,
+                                line_start, rap)
+    except Exception as e:  # noqa: BLE001
+        log.warning("WORLD resynthesis failed (%s) — granular fallback", e)
+        return _granular_sing_line(spoken, rate, line_notes, line_dur,
+                                   line_start, rap)
+
+
+def _granular_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
+                        line_dur: float, line_start: float,
+                        rap: bool = False) -> np.ndarray:
+    """Fallback: per-syllable granular stretch + pitch-map."""
     if rate != SAMPLE_RATE:
         spoken = resample_linear(spoken[:, None], rate, SAMPLE_RATE)[:, 0]
     spoken = _trim_silence(spoken, SAMPLE_RATE)
@@ -280,28 +429,32 @@ class CloneSingingEngine(SingingVoiceEngine):
     def __init__(self, profile) -> None:
         self.profile = profile
 
-    def _speaker_wav(self) -> Path | None:
-        """Reference audio for cloning (decoded to wav if needed)."""
+    def _speaker_wavs(self) -> list[Path]:
+        """ALL reference recordings for cloning (decoded to wav if needed) —
+        more reference audio → better voice fidelity."""
         from . import asset_repo
         cfg = get_config()
+        refs: list[Path] = []
         for rid in self.profile.source_recording_ids:
             asset = asset_repo.get_asset(rid)
             if asset is None or asset.is_missing:
                 continue
             src = Path(asset.original_path)
             if src.suffix.lower() == ".wav":
-                return src
+                refs.append(src)
+                continue
             ref = cfg.analysis_cache_dir / "tts" / f"ref_{rid}.wav"
             if ref.exists():
-                return ref
+                refs.append(ref)
+                continue
             try:
                 data, rate = read_audio(src)
                 ref.parent.mkdir(parents=True, exist_ok=True)
                 write_wav(ref, data, rate)
-                return ref
+                refs.append(ref)
             except Exception:  # noqa: BLE001
                 continue
-        return None
+        return refs
 
     def render(self, project: SongProject, track: Track,
                out_path: Path) -> VocalRenderResult:
@@ -309,8 +462,8 @@ class CloneSingingEngine(SingingVoiceEngine):
             raise PermissionError(
                 "voice profile has no confirmed consent — refusing to render")
         result = VocalRenderResult(stem_path=None)
-        speaker = self._speaker_wav()
-        if speaker is None:
+        speakers = self._speaker_wavs()
+        if not speakers:
             raise RuntimeError("no usable source recording on the profile")
 
         language = (project.lyrics.language or "en").lower()
@@ -326,7 +479,7 @@ class CloneSingingEngine(SingingVoiceEngine):
         rap = getattr(track, "vocal_style", "sing") == "rap"
         for text, line_notes in pairs:
             try:
-                spoken, rate = _tts_line(text, speaker, language)
+                spoken, rate = _tts_line(text, speakers, language)
             except Exception as e:  # noqa: BLE001
                 result.warnings.append(f"line {text[:30]!r}: TTS failed ({e})")
                 continue

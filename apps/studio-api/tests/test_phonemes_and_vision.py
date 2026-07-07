@@ -108,6 +108,33 @@ def test_vision_import_builds_project(client, workspace, monkeypatch):
                for n in c["note_events"])
 
 
+def test_world_singing_resynthesis(workspace):
+    """WORLD vocoder path: a spoken vowel is resynthesized ON the target
+    notes (continuous curve), silences between notes, rap keeps source pitch."""
+    from app.services.sample_analysis import _estimate_pitch
+    from app.services.vocal_clone import _world_sing_line
+
+    rate = 24000
+    t = np.linspace(0, 1.2, int(1.2 * rate), endpoint=False)
+    spoken = (0.4 * np.sin(2 * np.pi * 150 * t)
+              + 0.15 * np.sin(2 * np.pi * 300 * t)).astype(np.float32)
+    notes = [{"start": 0.0, "end": 0.5, "freq": 261.6, "syl": "la"},
+             {"start": 0.5, "end": 1.0, "freq": 329.6, "syl": "lo"}]
+
+    out = _world_sing_line(spoken, rate, notes, 1.0, 0.0)
+    assert len(out) == 44100
+    assert np.abs(out).max() > 0.1
+    _, f1 = _estimate_pitch(out[2000:18000], 44100)
+    _, f2 = _estimate_pitch(out[24000:42000], 44100)
+    assert f1 is not None and abs(f1 - 261.6) < 10
+    assert f2 is not None and abs(f2 - 329.6) < 10
+
+    # rap mode keeps the natural (source) pitch
+    rap = _world_sing_line(spoken, rate, notes, 1.0, 0.0, rap=True)
+    _, fr = _estimate_pitch(rap[2000:18000], 44100)
+    assert fr is not None and abs(fr - 150) < 12
+
+
 def test_vocal_melody_one_note_per_syllable(workspace):
     """The clone engine needs exactly one note per syllable — verify the
     dedicated vocal melody generator delivers that, for singing and rap."""

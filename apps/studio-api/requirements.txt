@@ -13,5 +13,6 @@ httpx>=0.27
 # neural voice cloning (optional, heavy): torch + torchaudio from pytorch.org/whl/cu124
 coqui-tts==0.25.3
 transformers==4.46.2
+pyworld>=0.3.4
 pypdfium2>=4.30
 pillow>=10.0

@@ -32,7 +32,7 @@ class InstrumentRenderer(ABC):
 
 
 # bump when a rendering engine changes so cached stems re-render
-ENGINE_VERSION = "5"
+ENGINE_VERSION = "6"
 
 
 def track_fingerprint(project: SongProject, track: Track) -> str:

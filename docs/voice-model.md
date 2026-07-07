@@ -54,13 +54,19 @@ For fluent, on-pitch vocals every stage matters:
    per syllable**, phrased per lyric line with breaths between lines, contour
    arcs resolving to chord tones. Rap mode: tight 1-3 pitch flow, rhythm-led.
 2. **Neural voice cloning** (XTTS-v2): each lyric line is spoken in the
-   voice cloned from the profile's source recording. Lines are cached.
-3. **Syllable-to-note alignment**: the spoken line is split into syllable
-   segments (energy-valley cuts near text-proportional positions); each
-   segment is time-stretched onto its exact note and pitch-mapped to the note
-   frequency with a 35 ms glide-in and delayed vibrato on long notes.
-   Unvoiced frames (consonants) keep their natural pitch → words stay crisp.
-   Rap style skips pitch-mapping entirely (natural voice, rhythm-locked).
+   voice cloned from ALL of the profile's source recordings (multi-reference
+   improves fidelity). Lines are cached.
+3. **WORLD-vocoder singing resynthesis** (the speech-to-singing research
+   technique, via pyworld): the whole spoken line is decomposed into
+   pitch / spectral envelope / aperiodicity; frames are time-warped so each
+   syllable spans exactly its note (energy-valley segmentation); the line is
+   resynthesized with one CONTINUOUS musical pitch curve — 70 ms portamento
+   between notes with slight overshoot, delayed vibrato on long notes
+   (5.3 Hz), phrase-end falls, human micro-drift — and an automatic octave
+   fold keeps the melody in the voice's comfortable register. The spectral
+   envelope (the voice's identity/formants) is never modified. Consonants
+   stay unvoiced/natural. Rap keeps the natural speech pitch, only
+   rhythm-warped. Granular fallback if pyworld is unavailable.
 4. Vocal stems are normalized to sit on top of the mix; autotune/reverb etc.
    can be added as track effects.
 
