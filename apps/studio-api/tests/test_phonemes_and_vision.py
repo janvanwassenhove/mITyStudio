@@ -95,11 +95,44 @@ def test_vision_import_builds_project(client, workspace, monkeypatch):
     assert proj["key"] == "E minor"
     assert [s["name"] for s in proj["sections"]] == ["Verse", "Chorus"]
     assert proj["sections"][1]["start_bar"] == 4
-    assert {t["track_type"] for t in proj["tracks"]} == {"guitar", "bass"}
+    # lyrics present → a singing lead vocal is created automatically
+    assert {t["track_type"] for t in proj["tracks"]} == \
+        {"guitar", "bass", "lead_vocal"}
     total_notes = sum(len(c["note_events"]) for t in proj["tracks"]
                       for c in t["clips"])
     assert total_notes > 40
     assert any("Possessions" in l["text"] for l in proj["lyrics"]["lines"])
+    vocal = next(t for t in proj["tracks"] if t["track_type"] == "lead_vocal")
+    assert len(vocal["clips"]) == 2  # one melody per lyric section
+    assert any(n["lyric_syllable"] for c in vocal["clips"]
+               for n in c["note_events"])
+
+
+def test_sing_lyrics_endpoint(client, workspace):
+    from tests.test_projects import make_project
+    p = make_project(client)
+    # no lyrics yet → clear 422
+    assert client.post(f"/api/projects/{p['id']}/vocals/sing-lyrics").status_code == 422
+
+    proj = client.get(f"/api/projects/{p['id']}").json()
+    proj["sections"] = [{"name": "Verse", "start_bar": 0, "length_bars": 4},
+                        {"name": "Chorus", "start_bar": 4, "length_bars": 4}]
+    client.put(f"/api/projects/{p['id']}", json=proj)
+    proj = client.get(f"/api/projects/{p['id']}").json()
+    for s in proj["sections"]:
+        proj["lyrics"]["lines"].append(
+            {"section_id": s["id"], "text": f"words for {s['name']}"})
+    client.put(f"/api/projects/{p['id']}", json=proj)
+
+    r = client.post(f"/api/projects/{p['id']}/vocals/sing-lyrics").json()
+    assert r["sections_sung"] == 2
+    assert r["errors"] == []
+    proj = client.get(f"/api/projects/{p['id']}").json()
+    vocal = next(t for t in proj["tracks"] if t["track_type"] == "lead_vocal")
+    assert len(vocal["clips"]) == 2
+    # idempotent-ish: re-singing replaces, section count stays covered
+    r2 = client.post(f"/api/projects/{p['id']}/vocals/sing-lyrics").json()
+    assert r2["sections_sung"] == 2
 
 
 def test_vision_import_fails_gracefully_without_key(client, workspace, monkeypatch):

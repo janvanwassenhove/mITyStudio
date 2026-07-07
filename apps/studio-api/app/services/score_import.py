@@ -209,4 +209,15 @@ def project_from_import(result: ScoreImportResult, title: str,
                                     length_bars=total_bars,
                                     description=f"imported from asset {result.source_asset_id}")]
     project.tracks = tracks
+    # sections that carry lyrics get a singing lead vocal automatically
+    lyric_sections = [s for s in project.sections
+                      if any(l.section_id == s.id for l in project.lyrics.lines)]
+    if lyric_sections:
+        from . import music_gen
+        vocal = Track(name="Lead Vocal", track_type="lead_vocal")
+        for s in lyric_sections:
+            lines = [l.text for l in project.lyrics.lines
+                     if l.section_id == s.id]
+            vocal.clips.append(music_gen.generate_melody(project, s, lines))
+        project.tracks.append(vocal)
     return project

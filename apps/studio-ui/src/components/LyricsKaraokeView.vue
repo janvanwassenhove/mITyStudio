@@ -1,10 +1,44 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { api } from '../api/client'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 
 const studio = useStudioStore()
 const playback = usePlaybackStore()
+
+// --- "sing these lyrics": lyrics exist but not every lyric section is sung
+const hasLyrics = computed(() => (studio.project?.lyrics.lines.length ?? 0) > 0)
+const unsungSections = computed(() => {
+  const p = studio.project
+  if (!p) return 0
+  const vocal = p.tracks.filter((t) => ['lead_vocal', 'backing_vocal'].includes(t.track_type))
+  const sungSectionIds = new Set(vocal.flatMap((t) => t.clips)
+    .filter((c) => c.note_events.length).map((c) => c.section_id))
+  const lyricSectionIds = new Set(p.lyrics.lines.map((l) => l.section_id).filter(Boolean))
+  return [...lyricSectionIds].filter((id) => !sungSectionIds.has(id)).length
+})
+
+const singing = ref(false)
+const singMsg = ref('')
+async function singLyrics() {
+  const p = studio.project
+  if (!p) return
+  singing.value = true
+  singMsg.value = ''
+  try {
+    const r = await api.post<{ sections_sung: number; errors: string[] }>(
+      `/projects/${p.id}/vocals/sing-lyrics`)
+    await studio.reloadCurrent()
+    singMsg.value = r.errors.length
+      ? r.errors.join('; ')
+      : `♪ melody written for ${r.sections_sung} section(s) — press ▶ to hear the voice`
+  } catch (e) {
+    singMsg.value = String(e)
+  } finally {
+    singing.value = false
+  }
+}
 
 const mode = ref<'full' | 'karaoke'>('full')
 const lines = computed(() => studio.manifest?.lyrics_alignment ?? [])
@@ -61,8 +95,15 @@ function seekToLine(start: number | null) {
     <div class="mode-bar">
       <button :class="{ active: mode === 'full' }" @click="mode = 'full'">Full song</button>
       <button :class="{ active: mode === 'karaoke' }" @click="mode = 'karaoke'">Karaoke</button>
+      <button v-if="hasLyrics && unsungSections > 0" class="sing-btn"
+              :disabled="singing" @click="singLyrics">
+        {{ singing ? 'writing melody…' : `🎤 Sing these lyrics (${unsungSections} section${unsungSections > 1 ? 's' : ''})` }}
+      </button>
+      <span class="dim small sing-msg">{{ singMsg }}</span>
       <span class="dim small" style="margin-left: auto">
-        {{ lines.length ? 'timing from rendered vocals — click a line to jump there' : 'render vocals (press ▶) to enable timing' }}
+        {{ lines.length ? 'timing from rendered vocals — click a line to jump there'
+           : hasLyrics && unsungSections > 0 ? '← give the lyrics a melody first'
+           : 'press ▶ — vocals render automatically' }}
       </span>
     </div>
 
@@ -85,7 +126,9 @@ function seekToLine(start: number | null) {
     <!-- karaoke -->
     <div v-else class="karaoke">
       <div v-if="!lines.length" class="dim center-msg">
-        No lyric timing yet — press ▶ (vocals render automatically) to enable karaoke.
+        {{ hasLyrics && unsungSections > 0
+           ? 'These lyrics have no melody yet — click “🎤 Sing these lyrics” above, then press ▶.'
+           : 'No lyric timing yet — press ▶ (vocals render automatically) to enable karaoke.' }}
       </div>
       <template v-else>
         <div class="current">
@@ -108,6 +151,8 @@ function seekToLine(start: number | null) {
 .mode-bar { display: flex; gap: 4px; padding: 6px 10px; border-bottom: 1px solid var(--border); flex: none; align-items: center; }
 .mode-bar button { padding: 3px 10px; font-size: 12px; border: none; background: transparent; color: var(--text-dim); }
 .mode-bar button.active { color: var(--text); background: var(--bg-elevated); border-radius: 4px; }
+.sing-btn { background: var(--accent) !important; color: #fff !important; border-radius: 5px !important; margin-left: 10px; padding: 3px 12px !important; }
+.sing-msg { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .small { font-size: 11px; }
 .center-msg { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 13px; padding: 20px; text-align: center; }
 .sheet { flex: 1; overflow-y: auto; padding: 12px 20px; columns: 2; column-gap: 40px; }
