@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { VoiceProfile } from '../api/types'
 import { useStudioStore } from '../stores/studio'
@@ -31,6 +31,18 @@ const generate = ref(true)
 const lyricsText = ref('')
 const voiceProfileId = ref('')
 const vocalStyle = ref<'sing' | 'rap'>('sing')
+
+// duet support: which lyric sections does this voice sing?
+const lyricSections = computed(() => {
+  const p = studio.project
+  if (!p) return []
+  const withLyrics = new Set(p.lyrics.lines.map((l) => l.section_id))
+  return p.sections.filter((s) => withLyrics.has(s.id))
+})
+const selectedSections = ref<string[]>([])
+watch(lyricSections, (secs) => {
+  selectedSections.value = secs.map((s) => s.id)
+}, { immediate: true })
 const profiles = ref<VoiceProfile[]>([])
 const busy = ref(false)
 const error = ref('')
@@ -57,6 +69,8 @@ async function add() {
         voice_profile_id: isVocal.value && voiceProfileId.value ? voiceProfileId.value : null,
         lyrics: isVocal.value && lines.length ? lines : null,
         vocal_style: vocalStyle.value,
+        sections: isVocal.value && !lines.length && selectedSections.value.length < lyricSections.value.length
+          ? selectedSections.value : null,
       })
     await studio.reloadCurrent()
     if (res.errors.length) {
@@ -123,9 +137,19 @@ async function add() {
               yourself → create a voice profile (with consent). It then appears here.
             </span>
           </label>
+          <div v-if="lyricSections.length && !lyricsText.trim()" class="field">
+            <span>Sings these sections (existing lyrics — uncheck for duets: give
+              each voice its own parts)</span>
+            <div class="sec-checks">
+              <label v-for="s in lyricSections" :key="s.id" class="sec-check">
+                <input type="checkbox" :value="s.id" v-model="selectedSections" />
+                {{ s.name }}
+              </label>
+            </div>
+          </div>
           <label class="field">
-            Lyrics (optional — leave empty and I'll write some)
-            <textarea v-model="lyricsText" rows="4" placeholder="One line per lyric line…" />
+            {{ lyricSections.length ? 'Or write new lyrics instead (optional)' : 'Lyrics (optional — leave empty and I\'ll write some)' }}
+            <textarea v-model="lyricsText" rows="3" placeholder="One line per lyric line…" />
           </label>
         </template>
 
@@ -163,6 +187,8 @@ h3 { margin: 0; }
 .opt-row { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
 .block { display: block; font-size: 11px; margin-top: 2px; }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.sec-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.sec-check { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--text); background: var(--bg-elevated); border-radius: 5px; padding: 3px 8px; }
 .small { font-size: 11px; }
 .actions { display: flex; justify-content: space-between; }
 .ok-box { border: 1px solid var(--ok); color: var(--ok); border-radius: 6px; padding: 8px; font-size: 12px; }

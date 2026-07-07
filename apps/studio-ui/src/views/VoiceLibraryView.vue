@@ -115,6 +115,47 @@ async function load() {
 const testingId = ref('')
 const testResults = ref<Record<string, { url: string; rvc: boolean }>>({})
 
+// --- live RVC training status (async training runs in the background) ---
+interface RvcModel {
+  profile_id: string
+  stage: string | null
+  current_epoch: number
+  total_epochs: number
+  training_active: boolean
+  ready: boolean
+}
+const rvcModels = ref<Record<string, RvcModel>>({})
+let rvcTimer: ReturnType<typeof setInterval> | null = null
+
+async function loadRvcStatus() {
+  try {
+    const r = await api.get<{ models: RvcModel[] }>('/voice/rvc-status')
+    rvcModels.value = Object.fromEntries(r.models.map((m) => [m.profile_id, m]))
+  } catch { /* backend without rvc — badges just hide */ }
+}
+
+function rvcBadge(p: VoiceProfile): { text: string; cls: string } | null {
+  const m = rvcModels.value[p.id]
+  if (!m) return null
+  if (m.stage === 'complete' || (m.ready && !m.training_active)) {
+    return { text: '🎓 high-fidelity model ready', cls: 'ok' }
+  }
+  if (m.stage === 'failed') return { text: '⚠ training failed — see tools/rvc-training.log', cls: 'err' }
+  if (m.training_active || ['preprocess', 'extract', 'train', 'index', 'preparing'].includes(m.stage ?? '')) {
+    const detail = m.stage === 'train' || m.current_epoch > 0
+      ? `epoch ${m.current_epoch}/${m.total_epochs}`
+      : m.stage
+    return { text: `🏋 training… ${detail}${m.ready ? ' (checkpoint already in use)' : ''}`, cls: 'busy' }
+  }
+  return { text: '⏳ not trained yet — run tools/train_rvc.py', cls: 'dim' }
+}
+
+onMounted(() => {
+  void loadRvcStatus()
+  rvcTimer = setInterval(loadRvcStatus, 30000)
+})
+onUnmounted(() => { if (rvcTimer) clearInterval(rvcTimer) })
+
 async function testVoice(p: VoiceProfile) {
   testingId.value = p.id
   error.value = ''
@@ -218,6 +259,9 @@ onMounted(load)
           <audio controls autoplay :src="testResults[p.id].url" style="width: 100%; height: 32px" />
           <span class="dim small">{{ testResults[p.id].rvc ? '✓ trained RVC model applied — this is the learned voice' : 'zero-shot clone (RVC model not trained yet)' }}</span>
         </div>
+        <div v-if="rvcBadge(p)" class="rvc-badge" :class="rvcBadge(p)!.cls">
+          {{ rvcBadge(p)!.text }}
+        </div>
         <div class="dim small">
           {{ p.source_recording_ids.length }} source recording(s)
           <span v-if="p.performer_alias"> · {{ p.performer_alias }}</span>
@@ -247,6 +291,11 @@ h3 { margin: 0 0 8px; }
 .profile-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .profile-head { display: flex; justify-content: space-between; align-items: center; }
 .profile-actions { display: flex; gap: 6px; }
+.rvc-badge { font-size: 11px; margin: 3px 0; padding: 2px 8px; border-radius: 10px; display: inline-block; }
+.rvc-badge.ok { color: var(--ok); border: 1px solid var(--ok); }
+.rvc-badge.busy { color: var(--warn); border: 1px solid var(--warn); }
+.rvc-badge.err { color: var(--err); border: 1px solid var(--err); }
+.rvc-badge.dim { color: var(--text-dim); border: 1px solid var(--border); }
 .test-result { margin: 6px 0; }
 .del-btn { padding: 1px 7px; font-size: 12px; border-color: var(--err); }
 .row-btns { display: flex; gap: 8px; }

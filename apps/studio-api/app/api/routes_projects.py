@@ -61,6 +61,9 @@ class QuickAddTrackRequest(BaseModel):
     voice_profile_id: str | None = None   # vocal tracks: sing with this voice
     lyrics: list[str] | None = None       # vocal tracks: custom lyric lines
     vocal_style: str = "sing"             # sing | rap
+    sections: list[str] | None = None     # vocal: which sections to sing
+    #   (ids or names; None = every section that has lyrics — duet support:
+    #    give each vocal track its own subset)
 
 
 _GENERATOR_FOR_TYPE = {
@@ -104,18 +107,42 @@ def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
             params["voice_profile_id"] = req.voice_profile_id
         ops.append(ChatOperation(op_type="create_vocal_track", params=params))
         if req.generate:
-            lines = req.lyrics or [
-                f"This is the song they call {project.title}",
-                "Every beat is carrying us away",
-                "Sing it back like you mean it",
-                "We were made for days like today",
-            ]
-            ops.append(ChatOperation(op_type="rewrite_lyrics",
-                                     params={"lines": lines,
-                                             "section": "__last__"}))
-            ops.append(ChatOperation(op_type="generate_melody",
-                                     params={"track": name,
-                                             "track_type": req.track_type}))
+            lyric_sections = [s for s in project.sections
+                              if any(l.section_id == s.id
+                                     for l in project.lyrics.lines)]
+            if req.lyrics:
+                # custom lyrics: write them, then sing the last section
+                ops.append(ChatOperation(op_type="rewrite_lyrics",
+                                         params={"lines": req.lyrics,
+                                                 "section": "__last__"}))
+                ops.append(ChatOperation(op_type="generate_melody",
+                                         params={"track": name,
+                                                 "track_type": req.track_type}))
+            elif lyric_sections:
+                # existing lyrics: put a singing clip on every lyric section
+                # (or the requested subset — duet support)
+                wanted = req.sections
+                targets = [s for s in lyric_sections
+                           if wanted is None or s.id in wanted
+                           or s.name in wanted]
+                for s in targets or lyric_sections:
+                    ops.append(ChatOperation(
+                        op_type="generate_melody",
+                        params={"section": s.id, "track": name,
+                                "track_type": req.track_type}))
+            else:
+                lines = [
+                    f"This is the song they call {project.title}",
+                    "Every beat is carrying us away",
+                    "Sing it back like you mean it",
+                    "We were made for days like today",
+                ]
+                ops.append(ChatOperation(op_type="rewrite_lyrics",
+                                         params={"lines": lines,
+                                                 "section": "__last__"}))
+                ops.append(ChatOperation(op_type="generate_melody",
+                                         params={"track": name,
+                                                 "track_type": req.track_type}))
     else:
         ops.append(ChatOperation(op_type="add_track",
                                  params={"name": name,

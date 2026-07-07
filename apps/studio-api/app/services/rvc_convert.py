@@ -55,13 +55,58 @@ def rvc_model_ready(profile) -> bool:
 
 
 def training_status(profile) -> dict:
+    import re
+    import time
+
     logs = _applio_dir() / "logs" / model_name_for_profile(profile)
     weights, index = find_model_files(profile)
+
+    # progress: epoch encoded in checkpoint names (voice_x_175e_21875s.pth)
+    current_epoch = 0
+    last_checkpoint_at = None
+    if logs.exists():
+        for w in logs.glob("*_*e_*s.pth"):
+            m = re.search(r"_(\d+)e_", w.name)
+            if m:
+                current_epoch = max(current_epoch, int(m.group(1)))
+        ckpts = list(logs.glob("G_*.pth"))
+        if ckpts:
+            last_checkpoint_at = max(c.stat().st_mtime for c in ckpts)
+
+    # stage from the training job log (track the block for this model)
+    stage = None
+    job_log = get_config().root / "tools" / "rvc-training.log"
+    if job_log.exists():
+        model = model_name_for_profile(profile)
+        in_model = False
+        for line in job_log.read_text(encoding="utf-8",
+                                      errors="replace").splitlines():
+            if "=== training" in line:
+                in_model = model in line
+                if in_model:
+                    stage = "preparing"
+            elif in_model:
+                if "COMPLETE" in line:
+                    stage = "complete"
+                    in_model = False
+                elif "FAILED" in line:
+                    stage = "failed"
+                    in_model = False
+                elif "--- " in line:
+                    stage = line.split("--- ")[1].split(":")[0].strip()
+
+    training_active = (last_checkpoint_at is not None
+                       and time.time() - last_checkpoint_at < 45 * 60
+                       and stage not in ("complete", "failed"))
     return {
         "profile_id": profile.id,
         "model_name": model_name_for_profile(profile),
         "rvc_installed": rvc_available(),
         "training_started": logs.exists(),
+        "stage": stage,
+        "current_epoch": current_epoch,
+        "total_epochs": 200,
+        "training_active": training_active,
         "ready": weights is not None,
         "weights": weights.name if weights else None,
         "indexed": index is not None,

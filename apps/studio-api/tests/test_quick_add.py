@@ -65,6 +65,43 @@ def test_quick_add_vocals_with_profile_and_lyrics(client):
     assert r2["errors"]
 
 
+def test_quick_add_vocal_sings_existing_lyric_sections(client):
+    """A new AI voice track gets clips exactly where the lyrics are — and a
+    section subset supports duets."""
+    p = make_project(client)
+    proj = client.get(f"/api/projects/{p['id']}").json()
+    proj["sections"] = [{"name": "Verse", "start_bar": 0, "length_bars": 4},
+                        {"name": "Chorus", "start_bar": 4, "length_bars": 4},
+                        {"name": "Outro", "start_bar": 8, "length_bars": 4}]
+    client.put(f"/api/projects/{p['id']}", json=proj)
+    proj = client.get(f"/api/projects/{p['id']}").json()
+    for s in proj["sections"][:2]:  # lyrics on Verse + Chorus only
+        proj["lyrics"]["lines"].append(
+            {"section_id": s["id"], "text": f"singing in the {s['name']}"})
+    client.put(f"/api/projects/{p['id']}", json=proj)
+
+    # full vocal: clips land on BOTH lyric sections (not the outro)
+    r = client.post(f"/api/projects/{p['id']}/tracks/quick-add",
+                    json={"track_type": "lead_vocal"}).json()
+    assert r["errors"] == []
+    vocal = next(t for t in r["project"]["tracks"]
+                 if t["track_type"] == "lead_vocal")
+    lyric_ids = {l["section_id"] for l in r["project"]["lyrics"]["lines"]}
+    assert {c["section_id"] for c in vocal["clips"]} == lyric_ids
+    assert len(vocal["clips"]) == 2
+
+    # duet: a second voice singing ONLY the chorus
+    chorus_id = next(s["id"] for s in r["project"]["sections"]
+                     if s["name"] == "Chorus")
+    r2 = client.post(f"/api/projects/{p['id']}/tracks/quick-add",
+                     json={"track_type": "backing_vocal",
+                           "sections": [chorus_id]}).json()
+    assert r2["errors"] == []
+    backing = next(t for t in r2["project"]["tracks"]
+                   if t["track_type"] == "backing_vocal")
+    assert [c["section_id"] for c in backing["clips"]] == [chorus_id]
+
+
 def test_auto_render_endpoint(client, workspace):
     from tests.test_sample_analysis import write_tone
     write_tone(workspace.samples_dir / "loop.wav", seconds=1.0, rate=44100)
