@@ -103,7 +103,8 @@ def test_vision_import_builds_project(client, workspace, monkeypatch):
 
 
 def test_vision_import_fails_gracefully_without_key(client, workspace, monkeypatch):
-    for env in ("OPENAI_API_KEY", "MITY_LLM_API_KEY"):
+    for env in ("OPENAI_API_KEY", "MITY_LLM_API_KEY", "GEMINI_API_KEY",
+                "OPENROUTER_API_KEY"):
         monkeypatch.delenv(env, raising=False)
     (workspace.scores_dir / "photo.jpg").write_bytes(b"\xff\xd8 fake jpeg")
     client.post("/api/assets/rescan")
