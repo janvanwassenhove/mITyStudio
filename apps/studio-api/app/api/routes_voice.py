@@ -86,6 +86,53 @@ def get_profile(profile_id: str) -> VoiceProfile:
     return p
 
 
+from fastapi.responses import FileResponse
+from pydantic import BaseModel
+
+
+class VoiceTestRequest(BaseModel):
+    text: str = "This is my studio voice. One two three, let's sing something beautiful."
+
+
+@router.post("/profiles/{profile_id}/test")
+def test_voice(profile_id: str, req: VoiceTestRequest) -> FileResponse:
+    """Synthesize a short sentence in this voice through the full fidelity
+    chain (XTTS clone → trained RVC model when ready). Returns a WAV."""
+    profile = voice_profiles.get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(404, "voice profile not found")
+    if not profile.consent_confirmed:
+        raise HTTPException(403, "profile has no confirmed consent")
+    from ..services.vocal_clone import (CloneSingingEngine, _tts_line,
+                                        clone_engine_available)
+    if not clone_engine_available():
+        raise HTTPException(503, "voice engine not installed")
+    engine = CloneSingingEngine(profile)
+    refs = engine._speaker_wavs()
+    if not refs:
+        raise HTTPException(422, "profile has no usable source recordings")
+    try:
+        audio, rate = _tts_line(req.text.strip()[:300], refs, "en")
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(500, f"synthesis failed: {e}")
+
+    from ..services.audio_io import write_wav
+    cfg = get_config()
+    out = cfg.analysis_cache_dir / "tts" / f"preview_{profile_id}.wav"
+    write_wav(out, audio[:, None] if audio.ndim == 1 else audio, rate)
+
+    from ..services.rvc_convert import convert_stem, rvc_model_ready
+    rvc_used = False
+    if rvc_model_ready(profile):
+        rvc_out = out.with_name(out.stem + "_rvc.wav")
+        if not convert_stem(out, rvc_out, profile) and rvc_out.exists():
+            out = rvc_out
+            rvc_used = True
+    return FileResponse(out, media_type="audio/wav",
+                        filename=f"voice_test{'_rvc' if rvc_used else ''}.wav",
+                        headers={"X-RVC-Applied": str(rvc_used)})
+
+
 @router.get("/rvc-status")
 def rvc_status() -> dict:
     """Training/readiness of the per-voice RVC fidelity models."""

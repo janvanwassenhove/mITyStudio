@@ -112,6 +112,29 @@ async function load() {
   profiles.value = await api.get<VoiceProfile[]>('/voice/profiles')
 }
 
+const testingId = ref('')
+const testResults = ref<Record<string, { url: string; rvc: boolean }>>({})
+
+async function testVoice(p: VoiceProfile) {
+  testingId.value = p.id
+  error.value = ''
+  try {
+    const res = await fetch(`/api/voice/profiles/${p.id}/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    if (!res.ok) throw new Error((await res.json()).detail ?? res.statusText)
+    const rvc = res.headers.get('X-RVC-Applied') === 'True'
+    const blob = await res.blob()
+    testResults.value[p.id] = { url: URL.createObjectURL(blob), rvc }
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    testingId.value = ''
+  }
+}
+
 async function deleteProfile(p: VoiceProfile) {
   if (!confirm(`Delete voice profile "${p.name}"? The source recordings stay.`)) return
   try {
@@ -181,8 +204,19 @@ onMounted(load)
       <div v-for="p in profiles" :key="p.id" class="profile-item">
         <div class="profile-head">
           <div class="fname">{{ p.name }} <span class="dim small">({{ p.status }})</span></div>
-          <button class="del-btn" title="delete this voice profile (recordings are kept)"
-                  @click="deleteProfile(p)">🗑</button>
+          <div class="profile-actions">
+            <button class="small-btn" :disabled="testingId === p.id"
+                    title="hear this voice speak a test sentence (uses the trained model when ready)"
+                    @click="testVoice(p)">
+              {{ testingId === p.id ? '⏳ synthesizing…' : '▶ Test voice' }}
+            </button>
+            <button class="del-btn" title="delete this voice profile (recordings are kept)"
+                    @click="deleteProfile(p)">🗑</button>
+          </div>
+        </div>
+        <div v-if="testResults[p.id]" class="test-result">
+          <audio controls autoplay :src="testResults[p.id].url" style="width: 100%; height: 32px" />
+          <span class="dim small">{{ testResults[p.id].rvc ? '✓ trained RVC model applied — this is the learned voice' : 'zero-shot clone (RVC model not trained yet)' }}</span>
         </div>
         <div class="dim small">
           {{ p.source_recording_ids.length }} source recording(s)
@@ -212,6 +246,8 @@ h3 { margin: 0 0 8px; }
 .consent { flex-direction: row !important; align-items: flex-start; gap: 8px !important; color: var(--warn) !important; }
 .profile-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .profile-head { display: flex; justify-content: space-between; align-items: center; }
+.profile-actions { display: flex; gap: 6px; }
+.test-result { margin: 6px 0; }
 .del-btn { padding: 1px 7px; font-size: 12px; border-color: var(--err); }
 .row-btns { display: flex; gap: 8px; }
 .err-box { position: absolute; bottom: 12px; left: 12px; right: 12px; border: 1px solid var(--err); color: var(--err); border-radius: 6px; padding: 8px; font-size: 12px; background: var(--bg-panel); }

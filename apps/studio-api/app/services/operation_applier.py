@@ -141,7 +141,10 @@ def op_assign_soundfont(project: SongProject, p: dict) -> str:
     t.instrument_config.soundfont_asset_id = asset.id
     if "program" in p:
         t.instrument_config.program = int(p["program"])
-    return f"assigned soundfont {asset.filename!r} to track {t.name!r}"
+    if "bank" in p:
+        t.instrument_config.bank = int(p["bank"])
+    label = p.get("preset") or asset.filename
+    return f"assigned instrument {label!r} to track {t.name!r}"
 
 
 def op_select_sample(project: SongProject, p: dict) -> str:

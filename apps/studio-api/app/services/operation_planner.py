@@ -19,18 +19,48 @@ _OP_TYPES = list(OperationType.__args__)  # type: ignore[attr-defined]
 
 
 def _asset_context() -> dict:
-    """Available assets the LLM may reference. It must not invent others."""
-    def brief(assets, limit=120):
-        return [{"id": a.id, "filename": a.filename,
-                 "tags": a.tags[:6]} for a in assets[:limit]]
-    from . import voice_profiles
+    """Available assets the LLM may reference. It must not invent others.
+    Composition-aware: real instrument presets (bank/program), analysed
+    sample metadata (bpm/key/type), voice readiness."""
+    from . import sample_analysis, voice_profiles
+    from .rvc_convert import rvc_model_ready
+    from .sf2_parser import instrument_catalog
+
+    # instruments: a curated slice of the categorized preset catalog
+    instruments: list[dict] = []
+    for cat in instrument_catalog():
+        for p in cat["presets"][:8]:
+            instruments.append({"category": cat["category"],
+                                "preset": p["label"],
+                                "soundfont_asset_id": p["asset_id"],
+                                "bank": p["bank"], "program": p["program"]})
+
+    # samples: analysed ones first, with the data that matters for fit
+    samples: list[dict] = []
+    analysed_first = sorted(
+        asset_repo.list_assets("sample", include_missing=False),
+        key=lambda a: a.analysis_status != "analysed")
+    for a in analysed_first[:80]:
+        entry: dict = {"id": a.id, "filename": a.filename, "tags": a.tags[:4]}
+        analysis = sample_analysis.get_analysis(a.id) or {}
+        for k_src, k_dst in (("estimated_bpm", "bpm"), ("estimated_key", "key"),
+                             ("sound_type_guess", "type"),
+                             ("loopability_estimate", "loopable")):
+            if analysis.get(k_src) is not None:
+                entry[k_dst] = analysis[k_src]
+        samples.append(entry)
+
+    def brief(assets, limit=40):
+        return [{"id": a.id, "filename": a.filename} for a in assets[:limit]]
+
     return {
-        "soundfonts": brief(asset_repo.list_assets("soundfont", include_missing=False)),
-        "samples": brief(asset_repo.list_assets("sample", include_missing=False)),
+        "instruments": instruments,
+        "samples": samples,
         "scores": brief(asset_repo.list_assets("score", include_missing=False)),
-        "voice_profiles": [{"id": p.id, "name": p.name}
-                           for p in voice_profiles.list_profiles()
-                           if p.consent_confirmed],
+        "voice_profiles": [
+            {"id": p.id, "name": p.name,
+             "high_fidelity_model_trained": rvc_model_ready(p)}
+            for p in voice_profiles.list_profiles() if p.consent_confirmed],
     }
 
 
@@ -50,7 +80,7 @@ Key params per operation:
 - add_section: name, start_bar?, length_bars, energy (0-1), description?
 - add_track: name, track_type (drums|bass|guitar|keys|synth|strings|brass|sample|lead_vocal|backing_vocal|fx), soundfont_asset_id?, program?
 - update_track: track (name or id), name? (rename), volume? (0-2), pan? (-1..1), mute?, solo?
-- assign_soundfont: track (name or id), soundfont_asset_id
+- assign_soundfont: track (name or id), soundfont_asset_id, bank, program, preset (label, for the summary)
 - select_sample: sample_asset_id, track?, section?, start_beat?, duration_beats?, loop?
 - generate_drums/generate_bassline/generate_chords/generate_melody: section (name, id, or "all" for every section), track? (created if missing)
   → to create a FULL SONG: create_song, then add_section per section, then generate_* with section "all" (or per section) for each instrument, then rewrite_lyrics + generate_melody with track_type lead_vocal
@@ -66,6 +96,20 @@ STRICT RULES:
 - Only reference voice profiles listed below (they have confirmed consent).
 - Section references may use section names from the CURRENT PROJECT.
 - Prefer generate_* operations for musical content; you may add explicit lyrics.
+
+COMPOSE LIKE A PRODUCER (use the asset data):
+- INSTRUMENTS: after add_track/generate_*, pick a fitting preset from the
+  instruments list and assign it with assign_soundfont (soundfont_asset_id +
+  bank + program + preset). Match genre: punk → overdriven guitar, jazz →
+  upright bass + ride-friendly kit, pop → clean keys/pads. Drums need a
+  "Drum Kits" preset.
+- SAMPLES: when a sample fits the vibe, place it with select_sample — but
+  ONLY if its bpm is within ±3 of the song bpm (or it's a one-shot) and its
+  key is compatible (same key, relative major/minor, or unpitched type like
+  kick/snare/fx). Never place a mismatched-bpm loop.
+- VOICE: give vocal tracks a voice profile (assign_voice_profile). Prefer
+  profiles with high_fidelity_model_trained=true. Use vocal_style "rap" when
+  the user wants rap/hip-hop flow.
 
 CURRENT PROJECT:
 {json.dumps({"title": project.title, "style": project.style, "bpm": project.bpm,

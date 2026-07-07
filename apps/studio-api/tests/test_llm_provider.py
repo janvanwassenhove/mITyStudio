@@ -212,3 +212,65 @@ def test_system_prompt_contains_only_real_assets(client, workspace):
     assert "groove - 120 BPM.wav" in prompt
     assert "NEVER generate audio" in prompt
     assert "Never invent ids" in prompt
+
+
+def test_composition_aware_context(client, workspace):
+    """The planner sees real instruments (bank/program), analysed sample
+    metadata, and voice-model readiness."""
+    import shutil
+    from pathlib import Path
+
+    from tests.test_sample_analysis import write_tone
+    repo_fonts = Path(__file__).resolve().parents[3] / "soundfonts"
+    fonts = sorted(repo_fonts.glob("*.sf2"), key=lambda f: f.stat().st_size)
+    if fonts:
+        shutil.copy2(fonts[0], workspace.soundfonts_dir / fonts[0].name)
+    write_tone(workspace.samples_dir / "pad - 100 BPM - Am.wav", seconds=1.0)
+    client.post("/api/assets/rescan")
+    sample = client.get("/api/assets/samples").json()[0]
+    client.post(f"/api/assets/{sample['id']}/analyse")
+
+    from tests.test_voice_and_vocals import upload_recording
+    rec = upload_recording(client)
+    client.post("/api/voice/profiles", json={
+        "name": "Me", "source_recording_ids": [rec["id"]],
+        "consent_confirmed": True})
+
+    from app.services.operation_planner import _asset_context
+    ctx = _asset_context()
+    if fonts:
+        assert ctx["instruments"]
+        inst = ctx["instruments"][0]
+        assert {"category", "preset", "soundfont_asset_id", "bank",
+                "program"} <= set(inst)
+    s = next(x for x in ctx["samples"] if "pad" in x["filename"])
+    assert s["bpm"] == 100.0
+    assert s["key"] == "A minor"
+    assert ctx["voice_profiles"][0]["high_fidelity_model_trained"] is False
+
+
+def test_assign_soundfont_with_bank(client, workspace):
+    import shutil
+    from pathlib import Path
+    repo_fonts = Path(__file__).resolve().parents[3] / "soundfonts"
+    fonts = sorted(repo_fonts.glob("*.sf2"), key=lambda f: f.stat().st_size)
+    if not fonts:
+        import pytest
+        pytest.skip("no soundfonts")
+    shutil.copy2(fonts[0], workspace.soundfonts_dir / fonts[0].name)
+    client.post("/api/assets/rescan")
+    sf = client.get("/api/assets/soundfonts").json()[0]
+
+    from app.models.operations import ChatOperation
+    from app.models.song import SongProject, Track
+    from app.services import operation_applier
+    project = SongProject(title="t", tracks=[Track(name="D", track_type="drums")])
+    results = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="assign_soundfont",
+                      params={"track": "D", "soundfont_asset_id": sf["id"],
+                              "bank": 128, "program": 7,
+                              "preset": "TR-808 Drumset"})])
+    assert results[0].applied, results[0].error
+    assert "TR-808 Drumset" in results[0].summary
+    cfg = project.tracks[0].instrument_config
+    assert (cfg.bank, cfg.program) == (128, 7)
