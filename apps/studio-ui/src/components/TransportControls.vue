@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { Asset, SongProject } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 
+const { t } = useI18n()
 const studio = useStudioStore()
 const playback = usePlaybackStore()
 
@@ -52,7 +54,7 @@ async function toggleRecord() {
       { track_type: 'lead_vocal', generate: false })
     await studio.reloadCurrent()
     track = vocalTrack()
-    if (!track) { recStatus.value = 'could not create a vocal track'; return }
+    if (!track) { recStatus.value = t('transport.noVocalTrack'); return }
   }
   studio.selectedTrackId = track.id
   try {
@@ -80,7 +82,7 @@ async function toggleRecord() {
             fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
           })
           await studio.saveProject()
-          recStatus.value = 'take saved onto ' + tr.name
+          recStatus.value = t('transport.takeSaved', { name: tr.name })
           setTimeout(() => { recStatus.value = '' }, 4000)
         }
       } catch (e) { recStatus.value = String(e) }
@@ -91,7 +93,7 @@ async function toggleRecord() {
     recTimer = setInterval(() => recSeconds.value++, 1000)
     void playback.play()   // sing along with the song
   } catch (e) {
-    recStatus.value = 'Microphone unavailable: ' + String(e)
+    recStatus.value = t('transport.micUnavailable') + String(e)
   }
 }
 
@@ -107,39 +109,39 @@ onUnmounted(() => { if (recording.value) stopRecord() })
 
 <template>
   <div class="transport panel">
-    <button title="Stop" @click="playback.stop()">⏹</button>
-    <button class="primary" :title="playback.playing ? 'Pause' : 'Play'"
+    <button :title="t('transport.stop')" @click="playback.stop()">⏹</button>
+    <button class="primary" :title="playback.playing ? t('transport.pause') : t('transport.play')"
             :disabled="!studio.manifest || playback.preparing"
             @click="playback.playing ? playback.pause() : playback.play()">
       {{ playback.preparing ? '⏳' : playback.playing ? '⏸' : '▶' }}
     </button>
     <button :class="{ 'rec-on': recording }" :disabled="!studio.project"
-            :title="recording ? 'Stop recording' : 'Record a vocal take (sing along from the playhead)'"
+            :title="recording ? t('transport.stopRecording') : t('transport.recordTip')"
             @click="toggleRecord">
       {{ recording ? '■ ' + recSeconds + 's' : '🎙' }}
     </button>
-    <button :class="{ active: playback.metronome }" title="Metronome"
+    <button :class="{ active: playback.metronome }" :title="t('transport.metronome')"
             @click="playback.metronome = !playback.metronome">🕐</button>
-    <button :disabled="!studio.canUndo" title="Undo (Ctrl+Z)" @click="studio.undo()">↶</button>
-    <button :disabled="!studio.canRedo" title="Redo (Ctrl+Shift+Z)" @click="studio.redo()">↷</button>
-    <button class="time-toggle" :title="'Switch ruler to ' + (studio.timeMode === 'bars' ? 'seconds' : 'bars')"
+    <button :disabled="!studio.canUndo" :title="t('transport.undo')" @click="studio.undo()">↶</button>
+    <button :disabled="!studio.canRedo" :title="t('transport.redo')" @click="studio.redo()">↷</button>
+    <button class="time-toggle" :title="studio.timeMode === 'bars' ? t('transport.switchToSeconds') : t('transport.switchToBars')"
             @click="studio.timeMode = studio.timeMode === 'bars' ? 'seconds' : 'bars'">
-      <span class="time">{{ studio.timeMode === 'bars' ? 'bar ' + barBeat : timeDisplay }}</span>
-      <span class="dim small">{{ studio.timeMode === 'bars' ? timeDisplay : 'bar ' + barBeat }}</span>
+      <span class="time">{{ studio.timeMode === 'bars' ? t('transport.bar') + ' ' + barBeat : timeDisplay }}</span>
+      <span class="dim small">{{ studio.timeMode === 'bars' ? timeDisplay : t('transport.bar') + ' ' + barBeat }}</span>
     </button>
-    <span v-if="playback.preparing" class="preparing">preparing audio…</span>
+    <span v-if="playback.preparing" class="preparing">{{ t('transport.preparing') }}</span>
     <span v-if="recStatus" class="dim small">{{ recStatus }}</span>
     <span class="spacer" />
     <template v-if="studio.project">
       <span class="title">{{ studio.project.title }}</span>
-      <span class="dim" title="Tempo (beats per minute) · musical key · time signature — change them via chat: “make it 140 bpm”, “change key to A minor”">
+      <span class="dim" :title="t('transport.tempoTip')">
         {{ studio.project.bpm }} BPM · {{ studio.project.key }} · {{ studio.project.time_signature }}</span>
       <span v-if="studio.manifest && studio.manifest.stems.length" class="dim"
-            title="Stems are the rendered audio files, one per track. They render automatically when you press play and load here for playback.">
-        · {{ playback.stemsLoaded }}/{{ studio.manifest.stems.length }} stems loaded
+            :title="t('transport.stemsTip')">
+        · {{ t('transport.stemsLoaded', { n: playback.stemsLoaded, total: studio.manifest.stems.length }) }}
       </span>
     </template>
-    <span v-else class="dim">no project open</span>
+    <span v-else class="dim">{{ t('transport.noProject') }}</span>
   </div>
 </template>
 

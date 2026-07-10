@@ -20,13 +20,13 @@ async function create() {
 
 <template>
   <div class="sidebar-content">
-    <h3>Projects</h3>
+    <h3>{{ $t('sidebar.projects') }}</h3>
     <div class="new-project">
-      <input v-model="newTitle" placeholder="New project title" @keyup.enter="create" />
+      <input v-model="newTitle" :placeholder="$t('sidebar.newProject')" @keyup.enter="create" />
       <button class="primary" :disabled="creating || !newTitle.trim()" @click="create">+</button>
     </div>
     <div v-if="!studio.projects.length" class="dim empty">
-      No projects yet. Create one above or ask the chat to make a song.
+      {{ $t('sidebar.empty') }}
     </div>
     <div
       v-for="p in studio.projects" :key="p.id"
@@ -34,7 +34,7 @@ async function create() {
       @click="studio.openProject(p.id)"
     >
       <div class="p-title">{{ p.title }}</div>
-      <div class="dim small">{{ p.bpm }} BPM · {{ p.track_count }} tracks</div>
+      <div class="dim small">{{ p.bpm }} BPM · {{ $t('sidebar.trackCount', { n: p.track_count }) }}</div>
     </div>
   </div>
 </template>

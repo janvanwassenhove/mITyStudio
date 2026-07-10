@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { Asset } from '../api/types'
 
-const TABS = [
-  { key: 'score', label: 'Scores' },
-  { key: 'soundfont', label: 'SoundFonts' },
-  { key: 'sample', label: 'Samples' },
-  { key: 'voice_recording', label: 'Voice Recordings' },
-] as const
+const { t } = useI18n()
+const TABS = ['score', 'soundfont', 'sample', 'voice_recording'] as const
 
 const tab = ref<string>('sample')
 const assets = ref<Asset[]>([])
@@ -65,10 +62,10 @@ async function saveMetadata() {
 
 async function rescan() {
   busy.value = true
-  scanMsg.value = 'scanning…'
+  scanMsg.value = t('assets.scanning')
   try {
     const stats = await api.post<Record<string, number>>('/assets/rescan')
-    scanMsg.value = `new: ${stats.new}, changed: ${stats.changed}, missing: ${stats.missing}`
+    scanMsg.value = t('assets.scanResult', { new: stats.new, changed: stats.changed, missing: stats.missing })
     await load()
   } finally {
     busy.value = false
@@ -87,11 +84,11 @@ async function autoTagAll() {
         '/assets/analyse-batch?limit=150')
       done += r.analysed
       remaining = r.remaining
-      tagProgress.value = `${done} done, ${remaining} left`
+      tagProgress.value = t('assets.tagProgress', { done, remaining })
       if (r.analysed === 0) break
     }
     tagProgress.value = ''
-    scanMsg.value = `auto-tagged ${done} samples (BPM, key, type)`
+    scanMsg.value = t('assets.tagged', { n: done })
     await load()
   } catch (e) {
     scanMsg.value = String(e)
@@ -105,10 +102,10 @@ async function uploadScore(e: Event) {
   const f = input.files?.[0]
   if (!f) return
   busy.value = true
-  scanMsg.value = 'uploading…'
+  scanMsg.value = t('assets.uploading')
   try {
     await api.upload('/scores/upload', f, f.name)
-    scanMsg.value = `uploaded ${f.name}`
+    scanMsg.value = t('assets.uploaded', { name: f.name })
     input.value = ''
     await load()
   } catch (err) {
@@ -123,13 +120,13 @@ const importMsg = ref('')
 async function importScoreAsSong() {
   if (!selected.value) return
   importing.value = true
-  importMsg.value = 'reading the score… (photos/PDFs use the vision AI, can take ~20s)'
+  importMsg.value = t('assets.readingScore')
   try {
     const res = await api.post<{ project_id?: string; supported: boolean; warnings: string[] }>(
       `/scores/${selected.value.id}/import`,
       { create_project: true, title: selected.value.filename.replace(/\.[^.]+$/, '') })
     importMsg.value = res.project_id
-      ? '✓ song created — open it in the Studio'
+      ? '✓ ' + t('assets.songCreated')
       : res.warnings.join('; ')
   } catch (err) {
     importMsg.value = String(err)
@@ -155,8 +152,8 @@ const isAudio = computed(() =>
   selected.value != null &&
   ['.wav', '.mp3', '.flac', '.ogg', '.aiff', '.aif', '.m4a'].includes(selected.value.extension))
 
-function switchTab(t: string) {
-  tab.value = t
+function switchTab(next: string) {
+  tab.value = next
   selected.value = null
   load()
 }
@@ -174,62 +171,49 @@ onMounted(load)
   <div class="library">
     <div class="toolbar">
       <div class="tabs">
-        <button v-for="t in TABS" :key="t.key" :class="{ active: tab === t.key }" @click="switchTab(t.key)">
-          {{ t.label }}
+        <button v-for="tb in TABS" :key="tb" :class="{ active: tab === tb }" @click="switchTab(tb)">
+          {{ t(`assets.tab.${tb}`) }}
         </button>
       </div>
-      <input v-model="search" placeholder="Search filename / description…" style="width: 220px" />
-      <input v-model="tagFilter" placeholder="Filter by tag…" style="width: 140px" />
+      <input v-model="search" :placeholder="t('assets.searchPh')" style="width: 220px" />
+      <input v-model="tagFilter" :placeholder="t('assets.tagPh')" style="width: 140px" />
       <span class="spacer" />
       <button v-if="tab === 'sample'" :disabled="tagging" @click="autoTagAll">
-        {{ tagging ? `auto-tagging… ${tagProgress}` : '🏷 Auto-tag all samples' }}
+        {{ tagging ? t('assets.tagging') + ' ' + tagProgress : '🏷 ' + t('assets.autoTag') }}
       </button>
       <template v-if="tab === 'score'">
         <input ref="scoreFile" type="file" accept=".mid,.midi,.musicxml,.xml,.mxl,.gp3,.gp4,.gp5,.mscz,.pdf,.jpg,.jpeg,.png"
                style="display: none" @change="uploadScore" />
         <button :disabled="busy" @click="($refs.scoreFile as HTMLInputElement).click()">
-          ⬆ Upload score / chord sheet / photo
+          ⬆ {{ t('assets.uploadScore') }}
         </button>
       </template>
       <span class="dim small">{{ scanMsg }}</span>
-      <button :disabled="busy" @click="rescan">Rescan folders</button>
+      <button :disabled="busy" @click="rescan">{{ t('assets.rescan') }}</button>
     </div>
     <div class="content">
       <div class="list panel">
-        <div class="dim small count">{{ filtered.length }} / {{ assets.length }} assets</div>
+        <div class="dim small count">{{ t('assets.count', { shown: filtered.length, total: assets.length }) }}</div>
         <div v-if="!assets.length" class="dim empty-hint">
-          <template v-if="tab === 'score'">
-            No scores yet — click <strong>⬆ Upload</strong> above (MIDI, MusicXML,
-            Guitar Pro, or a PDF/photo of a chord sheet), then <strong>♫ Turn into song</strong>.
-          </template>
-          <template v-else-if="tab === 'soundfont'">
-            No SoundFonts yet — drop <code>.sf2</code>/<code>.sf3</code> files into the
-            <code>soundfonts/</code> folder and click <strong>Rescan folders</strong>.
-          </template>
-          <template v-else-if="tab === 'sample'">
-            No samples yet — drop audio files into <code>samples/</code>, click
-            <strong>Rescan folders</strong>, then <strong>🏷 Auto-tag</strong> to make
-            them searchable by BPM, key and type.
-          </template>
-          <template v-else>
-            No voice recordings yet — record or upload your voice on the
-            <strong>Voices</strong> page to build an AI singing voice.
-          </template>
+          <template v-if="tab === 'score'">{{ t('assets.emptyScores') }}</template>
+          <template v-else-if="tab === 'soundfont'">{{ t('assets.emptyFonts') }}</template>
+          <template v-else-if="tab === 'sample'">{{ t('assets.emptySamples') }}</template>
+          <template v-else>{{ t('assets.emptyVoice') }}</template>
         </div>
         <div
           v-for="a in filtered" :key="a.id" class="item"
           :class="{ active: selected?.id === a.id, missing: a.is_missing }"
           @click="select(a)"
         >
-          <div class="fname">{{ a.filename }} <span v-if="a.is_missing" class="err-text">(missing)</span></div>
+          <div class="fname">{{ a.filename }} <span v-if="a.is_missing" class="err-text">({{ t('assets.missing') }})</span></div>
           <div class="dim small">
             {{ fmtSize(a.file_size) }} · {{ a.analysis_status }}
-            <span v-for="t in a.tags.slice(0, 4)" :key="t" class="tag">{{ t }}</span>
+            <span v-for="tg in a.tags.slice(0, 4)" :key="tg" class="tag">{{ tg }}</span>
           </div>
         </div>
       </div>
       <div class="detail panel">
-        <div v-if="!selected" class="dim" style="padding: 20px">Select an asset to see details.</div>
+        <div v-if="!selected" class="dim" style="padding: 20px">{{ t('assets.selectAsset') }}</div>
         <div v-else class="detail-body">
           <h3>{{ selected.filename }}</h3>
           <div class="dim small">{{ selected.relative_path }} · {{ fmtSize(selected.file_size) }}</div>
@@ -244,26 +228,26 @@ onMounted(load)
                  class="score-view img" :src="`/api/assets/${selected.id}/file`" />
           </template>
 
-          <label class="field">Tags (comma-separated)
+          <label class="field">{{ t('assets.tags') }}
             <input v-model="editTags" />
           </label>
-          <label class="field">Description
+          <label class="field">{{ t('assets.description') }}
             <textarea v-model="editDesc" rows="3" />
           </label>
-          <label class="field">License notes
+          <label class="field">{{ t('assets.license') }}
             <input v-model="editLicense" />
           </label>
           <div class="row-btns">
-            <button class="primary" @click="saveMetadata">Save metadata</button>
-            <button v-if="tab === 'sample' || tab === 'voice_recording'" :disabled="busy" @click="analyse">Analyse</button>
+            <button class="primary" @click="saveMetadata">{{ t('assets.saveMeta') }}</button>
+            <button v-if="tab === 'sample' || tab === 'voice_recording'" :disabled="busy" @click="analyse">{{ t('assets.analyse') }}</button>
             <button v-if="tab === 'score' && !selected.is_missing" :disabled="importing"
                     class="primary" @click="importScoreAsSong">
-              {{ importing ? 'reading…' : '♫ Turn into song' }}
+              {{ importing ? t('assets.reading') : '♫ ' + t('assets.turnIntoSong') }}
             </button>
           </div>
           <div v-if="importMsg" class="dim small">{{ importMsg }}</div>
           <div v-if="selected.generated_description" class="gen-desc">
-            <span class="dim small">auto description:</span> {{ selected.generated_description }}
+            <span class="dim small">{{ t('assets.autoDesc') }}</span> {{ selected.generated_description }}
           </div>
           <pre v-if="analysis" class="analysis">{{ JSON.stringify(analysis, null, 2) }}</pre>
         </div>

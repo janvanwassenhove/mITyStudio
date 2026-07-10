@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { ExportJob } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 
+const { t } = useI18n()
 const studio = useStudioStore()
 const formats = ref<{ wav: boolean; mp3: boolean }>({ wav: true, mp3: true })
 const busy = ref(false)
@@ -22,12 +24,12 @@ async function renderAll() {
   if (!pid.value) return
   error.value = ''
   try {
-    rendering.value = 'instruments…'
+    rendering.value = t('export.instruments')
     await api.post(`/projects/${pid.value}/midi/export`)
     await api.post(`/projects/${pid.value}/render/instrument-stems`)
-    rendering.value = 'samples…'
+    rendering.value = t('export.samples')
     await api.post(`/projects/${pid.value}/render/sample-stems`)
-    rendering.value = 'vocals…'
+    rendering.value = t('export.vocals')
     await api.post(`/projects/${pid.value}/vocals/render`)
     await studio.reloadCurrent()
   } catch (e) {
@@ -75,25 +77,25 @@ refreshJobs()
 
 <template>
   <div class="export">
-    <div v-if="!studio.project" class="dim">Open a project first.</div>
+    <div v-if="!studio.project" class="dim">{{ $t('export.noProject') }}</div>
     <template v-else>
-      <h4>Render</h4>
+      <h4>{{ $t('export.render') }}</h4>
       <button :disabled="!!rendering" @click="renderAll">
-        {{ rendering ? `rendering ${rendering}` : 'Render all stems (MIDI → instruments, samples, vocals)' }}
+        {{ rendering ? $t('export.rendering', { what: rendering }) : $t('export.renderAll') }}
       </button>
-      <div class="dim small">{{ studio.project.stems.length }} stems rendered</div>
+      <div class="dim small">{{ $t('export.stemsRendered', { n: studio.project.stems.length }) }}</div>
 
-      <h4>Export mix</h4>
+      <h4>{{ $t('export.exportMix') }}</h4>
       <label><input type="checkbox" v-model="formats.wav" /> WAV</label>
       <label><input type="checkbox" v-model="formats.mp3" /> MP3</label>
       <button class="primary" :disabled="busy || (!formats.wav && !formats.mp3)" @click="exportMix">
-        {{ busy ? 'exporting…' : 'Export combined song' }}
+        {{ busy ? $t('export.exporting') : $t('export.exportSong') }}
       </button>
-      <button :disabled="busy" @click="exportPackage">Export project package (ZIP)</button>
+      <button :disabled="busy" @click="exportPackage">{{ $t('export.exportPackage') }}</button>
 
       <div v-if="error" class="err-box">{{ error }}</div>
 
-      <h4 v-if="jobs.length">Exports</h4>
+      <h4 v-if="jobs.length">{{ $t('export.exports') }}</h4>
       <div v-for="j in jobs" :key="j.id" class="job">
         <div>
           <span class="status" :class="j.status">{{ j.status }}</span>

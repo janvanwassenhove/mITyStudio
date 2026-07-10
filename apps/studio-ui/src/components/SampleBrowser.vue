@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import { useStudioStore } from '../stores/studio'
+
+const { t } = useI18n()
 
 interface SearchHit {
   id: string
@@ -48,7 +51,7 @@ async function search() {
 
 async function addToProject(hit: SearchHit, loop: boolean) {
   const p = studio.project
-  if (!p) { message.value = 'Open a project first.'; return }
+  if (!p) { message.value = t('export.noProject'); return }
   const beatsPerBar = studio.manifest?.beats_per_bar ?? 4
   const lastSection = p.sections[p.sections.length - 1]
   const startBeat = 0
@@ -76,7 +79,7 @@ async function addToProject(hit: SearchHit, loop: boolean) {
     fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
   })
   await studio.saveProject()
-  message.value = `Added ${hit.filename} ${loop ? '(looped)' : '(one-shot)'}`
+  message.value = t('samples.added', { name: hit.filename }) + (loop ? ` (${t('samples.looped')})` : ` (${t('samples.oneShot')})`)
 }
 
 onMounted(search)
@@ -89,13 +92,13 @@ onMounted(search)
               :class="{ on: activeTag === c.tag }" @click="toggleTag(c.tag)">
         {{ c.icon }} {{ c.tag }}
       </button>
-      <span class="dim small">chips need auto-tagging (Assets → Samples → 🏷)</span>
+      <span class="dim small">{{ t('samples.chipsHint') }}</span>
     </div>
     <div class="controls">
-      <input v-model="query" placeholder="Search samples…" style="flex: 1" @keyup.enter="search" />
-      <input v-model.number="bpmMin" type="number" placeholder="min BPM" style="width: 80px" />
-      <input v-model.number="bpmMax" type="number" placeholder="max BPM" style="width: 80px" />
-      <button :disabled="busy" @click="search">Search</button>
+      <input v-model="query" :placeholder="t('samples.searchPh')" style="flex: 1" @keyup.enter="search" />
+      <input v-model.number="bpmMin" type="number" :placeholder="t('samples.minBpm')" style="width: 80px" />
+      <input v-model.number="bpmMax" type="number" :placeholder="t('samples.maxBpm')" style="width: 80px" />
+      <button :disabled="busy" @click="search">{{ t('common.search') }}</button>
       <span class="dim small">{{ message }}</span>
     </div>
     <div class="results">
@@ -109,11 +112,11 @@ onMounted(search)
           </div>
         </div>
         <audio controls preload="none" :src="`/api/assets/${h.id}/file`" class="preview" />
-        <button class="tiny-btn" title="Add as one-shot at song start" @click="addToProject(h, false)">+ shot</button>
-        <button class="tiny-btn" title="Add looped across the song" @click="addToProject(h, true)">+ loop</button>
+        <button class="tiny-btn" :title="t('samples.addShotTip')" @click="addToProject(h, false)">{{ t('samples.addShot') }}</button>
+        <button class="tiny-btn" :title="t('samples.addLoopTip')" @click="addToProject(h, true)">{{ t('samples.addLoop') }}</button>
       </div>
       <div v-if="!hits.length && !busy" class="dim small" style="padding: 12px">
-        No results — analyse samples in the Asset Library to enable BPM/key search.
+        {{ t('samples.noResults') }}
       </div>
     </div>
   </div>

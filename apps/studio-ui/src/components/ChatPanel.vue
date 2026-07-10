@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { ChatResponse } from '../api/types'
+import { currentLocale } from '../i18n'
 import { useStudioStore } from '../stores/studio'
 
+const { t } = useI18n()
 const studio = useStudioStore()
 
 interface ChatMsg {
@@ -21,14 +24,15 @@ async function send() {
   const text = input.value.trim()
   if (!text || busy.value) return
   if (!studio.project) {
-    messages.value.push({ role: 'assistant', text: 'Open or create a project first, then I can edit it.' })
+    messages.value.push({ role: 'assistant', text: t('chat.noProject') })
     return
   }
   input.value = ''
   messages.value.push({ role: 'user', text })
   busy.value = true
   try {
-    const res = await api.post<ChatResponse>(`/projects/${studio.project.id}/chat`, { message: text })
+    const res = await api.post<ChatResponse>(`/projects/${studio.project.id}/chat`,
+      { message: text, language: currentLocale() })
     messages.value.push({ role: 'assistant', text: res.reply, operations: res.operations })
     await studio.reloadCurrent()
   } catch (e) {
@@ -45,8 +49,7 @@ async function send() {
   <div class="chat">
     <div ref="scrollEl" class="messages">
       <div v-if="!messages.length" class="dim hint">
-        Ask for a song: “create a punk song with drums, bass and guitar”,
-        “add a chorus”, “make it faster”, “add lyrics about summer”…
+        {{ t('chat.hint') }}
       </div>
       <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
         <div class="bubble">{{ m.text }}</div>
@@ -57,14 +60,14 @@ async function send() {
           </li>
         </ul>
       </div>
-      <div v-if="busy" class="dim hint">planning…</div>
+      <div v-if="busy" class="dim hint">{{ t('chat.planning') }}</div>
     </div>
     <div class="input-row">
       <textarea
-        v-model="input" rows="2" placeholder="Describe the song or a change…"
+        v-model="input" rows="2" :placeholder="t('chat.placeholder')"
         @keydown.enter.exact.prevent="send"
       />
-      <button class="primary" :disabled="busy || !input.trim()" @click="send">Send</button>
+      <button class="primary" :disabled="busy || !input.trim()" @click="send">{{ t('chat.send') }}</button>
     </div>
   </div>
 </template>

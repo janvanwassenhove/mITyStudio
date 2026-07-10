@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 
+const { t } = useI18n()
 const studio = useStudioStore()
 const playback = usePlaybackStore()
 
@@ -32,7 +34,7 @@ async function singLyrics() {
     await studio.reloadCurrent()
     singMsg.value = r.errors.length
       ? r.errors.join('; ')
-      : `♪ melody written for ${r.sections_sung} section(s) — press ▶ to hear the voice`
+      : t('lyrics.melodyWritten', { n: r.sections_sung })
   } catch (e) {
     singMsg.value = String(e)
   } finally {
@@ -79,7 +81,7 @@ const sheet = computed<SheetSection[]>(() => {
     if (secLines) out.push({ name: s.name, lines: secLines })
     bySection.delete(s.id)
   }
-  for (const [sid, rest] of bySection) out.push({ name: sid ? 'Other' : 'Unassigned', lines: rest })
+  for (const [sid, rest] of bySection) out.push({ name: sid ? t('lyrics.other') : t('lyrics.unassigned'), lines: rest })
   return out
 })
 
@@ -93,25 +95,24 @@ function seekToLine(start: number | null) {
 <template>
   <div class="lyrics-root">
     <div class="mode-bar">
-      <button :class="{ active: mode === 'full' }" @click="mode = 'full'">Full song</button>
-      <button :class="{ active: mode === 'karaoke' }" @click="mode = 'karaoke'">Karaoke</button>
+      <button :class="{ active: mode === 'full' }" @click="mode = 'full'">{{ t('lyrics.fullSong') }}</button>
+      <button :class="{ active: mode === 'karaoke' }" @click="mode = 'karaoke'">{{ t('lyrics.karaoke') }}</button>
       <button v-if="hasLyrics && unsungSections > 0" class="sing-btn"
               :disabled="singing" @click="singLyrics">
-        {{ singing ? 'writing melody…' : `🎤 Sing these lyrics (${unsungSections} section${unsungSections > 1 ? 's' : ''})` }}
+        {{ singing ? t('lyrics.writingMelody') : '🎤 ' + t('lyrics.singThese', { n: unsungSections }) }}
       </button>
       <span class="dim small sing-msg">{{ singMsg }}</span>
       <span class="dim small" style="margin-left: auto">
-        {{ lines.length ? 'timing from rendered vocals — click a line to jump there'
-           : hasLyrics && unsungSections > 0 ? '← give the lyrics a melody first'
-           : 'press ▶ — vocals render automatically' }}
+        {{ lines.length ? t('lyrics.timingHint')
+           : hasLyrics && unsungSections > 0 ? t('lyrics.melodyFirst')
+           : t('lyrics.pressPlay') }}
       </span>
     </div>
 
     <!-- full-song sheet -->
     <div v-if="mode === 'full'" class="sheet">
       <div v-if="!sheet.length" class="dim center-msg">
-        No lyrics yet — ask the chat: “add lyrics about … for the whole song”,
-        or add a Voice track (＋ Add Track → 🎤).
+        {{ t('lyrics.empty') }}
       </div>
       <div v-for="sec in sheet" :key="sec.name" class="sheet-section">
         <div class="sec-name">{{ sec.name }}</div>
@@ -126,9 +127,7 @@ function seekToLine(start: number | null) {
     <!-- karaoke -->
     <div v-else class="karaoke">
       <div v-if="!lines.length" class="dim center-msg">
-        {{ hasLyrics && unsungSections > 0
-           ? 'These lyrics have no melody yet — click “🎤 Sing these lyrics” above, then press ▶.'
-           : 'No lyric timing yet — press ▶ (vocals render automatically) to enable karaoke.' }}
+        {{ hasLyrics && unsungSections > 0 ? t('lyrics.noMelodyYet') : t('lyrics.noTimingYet') }}
       </div>
       <template v-else>
         <div class="current">

@@ -17,7 +17,7 @@ import numpy as np
 
 from ..config import get_config
 from ..models.song import SongProject, StemRef, Track
-from . import timing
+from . import lyric_text, timing
 from .audio_io import write_wav
 from .render.soundfont_renderer import SAMPLE_RATE, _register_stem_asset, track_fingerprint
 
@@ -53,11 +53,10 @@ _DIGRAPHS = ("sh", "ch", "th", "ng", "ck", "ph", "wh")
 
 def _syllable_parts(syl: str) -> tuple[str, str, str]:
     """'straight' → ('str', 'a', 'ght'): onset, first vowel, coda."""
-    m = re.match(r"([^aeiouy]*)([aeiouy])[aeiouy]*([^aeiouy]*)$",
-                 syl.lower().strip("'"))
+    m = lyric_text.SYLLABLE_PARTS_RE.match(syl.lower().strip("'"))
     if not m:
         return "", "a", ""
-    return m.group(1), m.group(2), m.group(3)
+    return m.group(1), lyric_text.base_vowel(m.group(2)), m.group(3)
 
 
 def _bandnoise(n: int, center: float, bw: float, rng) -> np.ndarray:
@@ -140,15 +139,15 @@ _VOWEL_FORMANTS = {
 
 
 def _vowel_of(syllable: str) -> str:
-    s = syllable.lower()
-    for ch in s:
-        if ch in "aeiou":
-            return "e" if ch == "y" else ch
+    for ch in syllable.lower():
+        base = lyric_text.base_vowel(ch)
+        if base in "aeiou":
+            return base
     return "a"
 
 
 def _has_leading_consonant(syllable: str) -> bool:
-    return bool(syllable) and syllable[0].lower() not in "aeiouy"
+    return bool(syllable) and syllable[0].lower() not in lyric_text.VOWELS
 
 
 class MockSingingVoiceEngine(SingingVoiceEngine):
@@ -256,10 +255,8 @@ class MockSingingVoiceEngine(SingingVoiceEngine):
 def _word_syllable_counts(line: str) -> list[tuple[str, int]]:
     out = []
     for word in line.split():
-        clean = re.sub(r"[^A-Za-z']", "", word)
-        groups = re.findall(r"[^aeiouy]*[aeiouy]+(?:[^aeiouy]+$)?", clean,
-                            re.IGNORECASE)
-        out.append((word, max(1, len(groups))))
+        clean = re.sub(r"[^A-Za-zÀ-ÖØ-öø-ÿŒœ']", "", word)
+        out.append((word, lyric_text.syllable_count(clean) if clean else 1))
     return out
 
 

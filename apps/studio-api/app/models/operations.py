@@ -34,6 +34,7 @@ class OperationResult(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1)
+    language: str = "en"   # UI language — the assistant replies in it
 
 
 class ChatResponse(BaseModel):

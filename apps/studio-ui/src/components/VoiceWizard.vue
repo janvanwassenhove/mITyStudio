@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { Asset } from '../api/types'
+import { currentLocale } from '../i18n'
 
+const { t, te } = useI18n()
 const emit = defineEmits<{ close: [created: boolean] }>()
 
 type Step = 'consent' | 'setup' | 'takes' | 'finish'
@@ -10,8 +13,16 @@ const step = ref<Step>('consent')
 const error = ref('')
 
 // ---------------- device (honest expectations up front) ----------------
-interface DeviceInfo { device: string; message: string; recommended_tier: string; tiers: Record<string, number> }
+interface DeviceInfo { device: string; name: string; message: string; recommended_tier: string; tiers: Record<string, number> }
 const device = ref<DeviceInfo | null>(null)
+
+// localized device banner; falls back to the backend's English message
+const deviceMessage = computed(() => {
+  const d = device.value
+  if (!d) return ''
+  const key = `wizard.device.${d.device}`
+  return te(key) ? t(key, { name: d.name }) : d.message
+})
 
 // ---------------- shared recorder ----------------
 const recording = ref(false)
@@ -131,8 +142,7 @@ const consentAssetId = ref('')
 const consentBusy = ref(false)
 
 const consentText = computed(() =>
-  `I, ${performerName.value || '<name>'}, consent to my voice being recorded ` +
-  'and used to create a reusable AI singing voice profile inside my mITyStudio.')
+  t('wizard.consentStatement', { name: performerName.value || '<name>' }))
 
 async function recordConsent() {
   if (recording.value) {
@@ -150,7 +160,7 @@ async function recordConsent() {
 
 // ---------------- step 2: setup + range test ----------------
 const profileName = ref('')
-const language = ref('en')
+const language = ref(currentLocale())
 const rangeResult = ref<{ vocal_range: string } | null>(null)
 const rangeAssetId = ref('')
 const rangeBusy = ref(false)
@@ -179,7 +189,18 @@ async function recordRange() {
 
 // ---------------- step 3: takes ----------------
 interface Exercise { id: string; title: string; coach: string; seconds: number }
-interface TakeState { asset_id?: string; qa?: { verdict: string; issues: string[]; tips: string[] }; practicing?: string }
+interface TakeState { asset_id?: string; qa?: { verdict: string; issues: string[]; tips: string[]; issue_codes?: string[] }; practicing?: string }
+
+// exercise titles/coaching live in the locale files, keyed by exercise id;
+// the backend's English text is the fallback for unknown ids
+const exTitle = (e: Exercise) => te(`wizard.ex.${e.id}.title`) ? t(`wizard.ex.${e.id}.title`) : e.title
+const exCoach = (e: Exercise) => te(`wizard.ex.${e.id}.coach`) ? t(`wizard.ex.${e.id}.coach`) : e.coach
+const qaIssues = (qa: TakeState['qa']) => (qa?.issue_codes?.length
+  ? qa.issue_codes.map((c) => te(`wizard.qa.${c}.issue`) ? t(`wizard.qa.${c}.issue`) : c).join(', ')
+  : qa?.issues.join(', ') ?? '')
+const qaTips = (qa: TakeState['qa']) => (qa?.issue_codes?.length
+  ? qa.issue_codes.map((c) => te(`wizard.qa.${c}.tip`) ? t(`wizard.qa.${c}.tip`) : '').filter(Boolean).join('; ')
+  : qa?.tips.join('; ') ?? '')
 const exercises = ref<Exercise[]>([])
 const exIndex = ref(0)
 const takes = ref<Record<string, TakeState>>({})
@@ -228,8 +249,17 @@ async function doTake() {
 // ---------------- step 4: finish ----------------
 const creating = ref(false)
 const createdProfileId = ref('')
-const confidence = ref<{ score: number; minutes: number; notes: string[] } | null>(null)
+const confidence = ref<{ score: number; minutes: number; notes: string[]; note_codes?: string[]; vocal_range?: string } | null>(null)
 const trainMsg = ref('')
+
+const confidenceNotes = computed(() => {
+  const c = confidence.value
+  if (!c) return []
+  if (!c.note_codes?.length) return c.notes
+  return c.note_codes.map((code) => te(`wizard.conf.${code}`)
+    ? t(`wizard.conf.${code}`, { range: c.vocal_range ?? '' })
+    : c.notes[c.note_codes!.indexOf(code)] ?? code)
+})
 
 async function finish() {
   creating.value = true
@@ -271,70 +301,67 @@ onMounted(async () => {
   <div class="overlay" @click.self="emit('close', !!createdProfileId)">
     <div class="wiz panel">
       <div class="head">
-        <h3>🧙 Guided voice setup</h3>
+        <h3>🧙 {{ t('wizard.title') }}</h3>
         <span class="dim small steps">{{ ['consent', 'setup', 'takes', 'finish'].indexOf(step) + 1 }} / 4</span>
         <button class="close" @click="emit('close', !!createdProfileId)">✕</button>
       </div>
-      <div v-if="device" class="device dim small">{{ device.message }}</div>
+      <div v-if="device" class="device dim small">{{ deviceMessage }}</div>
 
       <!-- 1: consent -->
       <div v-if="step === 'consent'" class="body">
-        <p>Creating an AI voice needs the performer's <strong>explicit consent</strong>.
-           It's stored as a permanent, reviewable record with the profile.</p>
-        <label class="field">Performer's name
-          <input v-model="performerName" placeholder="who is being recorded?" />
+        <p>{{ t('wizard.consentIntro') }}</p>
+        <label class="field">{{ t('wizard.performerName') }}
+          <input v-model="performerName" :placeholder="t('wizard.performerPh')" />
         </label>
         <blockquote class="consent-text">“{{ consentText }}”</blockquote>
         <div class="row">
           <button @click="recordConsent" :disabled="consentBusy || !performerName.trim()">
-            {{ recording ? `■ Stop (${recSeconds}s)` : consentAssetId ? '✓ re-record verbal consent' : '● Read it aloud (recorded)' }}
+            {{ recording ? `■ ${t('common.stop')} (${recSeconds}s)` : consentAssetId ? '✓ ' + t('wizard.reRecordConsent') : '● ' + t('wizard.readAloud') }}
           </button>
-          <span v-if="consentAssetId" class="ok small">✓ verbal consent recorded</span>
+          <span v-if="consentAssetId" class="ok small">✓ {{ t('wizard.consentRecorded') }}</span>
         </div>
         <label class="checkline">
           <input type="checkbox" v-model="consentChecked" />
-          The performer consents to this voice profile.
+          {{ t('wizard.consentCheck') }}
         </label>
         <div class="nav">
           <button class="primary" :disabled="!consentChecked || !performerName.trim()"
-                  @click="step = 'setup'">Continue →</button>
+                  @click="step = 'setup'">{{ t('common.continue') }} →</button>
         </div>
       </div>
 
       <!-- 2: setup + range -->
       <div v-else-if="step === 'setup'" class="body">
         <div class="row">
-          <label class="field" style="flex:1">Voice name
-            <input v-model="profileName" :placeholder="performerName + '’s voice'" />
+          <label class="field" style="flex:1">{{ t('wizard.voiceName') }}
+            <input v-model="profileName" :placeholder="t('wizard.voiceNamePh', { name: performerName })" />
           </label>
-          <label class="field">Language
+          <label class="field">{{ t('wizard.language') }}
             <select v-model="language">
               <option value="en">English</option><option value="nl">Nederlands</option>
               <option value="fr">Français</option><option value="de">Deutsch</option>
             </select>
           </label>
         </div>
-        <h4>Vocal range check</h4>
-        <p class="dim small">Play the guide, then sing along on “ah” — up and
-          down <em>as far as comfortable</em>. Don't force anything; the app
-          adapts melodies to whatever range you actually have.</p>
+        <h4>{{ t('wizard.rangeCheck') }}</h4>
+        <p class="dim small">{{ t('wizard.rangeBlurb') }}</p>
         <div class="row">
-          <button @click="playRangeGuide">▶ Play guide</button>
+          <button @click="playRangeGuide">▶ {{ t('wizard.playGuide') }}</button>
           <button :class="{ reclive: recording }" :disabled="rangeBusy" @click="recordRange">
-            {{ recording ? `■ Stop (${recSeconds}s)` : '● Record your scale' }}
+            {{ recording ? `■ ${t('common.stop')} (${recSeconds}s)` : '● ' + t('wizard.recordScale') }}
           </button>
-          <span v-if="rangeBusy" class="dim small">analysing…</span>
-          <span v-else-if="rangeResult" class="ok">✓ your range: <strong>{{ rangeResult.vocal_range }}</strong></span>
+          <span v-if="rangeBusy" class="dim small">{{ t('wizard.analysing') }}</span>
+          <span v-else-if="rangeResult" class="ok">✓ {{ t('wizard.yourRange') }}: <strong>{{ rangeResult.vocal_range }}</strong></span>
         </div>
         <div class="meter">
           <canvas ref="pitchCanvas" width="420" height="90" />
           <span class="note">{{ currentNote }}</span>
         </div>
         <div class="nav">
-          <button @click="step = 'consent'">← Back</button>
+          <button @click="step = 'consent'">{{ t('common.back') }}</button>
           <button class="primary" :disabled="!profileName.trim() && !performerName.trim()"
-                  @click="profileName = profileName.trim() || performerName + '’s voice'; step = 'takes'">
-            Continue →</button>
+                  @click="profileName = profileName.trim() || t('wizard.voiceNamePh', { name: performerName }); step = 'takes'">
+            {{ t('common.continue') }} →</button>
         </div>
       </div>
 
@@ -344,19 +371,19 @@ onMounted(async () => {
           <button v-for="(e, i) in exercises" :key="e.id" class="ex-tab"
                   :class="{ on: i === exIndex, done: takes[e.id]?.qa && takes[e.id].qa!.verdict !== 'fail' }"
                   @click="exIndex = i">
-            {{ takes[e.id]?.qa && takes[e.id].qa!.verdict !== 'fail' ? '✓ ' : '' }}{{ e.title }}
+            {{ takes[e.id]?.qa && takes[e.id].qa!.verdict !== 'fail' ? '✓ ' : '' }}{{ exTitle(e) }}
           </button>
         </div>
         <template v-if="currentEx">
-          <p class="coach">🎤 {{ currentEx.coach }}</p>
+          <p class="coach">🎤 {{ exCoach(currentEx) }}</p>
           <div class="row">
-            <button @click="playGuide">▶ Hear the guide first</button>
+            <button @click="playGuide">▶ {{ t('wizard.hearGuide') }}</button>
             <button :disabled="takeBusy" @click="doPractice"
                     :class="{ reclive: recording && !takeBusy }">
-              {{ recording ? `■ Stop (${recSeconds}s)` : '👂 Practice (not saved)' }}
+              {{ recording ? `■ ${t('common.stop')} (${recSeconds}s)` : '👂 ' + t('wizard.practice') }}
             </button>
             <button class="primary" :disabled="takeBusy" @click="doTake">
-              {{ recording ? `■ Stop take (${recSeconds}s)` : '● Take' }}
+              {{ recording ? `■ ${t('wizard.stopTake')} (${recSeconds}s)` : '● ' + t('wizard.take') }}
             </button>
           </div>
           <audio v-if="practiceUrl" :src="practiceUrl" controls style="width: 100%; height: 30px" />
@@ -365,50 +392,48 @@ onMounted(async () => {
             <span class="note">{{ currentNote }}</span>
           </div>
           <div v-if="takes[currentEx.id]?.qa" class="qa" :class="takes[currentEx.id].qa!.verdict">
-            <template v-if="takes[currentEx.id].qa!.verdict === 'pass'">✓ Take sounds good!</template>
+            <template v-if="takes[currentEx.id].qa!.verdict === 'pass'">✓ {{ t('wizard.qaPass') }}</template>
             <template v-else-if="takes[currentEx.id].qa!.verdict === 'warn'">
-              ⚠ usable, but: {{ takes[currentEx.id].qa!.issues.join(', ') }} —
-              {{ takes[currentEx.id].qa!.tips.join('; ') }} (re-record if you like)
+              ⚠ {{ t('wizard.qaWarn') }}: {{ qaIssues(takes[currentEx.id].qa) }} —
+              {{ qaTips(takes[currentEx.id].qa) }} {{ t('wizard.qaWarnSuffix') }}
             </template>
             <template v-else>
-              ✗ please re-record: {{ takes[currentEx.id].qa!.issues.join(', ') }} —
-              {{ takes[currentEx.id].qa!.tips.join('; ') }}
+              ✗ {{ t('wizard.qaFail') }}: {{ qaIssues(takes[currentEx.id].qa) }} —
+              {{ qaTips(takes[currentEx.id].qa) }}
             </template>
           </div>
         </template>
         <div class="nav">
-          <button @click="step = 'setup'">← Back</button>
-          <span class="dim small">{{ doneCount }} / {{ exercises.length }} exercises recorded</span>
+          <button @click="step = 'setup'">{{ t('common.back') }}</button>
+          <span class="dim small">{{ t('wizard.exercisesDone', { done: doneCount, total: exercises.length }) }}</span>
           <button class="primary" :disabled="doneCount < 3 || creating" @click="finish">
-            {{ creating ? 'creating…' : doneCount < exercises.length ? `Finish with ${doneCount} takes →` : 'Create voice profile →' }}
+            {{ creating ? t('wizard.creating') : doneCount < exercises.length ? t('wizard.finishWith', { n: doneCount }) : t('wizard.createProfile') }}
           </button>
         </div>
       </div>
 
       <!-- 4: finish -->
       <div v-else class="body">
-        <h4>🎉 “{{ profileName }}” is ready</h4>
+        <h4>🎉 {{ t('wizard.ready', { name: profileName }) }}</h4>
         <div v-if="confidence" class="conf">
           <div class="conf-bar"><div :style="{ width: confidence.score * 100 + '%' }" /></div>
-          <div class="dim small">expected quality: {{ Math.round(confidence.score * 100) }}%
-            · {{ confidence.minutes }} min of audio</div>
+          <div class="dim small">{{ t('wizard.expectedQuality', { pct: Math.round(confidence.score * 100), min: confidence.minutes }) }}</div>
           <ul class="small dim">
-            <li v-for="n in confidence.notes" :key="n">{{ n }}</li>
+            <li v-for="n in confidenceNotes" :key="n">{{ n }}</li>
           </ul>
         </div>
-        <p class="dim small">Next: train the high-fidelity model. Singing works
-          right away with zero-shot cloning; training makes it truly this voice.</p>
+        <p class="dim small">{{ t('wizard.nextTraining') }}</p>
         <div class="row" v-if="device">
           <button class="primary" @click="startTraining(device.recommended_tier)">
-            🏋 Start {{ device.recommended_tier }} training ({{ device.tiers[device.recommended_tier] }} epochs, recommended)
+            🏋 {{ t('wizard.startTier', { tier: t('wizard.tier.' + device.recommended_tier), epochs: device.tiers[device.recommended_tier] }) }}
           </button>
           <button @click="startTraining(device.recommended_tier === 'full' ? 'quick' : 'full')">
-            {{ device.recommended_tier === 'full' ? 'quick instead' : 'full instead' }}
+            {{ t('wizard.tierInstead', { tier: t('wizard.tier.' + (device.recommended_tier === 'full' ? 'quick' : 'full')) }) }}
           </button>
         </div>
         <div v-if="trainMsg" class="ok small">{{ trainMsg }}</div>
         <div class="nav">
-          <button class="primary" @click="emit('close', true)">Done</button>
+          <button class="primary" @click="emit('close', true)">{{ t('common.done') }}</button>
         </div>
       </div>
 

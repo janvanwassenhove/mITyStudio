@@ -19,8 +19,7 @@ function queueSave() {
 <template>
   <div class="mixer">
     <div v-if="!tracks.length" class="dim empty">
-      No tracks to mix yet — click <strong>＋ Add Track</strong> above the timeline,
-      or ask the chat: “create a pop song with drums, bass and keys”.
+      {{ $t('mixer.empty') }}
     </div>
     <div v-for="t in tracks" :key="t.id" class="strip">
       <div class="strip-name" :title="t.name">{{ t.name }}</div>
@@ -34,16 +33,16 @@ function queueSave() {
         class="pan" type="range" min="-1" max="1" step="0.05"
         :value="t.pan"
         @input="t.pan = Number(($event.target as HTMLInputElement).value); queueSave()"
-        title="pan"
+        :title="$t('mixer.pan')"
       />
       <div class="btns">
-        <button :class="{ on: t.mute }" title="mute" @click="t.mute = !t.mute; queueSave()">M</button>
-        <button :class="{ on: t.solo, solo: t.solo }" title="solo" @click="t.solo = !t.solo; queueSave()">S</button>
+        <button :class="{ on: t.mute }" :title="$t('mixer.mute')" @click="t.mute = !t.mute; queueSave()">M</button>
+        <button :class="{ on: t.solo, solo: t.solo }" :title="$t('mixer.solo')" @click="t.solo = !t.solo; queueSave()">S</button>
       </div>
       <div class="dim tiny">{{ (t.effects?.effects ?? []).filter(e => e.enabled).length }} fx</div>
     </div>
     <div v-if="studio.project" class="strip master">
-      <div class="strip-name">Master</div>
+      <div class="strip-name">{{ $t('mixer.master') }}</div>
       <input
         class="fader" type="range" min="0" max="1.5" step="0.01"
         :value="studio.project.mix_settings.master_volume"
@@ -54,7 +53,7 @@ function queueSave() {
       <label class="tiny opt"><input type="checkbox" v-model="studio.project.mix_settings.limiter" @change="queueSave()" /> limit</label>
       <div class="dim tiny">{{ (studio.project.mix_settings.master_effects?.effects ?? []).length }} fx</div>
     </div>
-    <div v-if="saving" class="dim tiny saving">saving…</div>
+    <div v-if="saving" class="dim tiny saving">{{ $t('common.saving') }}</div>
   </div>
 </template>
 

@@ -64,9 +64,18 @@ def _asset_context() -> dict:
     }
 
 
-def build_system_prompt(project: SongProject) -> str:
+_LANG_NAMES = {"en": "English", "nl": "Dutch (Nederlands)",
+               "fr": "French (Français)", "de": "German (Deutsch)"}
+
+
+def build_system_prompt(project: SongProject, language: str = "en") -> str:
     ctx = _asset_context()
+    lang_name = _LANG_NAMES.get(language, "English")
     return f"""You are the song-planning engine of mITyStudio, a local music studio.
+Write the "reply" field in {lang_name} — unless the user writes in a
+different language, then match theirs. Operation params stay as specified.
+When you write lyrics (rewrite_lyrics), also set its "language" param to the
+lyrics' ISO code (en/nl/fr/de) so the singing engine pronounces them right.
 You NEVER generate audio or files. You ONLY return JSON with structured operations
 that the studio backend validates and applies to the current song project.
 
@@ -128,11 +137,12 @@ AVAILABLE ASSETS (the ONLY assets you may reference):
 """
 
 
-def plan(project: SongProject, message: str) -> tuple[str, list[ChatOperation], list[str]]:
+def plan(project: SongProject, message: str,
+         language: str = "en") -> tuple[str, list[ChatOperation], list[str]]:
     """Returns (reply, valid_operations, validation_warnings)."""
     settings = load_settings()
     provider = get_provider(settings)
-    system_prompt = build_system_prompt(project)
+    system_prompt = build_system_prompt(project, language)
     try:
         raw = provider.plan(system_prompt, message)
     except LlmProviderError as e:

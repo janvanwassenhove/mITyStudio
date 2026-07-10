@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 import TransportControls from '../components/TransportControls.vue'
@@ -13,6 +14,7 @@ import TrackInspector from '../components/TrackInspector.vue'
 import SampleBrowser from '../components/SampleBrowser.vue'
 import ClipEditor from '../components/ClipEditor.vue'
 
+const { t } = useI18n()
 const studio = useStudioStore()
 const rightTab = ref<'chat' | 'export'>('chat')
 const bottomTab = ref<'mixer' | 'track' | 'editor' | 'samples' | 'lyrics'>('mixer')
@@ -83,16 +85,16 @@ onMounted(() => {
 })
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
-const SHORTCUTS = [
-  ['Space', 'Play / pause'],
-  ['Ctrl+Z', 'Undo'],
-  ['Ctrl+Shift+Z or Ctrl+Y', 'Redo'],
-  ['Delete', 'Delete the selected clip'],
-  ['Double-click clip', 'Open the clip editor'],
-  ['Double-click track header', 'Open instrument & effects'],
-  ['Drag ruler', 'Scrub the playhead'],
-  ['?', 'Show / hide this help'],
-]
+const SHORTCUTS = computed(() => [
+  ['Space', t('shortcuts.playPause')],
+  ['Ctrl+Z', t('shortcuts.undo')],
+  ['Ctrl+Shift+Z / Ctrl+Y', t('shortcuts.redo')],
+  ['Delete', t('shortcuts.deleteClip')],
+  [t('shortcuts.dblClickClip'), t('shortcuts.openClipEditor')],
+  [t('shortcuts.dblClickTrack'), t('shortcuts.openInspector')],
+  [t('shortcuts.dragRuler'), t('shortcuts.scrub')],
+  ['?', t('shortcuts.toggleHelp')],
+])
 </script>
 
 <template>
@@ -105,13 +107,13 @@ const SHORTCUTS = [
       <section class="center">
         <div class="timeline panel"><TimelinePanel /></div>
         <div class="bottom panel" :style="{ height: bottomH + 'px' }">
-          <div class="resize-handle" title="drag to resize" @pointerdown="startResize" />
+          <div class="resize-handle" :title="t('studio.dragResize')" @pointerdown="startResize" />
           <div class="tabs">
-            <button :class="{ active: bottomTab === 'mixer' }" @click="bottomTab = 'mixer'">Mixer</button>
-            <button :class="{ active: bottomTab === 'track' }" @click="bottomTab = 'track'">Track</button>
-            <button :class="{ active: bottomTab === 'editor' }" @click="bottomTab = 'editor'">Editor</button>
-            <button :class="{ active: bottomTab === 'samples' }" @click="bottomTab = 'samples'">Samples</button>
-            <button :class="{ active: bottomTab === 'lyrics' }" @click="bottomTab = 'lyrics'">Lyrics</button>
+            <button :class="{ active: bottomTab === 'mixer' }" @click="bottomTab = 'mixer'">{{ t('studio.mixer') }}</button>
+            <button :class="{ active: bottomTab === 'track' }" @click="bottomTab = 'track'">{{ t('studio.track') }}</button>
+            <button :class="{ active: bottomTab === 'editor' }" @click="bottomTab = 'editor'">{{ t('studio.editor') }}</button>
+            <button :class="{ active: bottomTab === 'samples' }" @click="bottomTab = 'samples'">{{ t('studio.samples') }}</button>
+            <button :class="{ active: bottomTab === 'lyrics' }" @click="bottomTab = 'lyrics'">{{ t('studio.lyrics') }}</button>
           </div>
           <MixerPanel v-if="bottomTab === 'mixer'" />
           <TrackInspector v-else-if="bottomTab === 'track'" />
@@ -122,8 +124,8 @@ const SHORTCUTS = [
       </section>
       <aside class="rightbar panel">
         <div class="tabs">
-          <button :class="{ active: rightTab === 'chat' }" @click="rightTab = 'chat'">Chat</button>
-          <button :class="{ active: rightTab === 'export' }" @click="rightTab = 'export'">Export</button>
+          <button :class="{ active: rightTab === 'chat' }" @click="rightTab = 'chat'">{{ t('studio.chat') }}</button>
+          <button :class="{ active: rightTab === 'export' }" @click="rightTab = 'export'">{{ t('studio.export') }}</button>
         </div>
         <ChatPanel v-if="rightTab === 'chat'" />
         <ExportPanel v-else />
@@ -133,14 +135,14 @@ const SHORTCUTS = [
     <!-- keyboard shortcuts reference (press ?) -->
     <div v-if="showShortcuts" class="shortcuts-overlay" @click.self="showShortcuts = false">
       <div class="shortcuts panel">
-        <h3>Keyboard shortcuts</h3>
+        <h3>{{ t('shortcuts.title') }}</h3>
         <table>
           <tr v-for="[key, desc] in SHORTCUTS" :key="key">
             <td><kbd>{{ key }}</kbd></td>
             <td>{{ desc }}</td>
           </tr>
         </table>
-        <button @click="showShortcuts = false">Close (Esc)</button>
+        <button @click="showShortcuts = false">{{ t('shortcuts.close') }}</button>
       </div>
     </div>
   </div>

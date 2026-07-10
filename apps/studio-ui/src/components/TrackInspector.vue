@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { Asset, Effect, VoiceProfile } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 
+const { t } = useI18n()
 const studio = useStudioStore()
 const playback = usePlaybackStore()
 
@@ -182,7 +184,7 @@ async function startTake() {
             fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
           })
           await studio.saveProject()
-          takeStatus.value = 'take placed on track — render vocals to hear it in the mix'
+          takeStatus.value = t('inspector.takePlaced')
         }
       } catch (e) {
         takeStatus.value = String(e)
@@ -193,7 +195,7 @@ async function startTake() {
     recordSeconds.value = 0
     recTimer = setInterval(() => recordSeconds.value++, 1000)
   } catch (e) {
-    takeStatus.value = 'Microphone unavailable: ' + String(e)
+    takeStatus.value = t('transport.micUnavailable') + String(e)
   }
 }
 
@@ -207,7 +209,7 @@ onUnmounted(() => { if (recording.value) stopTake() })
 
 function removeTrack() {
   if (!studio.project || !track.value) return
-  if (!confirm(`Remove track "${track.value.name}"?`)) return
+  if (!confirm(t('inspector.removeConfirm', { name: track.value.name }))) return
   studio.project.tracks = studio.project.tracks.filter((t) => t.id !== track.value!.id)
   studio.selectedTrackId = null
   save()
@@ -215,25 +217,25 @@ function removeTrack() {
 
 const currentFontName = computed(() => {
   const id = track.value?.instrument_config.soundfont_asset_id
-  return soundfonts.value.find((a) => a.id === id)?.filename ?? '(auto-match at render)'
+  return soundfonts.value.find((a) => a.id === id)?.filename ?? t('inspector.autoMatch')
 })
 
 loadLibraries()
 </script>
 
 <template>
-  <div v-if="!track" class="dim empty">Select a track in the timeline to inspect it.</div>
+  <div v-if="!track" class="dim empty">{{ t('inspector.selectTrack') }}</div>
   <div v-else class="inspector">
     <div class="col">
       <h4>{{ track.name }} <span class="dim small">{{ track.track_type }}</span></h4>
-      <label class="field">Name
+      <label class="field">{{ t('inspector.name') }}
         <input v-model="track.name" @change="save" />
       </label>
 
       <template v-if="isInstrument">
         <div class="field">
-          <span>🔎 Find any instrument (searches every preset in all SoundFonts)</span>
-          <input v-model="instSearch" placeholder="conga, trombone, rhodes, e-guitar, organ…"
+          <span>🔎 {{ t('inspector.findInstrument') }}</span>
+          <input v-model="instSearch" :placeholder="t('inspector.findPh')"
                  @input="queueInstSearch" />
           <div v-if="instHits.length" class="picker">
             <div v-for="(h, i) in instHits" :key="i" class="pick-item" @click="pickInstrument(h)">
@@ -241,12 +243,12 @@ loadLibraries()
             </div>
           </div>
           <span v-else-if="instSearch.length >= 2 && !instSearching" class="dim small">
-            no preset matches — try another word or drop a matching .sf2 in soundfonts/ and rescan
+            {{ t('inspector.noPresetMatch') }}
           </span>
         </div>
         <div class="field">
           <span>SoundFont — <span class="current">{{ currentFontName }}</span></span>
-          <input v-model="sfSearch" placeholder="Search 196 SoundFonts…" />
+          <input v-model="sfSearch" :placeholder="t('inspector.searchFonts')" />
           <div class="picker">
             <div
               v-for="a in filteredFonts" :key="a.id" class="pick-item"
@@ -256,7 +258,7 @@ loadLibraries()
           </div>
         </div>
         <div v-if="presets.length" class="field">
-          <span>Preset (bank / program)</span>
+          <span>{{ t('inspector.preset') }}</span>
           <div class="picker">
             <div
               v-for="(p, i) in presets.slice(0, 100)" :key="i" class="pick-item"
@@ -268,30 +270,28 @@ loadLibraries()
       </template>
 
       <template v-if="isVocal">
-        <label class="field">Voice profile
+        <label class="field">{{ t('inspector.voiceProfile') }}
           <select :value="track.voice_profile_id ?? ''"
                   @change="track.voice_profile_id = ($event.target as HTMLSelectElement).value || null; save()">
-            <option value="">(none — formant engine default)</option>
-            <option v-for="p in profiles" :key="p.id" :value="p.id">{{ p.name }} — AI voice from recording</option>
+            <option value="">{{ t('inspector.noProfile') }}</option>
+            <option v-for="p in profiles" :key="p.id" :value="p.id">{{ t('inspector.aiVoice', { name: p.name }) }}</option>
           </select>
         </label>
-        <label class="field">Vocal style
+        <label class="field">{{ t('inspector.vocalStyle') }}
           <select :value="track.vocal_style ?? 'sing'"
                   @change="track.vocal_style = ($event.target as HTMLSelectElement).value as 'sing' | 'rap'; save()">
-            <option value="sing">🎵 Singing — pitched to the melody, vibrato</option>
-            <option value="rap">🎤 Rap — natural voice pitch, rhythm-locked flow</option>
+            <option value="sing">{{ t('addTrack.styleSing') }}</option>
+            <option value="rap">{{ t('addTrack.styleRap') }}</option>
           </select>
         </label>
         <p class="dim small">
-          With a consented profile the AI clones that voice and sings/raps the
-          actual lyrics (re-render happens on ▶). Without one, a synthetic
-          voice is used.
+          {{ t('inspector.profileBlurb') }}
         </p>
         <div class="field">
-          <span>Record a take (live singing onto this track)</span>
+          <span>{{ t('inspector.recordTake') }}</span>
           <div class="rec-row">
-            <button v-if="!recording" @click="startTake">● Record take at playhead</button>
-            <button v-else class="rec-active" @click="stopTake">■ Stop ({{ recordSeconds }}s)</button>
+            <button v-if="!recording" @click="startTake">● {{ t('inspector.recordAtPlayhead') }}</button>
+            <button v-else class="rec-active" @click="stopTake">■ {{ t('common.stop') }} ({{ recordSeconds }}s)</button>
             <span class="dim small">{{ takeStatus }}</span>
           </div>
         </div>
@@ -299,12 +299,12 @@ loadLibraries()
     </div>
 
     <div class="col">
-      <h4>Effects <span v-if="saving" class="dim small">saving…</span></h4>
+      <h4>{{ t('inspector.effects') }} <span v-if="saving" class="dim small">{{ t('common.saving') }}</span></h4>
       <div class="add-fx">
         <select v-model="newEffectType">
-          <option v-for="t in EFFECT_TYPES" :key="t" :value="t">{{ t }}</option>
+          <option v-for="ft in EFFECT_TYPES" :key="ft" :value="ft">{{ ft }}</option>
         </select>
-        <button @click="addEffect">+ Add</button>
+        <button @click="addEffect">+ {{ t('common.add') }}</button>
       </div>
       <div v-for="(fx, i) in track.effects.effects" :key="fx.id" class="fx">
         <div class="fx-head">
@@ -319,8 +319,8 @@ loadLibraries()
                  @change="fx.params[k] = Number(($event.target as HTMLInputElement).value); save()" />
         </div>
       </div>
-      <div v-if="!track.effects.effects.length" class="dim small">No effects on this track.</div>
-      <button class="danger" @click="removeTrack">Remove track</button>
+      <div v-if="!track.effects.effects.length" class="dim small">{{ t('inspector.noEffects') }}</div>
+      <button class="danger" @click="removeTrack">{{ t('inspector.removeTrack') }}</button>
     </div>
   </div>
 </template>

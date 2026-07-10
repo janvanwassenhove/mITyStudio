@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import type { Clip, NoteEvent, Track } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
@@ -7,6 +8,7 @@ import { DRUM_SVG } from '../lib/drumIcons'
 
 const props = defineProps<{ track: Track; clip: Clip }>()
 const emit = defineEmits<{ changed: [] }>()
+const { t } = useI18n()
 const studio = useStudioStore()
 const playback = usePlaybackStore()
 const uid = () => crypto.randomUUID().replace(/-/g, '')
@@ -103,7 +105,7 @@ function addAsClip() {
   if (!p || !m) return
   const track = p.tracks.find((t) => t.id === props.track.id)
   if (!track) return
-  if (!grid.value.length) { msg.value = 'the grid is empty'; return }
+  if (!grid.value.length) { msg.value = t('seq.gridEmpty'); return }
   const bpb = m.beats_per_bar
   const startBar = Math.round(((playback.playhead * m.bpm) / 60) / bpb)
   const clip: Clip = {
@@ -119,7 +121,7 @@ function addAsClip() {
   }
   track.clips.push(clip)
   studio.selectedClip = { trackId: track.id, clipId: clip.id }
-  msg.value = `✓ clip added at bar ${startBar + 1} — selected in the timeline, fine-tune it in ✎ Edit`
+  msg.value = '✓ ' + t('seq.clipAdded', { bar: startBar + 1 })
   emit('changed')
 }
 
@@ -139,7 +141,7 @@ const loopSeconds = computed(() => {
 async function fetchLoop(): Promise<HTMLAudioElement | null> {
   const p = studio.project
   if (!p) return null
-  if (!grid.value.length) { msg.value = 'the grid is empty — tap steps or pick a pattern'; return null }
+  if (!grid.value.length) { msg.value = t('seq.gridEmptyHint'); return null }
   const span = stepCount.value * STEP
   const notes = grid.value
     .filter((h) => h.step < stepCount.value)
@@ -187,7 +189,7 @@ async function togglePower() {
     try {
       await el.play()
     } catch (e) {
-      msg.value = 'browser blocked audio — click anywhere, then ⏻ again'
+      msg.value = t('seq.audioBlocked')
       playing.value = false
       return
     }
@@ -239,24 +241,24 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
     <div class="seq-bar">
       <select class="pattern-pick" :value="patternName"
               @change="applyPattern(($event.target as HTMLSelectElement).value)">
-        <option value="" disabled>Choose a pattern…</option>
+        <option value="" disabled>{{ t('seq.choosePattern') }}</option>
         <option v-for="(_, name) in PATTERNS" :key="name" :value="name">{{ name }}</option>
       </select>
       <button class="power" :class="{ on: playing }" :disabled="loading"
-              title="audition the pattern as a loop with the real kit sound"
+              :title="t('seq.previewTip')"
               @click="togglePower">
-        {{ loading ? '⏳ rendering…' : playing ? '■ Stop' : '▶ Preview loop' }}
+        {{ loading ? '⏳ ' + t('seq.rendering') : playing ? '■ ' + t('common.stop') : '▶ ' + t('seq.previewLoop') }}
       </button>
       <div class="tools">
-        <button :class="{ on: tool === 'toggle' }" @click="tool = 'toggle'">Step On/Off</button>
-        <button :class="{ on: tool === 'velocity' }" @click="tool = 'velocity'">Velocity</button>
+        <button :class="{ on: tool === 'toggle' }" @click="tool = 'toggle'">{{ t('seq.stepOnOff') }}</button>
+        <button :class="{ on: tool === 'velocity' }" @click="tool = 'velocity'">{{ t('seq.velocity') }}</button>
       </div>
       <div class="tools">
-        <button :class="{ on: bars === 1 }" @click="bars = 1">1 bar</button>
-        <button :class="{ on: bars === 2 }" @click="bars = 2">2 bars</button>
+        <button :class="{ on: bars === 1 }" @click="bars = 1">{{ t('seq.oneBar') }}</button>
+        <button :class="{ on: bars === 2 }" @click="bars = 2">{{ t('seq.twoBars') }}</button>
       </div>
-      <button class="tb add" title="add this pattern to the song as a new clip at the playhead" @click="addAsClip">＋ Add as clip</button>
-      <button class="tb" @click="clearGrid">✕ Clear</button>
+      <button class="tb add" :title="t('seq.addTip')" @click="addAsClip">＋ {{ t('seq.addAsClip') }}</button>
+      <button class="tb" @click="clearGrid">✕ {{ t('common.clear') }}</button>
     </div>
     <div v-if="msg" class="dim seq-msg">{{ msg }}</div>
   </div>

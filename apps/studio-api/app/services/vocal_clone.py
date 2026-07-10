@@ -73,13 +73,7 @@ _XTTS_LANGS = {"en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl",
                "cs", "ar", "zh-cn", "hu", "ko", "ja", "hi"}
 
 
-def _syllable_count(text: str) -> int:
-    n = 0
-    for word in re.findall(r"[A-Za-z']+", text):
-        groups = re.findall(r"[^aeiouy]*[aeiouy]+(?:[^aeiouy]+$)?", word,
-                            re.IGNORECASE)
-        n += max(1, len(groups))
-    return max(n, 1)
+from .lyric_text import syllable_count as _syllable_count  # noqa: E402
 
 
 def _lines_with_notes(project: SongProject, track: Track):

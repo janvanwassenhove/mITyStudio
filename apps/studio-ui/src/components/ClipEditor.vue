@@ -230,42 +230,42 @@ onBeforeUnmount(stopPh)
 
 <template>
   <div v-if="!found" class="dim empty">
-    Double-click a clip in the timeline to edit it here.
+    {{ $t('clipEditor.empty') }}
   </div>
   <div v-else class="editor">
     <div class="ed-toolbar" :style="{ borderLeft: `3px solid ${trackColor}` }">
       <span class="ed-icon">{{ TYPE_ICONS[found.track.track_type] }}</span>
       <strong>{{ found.track.name }}</strong>
-      <span class="dim small">{{ isSample ? 'audio clip' : isDrums ? 'beat grid' : 'piano roll' }} · {{ found.clip.duration_beats }} beats</span>
+      <span class="dim small">{{ isSample ? $t('clipEditor.audioClip') : isDrums ? $t('clipEditor.beatGrid') : $t('clipEditor.pianoRoll') }} · {{ $t('clipEditor.beats', { n: found.clip.duration_beats }) }}</span>
       <div v-if="!isSample" class="view-toggle">
-        <button :class="{ on: viewMode === 'edit' }" @click="viewMode = 'edit'">✎ Edit</button>
-        <button :class="{ on: viewMode === 'play' }" @click="viewMode = 'play'">🎹 Play</button>
+        <button :class="{ on: viewMode === 'edit' }" @click="viewMode = 'edit'">✎ {{ $t('clipEditor.edit') }}</button>
+        <button :class="{ on: viewMode === 'play' }" @click="viewMode = 'play'">🎹 {{ $t('clipEditor.play') }}</button>
       </div>
       <span class="spacer" />
       <template v-if="!isSample">
         <template v-if="!isDrums">
-          <span class="dim small">zoom</span>
+          <span class="dim small">{{ $t('timeline.zoom') }}</span>
           <input type="range" min="14" max="64" v-model.number="pxPerBeatEd" style="width: 80px" />
         </template>
         <template v-if="selectedNote">
-          <span class="dim small">{{ selectedNote.pitch }} · velocity</span>
+          <span class="dim small">{{ selectedNote.pitch }} · {{ $t('clipEditor.velocity') }}</span>
           <input type="range" min="1" max="127" style="width: 90px"
                  :value="selectedNote.velocity"
                  @input="selectedNote!.velocity = Number(($event.target as HTMLInputElement).value); save()" />
           <button class="tb danger" @click="deleteSelectedNote">✕</button>
         </template>
-        <span v-else class="dim small">{{ isDrums ? 'click = hit · shift-click = accent' : 'click = add · drag = move · edge = length' }}</span>
+        <span v-else class="dim small">{{ isDrums ? $t('clipEditor.drumHint') : $t('clipEditor.rollHint') }}</span>
       </template>
-      <span v-if="saving" class="dim small">saving…</span>
+      <span v-if="saving" class="dim small">{{ $t('common.saving') }}</span>
     </div>
 
     <!-- audio clip properties -->
     <div v-if="isSample" class="sample-props">
-      <label>Gain (dB) <input type="number" step="0.5" v-model.number="found.clip.gain_db" @change="save" /></label>
-      <label><input type="checkbox" v-model="found.clip.loop" @change="save" /> loop</label>
-      <label>Fade in (s) <input type="number" step="0.05" min="0" v-model.number="found.clip.fade_in_seconds" @change="save" /></label>
-      <label>Fade out (s) <input type="number" step="0.05" min="0" v-model.number="found.clip.fade_out_seconds" @change="save" /></label>
-      <label>Start offset (s) <input type="number" step="0.1" min="0" v-model.number="found.clip.source_offset_seconds" @change="save" /></label>
+      <label>{{ $t('clipEditor.gain') }} <input type="number" step="0.5" v-model.number="found.clip.gain_db" @change="save" /></label>
+      <label><input type="checkbox" v-model="found.clip.loop" @change="save" /> {{ $t('clipEditor.loop') }}</label>
+      <label>{{ $t('clipEditor.fadeIn') }} <input type="number" step="0.05" min="0" v-model.number="found.clip.fade_in_seconds" @change="save" /></label>
+      <label>{{ $t('clipEditor.fadeOut') }} <input type="number" step="0.05" min="0" v-model.number="found.clip.fade_out_seconds" @change="save" /></label>
+      <label>{{ $t('clipEditor.startOffset') }} <input type="number" step="0.1" min="0" v-model.number="found.clip.source_offset_seconds" @change="save" /></label>
     </div>
 
     <!-- playable instrument surface (GarageBand-style) -->

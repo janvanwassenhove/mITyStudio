@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { getHealth, type HealthResponse } from './api/client'
+import { LOCALES, currentLocale, setLocale, type LocaleCode } from './i18n'
 
 const health = ref<HealthResponse | null>(null)
 const healthError = ref('')
+const locale = ref<LocaleCode>(currentLocale())
+
+function changeLocale() {
+  setLocale(locale.value)
+}
 
 onMounted(async () => {
   try {
@@ -18,14 +24,17 @@ onMounted(async () => {
   <div class="app-shell">
     <nav class="topnav">
       <span class="brand">mITy<span style="color: var(--accent)">Studio</span></span>
-      <RouterLink to="/">Studio</RouterLink>
-      <RouterLink to="/assets">Assets</RouterLink>
-      <RouterLink to="/voices">Voices</RouterLink>
-      <RouterLink to="/settings">Settings</RouterLink>
+      <RouterLink to="/">{{ $t('nav.studio') }}</RouterLink>
+      <RouterLink to="/assets">{{ $t('nav.assets') }}</RouterLink>
+      <RouterLink to="/voices">{{ $t('nav.voices') }}</RouterLink>
+      <RouterLink to="/settings">{{ $t('nav.settings') }}</RouterLink>
       <span class="spacer" />
-      <span v-if="health" class="health ok">● backend connected</span>
-      <span v-else-if="healthError" class="health err" :title="healthError">● backend offline</span>
-      <span v-else class="health dim">● connecting…</span>
+      <select v-model="locale" class="lang" :title="$t('nav.language')" @change="changeLocale">
+        <option v-for="l in LOCALES" :key="l.code" :value="l.code">{{ l.label }}</option>
+      </select>
+      <span v-if="health" class="health ok">● {{ $t('nav.backendConnected') }}</span>
+      <span v-else-if="healthError" class="health err" :title="healthError">● {{ $t('nav.backendOffline') }}</span>
+      <span v-else class="health dim">● {{ $t('nav.connecting') }}</span>
     </nav>
     <main class="main">
       <RouterView />
@@ -45,6 +54,10 @@ onMounted(async () => {
 .topnav a.router-link-active { color: var(--text); font-weight: 600; }
 .spacer { flex: 1; }
 .health { font-size: 12px; }
+.lang {
+  background: var(--bg); color: var(--text-dim); border: 1px solid var(--border);
+  border-radius: 6px; font-size: 12px; padding: 2px 6px;
+}
 .health.ok { color: var(--ok); }
 .health.err { color: var(--err); }
 .main { flex: 1; min-height: 0; overflow: hidden; }

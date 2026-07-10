@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
+
+const { t } = useI18n()
 
 interface LlmSettings {
   provider: string
@@ -63,9 +66,9 @@ const keySet = computed(() =>
 const keySource = computed(() =>
   settings.value?.api_key_sources?.[settings.value.provider] ?? null)
 const keyStatusText = computed(() => {
-  if (!keySet.value) return '○ no key found'
-  if (keySource.value === 'stored') return '● key stored in local_settings.json'
-  return `● using key from environment variable ${keySource.value}`
+  if (!keySet.value) return '○ ' + t('settings.noKey')
+  if (keySource.value === 'stored') return '● ' + t('settings.keyStored')
+  return '● ' + t('settings.keyFromEnv', { env: keySource.value })
 })
 
 async function load() {
@@ -86,7 +89,7 @@ async function save() {
       ...(apiKey.value ? { api_key: apiKey.value } : {}),
     })
     apiKey.value = ''
-    testResult.value = 'saved'
+    testResult.value = t('settings.saved')
   } catch (e) {
     testResult.value = String(e)
   } finally {
@@ -95,7 +98,7 @@ async function save() {
 }
 
 async function testConnection() {
-  testResult.value = 'testing…'
+  testResult.value = t('settings.testing')
   try {
     const r = await api.post<{ ok: boolean; message: string }>('/settings/llm/test')
     testResult.value = (r.ok ? '✓ ' : '✗ ') + r.message
@@ -117,32 +120,29 @@ onMounted(load)
 
 <template>
   <div class="settings">
-    <h2>Settings</h2>
+    <h2>{{ t('nav.settings') }}</h2>
     <div v-if="settings" class="panel form">
-      <h3>LLM provider</h3>
+      <h3>{{ t('settings.llmProvider') }}</h3>
       <p class="dim small">
-        Used by the chat panel to plan song changes. The LLM only produces
-        structured operations — it never writes files or audio directly.
-        Keys are stored per provider in a git-ignored local file and are
-        never returned by the API.
+        {{ t('settings.llmBlurb') }}
       </p>
-      <label>Provider
+      <label>{{ t('settings.provider') }}
         <select v-model="settings.provider" @change="onProviderChange">
           <option v-for="p in settings.providers" :key="p" :value="p">
             {{ PROVIDER_INFO[p]?.label ?? p }}
           </option>
         </select>
       </label>
-      <label v-if="needsUrl">Base URL
+      <label v-if="needsUrl">{{ t('settings.baseUrl') }}
         <input v-model="settings.base_url" :placeholder="info.urlHint" @change="loadModels" />
         <span class="dim tiny">{{ info.urlHint }}</span>
       </label>
       <label v-if="settings.provider !== 'mock'">
-        Model
+        {{ t('settings.model') }}
         <span class="dim tiny">
-          <template v-if="loadingModels">loading model list…</template>
-          <template v-else-if="modelsSource === 'live'">{{ models.length }} models fetched from provider</template>
-          <template v-else-if="models.length">known models (no live list available)</template>
+          <template v-if="loadingModels">{{ t('settings.loadingModels') }}</template>
+          <template v-else-if="modelsSource === 'live'">{{ t('settings.modelsFetched', { n: models.length }) }}</template>
+          <template v-else-if="models.length">{{ t('settings.knownModels') }}</template>
         </span>
         <div class="model-row">
           <select v-if="!customModel && models.length" v-model="settings.model" style="flex: 1">
@@ -151,37 +151,37 @@ onMounted(load)
           <input v-else v-model="settings.model" :placeholder="info.modelHint" style="flex: 1" />
           <button v-if="models.length" class="tiny-toggle" type="button"
                   @click="customModel = !customModel">
-            {{ customModel ? 'pick from list' : 'type manually' }}
+            {{ customModel ? t('settings.pickFromList') : t('settings.typeManually') }}
           </button>
           <button class="tiny-toggle" type="button" :disabled="loadingModels" @click="loadModels">↻</button>
         </div>
       </label>
       <label v-if="needsKey">
-        API key
+        {{ t('settings.apiKey') }}
         <span class="key-status" :class="{ set: keySet }">
           {{ keyStatusText }}
-          <template v-if="!keySet && info.keyEnv"> · also checks env var {{ info.keyEnv }}</template>
+          <template v-if="!keySet && info.keyEnv"> · {{ t('settings.alsoChecksEnv', { env: info.keyEnv }) }}</template>
         </span>
         <input v-model="apiKey" type="password"
-               :placeholder="keySet ? '•••••• (enter to replace, blank keeps current)' : settings.provider === 'custom' ? 'optional — env vars and local servers work without one' : 'paste API key'" />
+               :placeholder="keySet ? t('settings.keyReplacePh') : settings.provider === 'custom' ? t('settings.keyOptionalPh') : t('settings.keyPastePh')" />
       </label>
       <div class="row2">
-        <label>Temperature
+        <label>{{ t('settings.temperature') }}
           <input v-model.number="settings.temperature" type="number" min="0" max="1" step="0.1" style="width: 90px" />
         </label>
-        <label>Max tokens
+        <label>{{ t('settings.maxTokens') }}
           <input v-model.number="settings.max_tokens" type="number" min="256" max="64000" style="width: 110px" />
         </label>
       </div>
       <div class="row-btns">
-        <button class="primary" :disabled="saving" @click="save">Save</button>
-        <button @click="testConnection">Test connection</button>
+        <button class="primary" :disabled="saving" @click="save">{{ t('common.save') }}</button>
+        <button @click="testConnection">{{ t('settings.testConnection') }}</button>
         <span class="dim small">{{ testResult }}</span>
       </div>
       <div class="dim tiny keys-overview">
-        Keys found:
+        {{ t('settings.keysFound') }}
         <span v-for="(set, p) in settings.api_keys_set" :key="p" class="key-chip" :class="{ set }"
-              :title="settings.api_key_sources[p] ? `source: ${settings.api_key_sources[p]}` : 'no key stored or in environment'">
+              :title="settings.api_key_sources[p] ? `source: ${settings.api_key_sources[p]}` : t('settings.noKeyAnywhere')">
           {{ p }} {{ set ? (settings.api_key_sources[p] === 'stored' ? '✓ file' : '✓ env') : '—' }}
         </span>
       </div>

@@ -380,38 +380,38 @@ async function deleteClip() {
 
 <template>
   <div v-if="!manifest" class="empty dim">
-    Open or create a project to see the timeline.
+    {{ $t('timeline.noProject') }}
   </div>
   <div v-else class="timeline-root">
     <div class="zoom-bar">
-      <span class="dim small">zoom</span>
+      <span class="dim small">{{ $t('timeline.zoom') }}</span>
       <input type="range" min="4" max="48" v-model.number="pxPerBeat" style="width: 100px" />
       <span class="sep" />
-      <button class="tb primary" :disabled="saving" @click="showAddTrack = true">＋ Add Track</button>
+      <button class="tb primary" :disabled="saving" @click="showAddTrack = true">＋ {{ $t('timeline.addTrack') }}</button>
       <span class="sep" />
-      <button class="tb" :disabled="!selectedClip || saving" title="Split selected clip at playhead" @click="splitClip">✂ Split</button>
-      <button class="tb" :disabled="!selectedClip || saving" title="Duplicate selected clip after itself" @click="duplicateClip">⧉ Duplicate</button>
-      <button class="tb danger" :disabled="!selectedClip || saving" title="Delete selected clip" @click="deleteClip">✕ Clip</button>
+      <button class="tb" :disabled="!selectedClip || saving" :title="$t('timeline.splitTip')" @click="splitClip">✂ {{ $t('timeline.split') }}</button>
+      <button class="tb" :disabled="!selectedClip || saving" :title="$t('timeline.duplicateTip')" @click="duplicateClip">⧉ {{ $t('timeline.duplicate') }}</button>
+      <button class="tb danger" :disabled="!selectedClip || saving" :title="$t('timeline.deleteTip')" @click="deleteClip">✕ {{ $t('timeline.clip') }}</button>
       <span class="spacer" />
-      <span class="dim small">{{ manifest.total_bars }} bars · {{ manifest.duration_seconds.toFixed(1) }}s<template v-if="saving"> · saving…</template></span>
+      <span class="dim small">{{ $t('timeline.barsSeconds', { bars: manifest.total_bars, s: manifest.duration_seconds.toFixed(1) }) }}<template v-if="saving"> · {{ $t('common.saving') }}</template></span>
     </div>
     <div v-if="!hasTracks" class="starter">
-      <p class="dim">This song is empty. What do you want to do?</p>
+      <p class="dim">{{ $t('timeline.emptySong') }}</p>
       <div class="starter-btns">
         <button class="starter-card" @click="showAddTrack = true">
           <span class="starter-icon">🎹</span>
-          <strong>Add an instrument</strong>
-          <span class="dim small">Drums, bass, guitar, keys… the part is written for you</span>
+          <strong>{{ $t('timeline.addInstrument') }}</strong>
+          <span class="dim small">{{ $t('timeline.addInstrumentBlurb') }}</span>
         </button>
         <button class="starter-card" @click="showAddTrack = true">
           <span class="starter-icon">🎤</span>
-          <strong>Add vocals</strong>
-          <span class="dim small">Lyrics + melody, in your voice or a synthetic one</span>
+          <strong>{{ $t('timeline.addVocals') }}</strong>
+          <span class="dim small">{{ $t('timeline.addVocalsBlurb') }}</span>
         </button>
         <div class="starter-card static">
           <span class="starter-icon">💬</span>
-          <strong>Or ask the chat</strong>
-          <span class="dim small">“create a punk song about summer” → full song with vocals</span>
+          <strong>{{ $t('timeline.orChat') }}</strong>
+          <span class="dim small">{{ $t('timeline.orChatBlurb') }}</span>
         </div>
       </div>
     </div>
@@ -420,7 +420,7 @@ async function deleteClip() {
         <div ref="playheadEl" class="playhead-overlay" />
         <!-- ruler -->
         <div class="row ruler-row">
-          <div class="label small dim" :style="{ width: LABEL_W + 'px' }">bars</div>
+          <div class="label small dim" :style="{ width: LABEL_W + 'px' }">{{ $t('timeline.bars') }}</div>
           <div class="lane ruler" :style="{ width: contentWidth + 'px' }" @pointerdown="scrubStart">
             <div v-for="b in bars" :key="b.label" class="bar-tick" :style="{ left: b.x + 'px' }">
               <span class="bar-num">{{ b.label }}</span>
@@ -429,7 +429,7 @@ async function deleteClip() {
         </div>
         <!-- section lane -->
         <div class="row">
-          <div class="label small dim" :style="{ width: LABEL_W + 'px' }">sections</div>
+          <div class="label small dim" :style="{ width: LABEL_W + 'px' }">{{ $t('timeline.sections') }}</div>
           <div class="lane section-lane" :style="{ width: contentWidth + 'px' }" @pointerdown="scrubStart">
             <div
               v-for="s in manifest.sections" :key="s.section_id" class="section-block"
@@ -443,33 +443,33 @@ async function deleteClip() {
              @click="studio.selectedTrackId = tl.track.track_id">
           <div class="label track-label" :class="{ 'pop-open': instSwitch === tl.track.track_id }"
                :style="{ width: LABEL_W + 'px' }"
-               title="double-click for instrument & effects"
+               :title="$t('timeline.dblClickInspector')"
                @dblclick="studio.openTrackInspector(tl.track.track_id)">
             <div class="label-top">
               <span class="type-chip" :style="{ background: color(tl.track.track_type) }"
-                    :title="'Track type: ' + tl.track.track_type.replace('_', ' ')">
+                    :title="$t('timeline.trackType') + ': ' + tl.track.track_type.replace('_', ' ')">
                 {{ TYPE_ABBR[tl.track.track_type] ?? '??' }}</span>
               <span class="track-name" :title="tl.track.name">{{ tl.track.name }}</span>
             </div>
             <div class="label-controls" @dblclick.stop>
               <button class="mini" :class="{ mute: projTrack(tl.track.track_id)?.mute }"
-                      title="Mute — silence this track in playback and mixes"
+                      :title="$t('timeline.muteTip')"
                       @click.stop="toggleMute(tl.track.track_id)">M</button>
               <button class="mini" :class="{ solo: projTrack(tl.track.track_id)?.solo }"
-                      title="Solo — play only soloed tracks"
+                      :title="$t('timeline.soloTip')"
                       @click.stop="toggleSolo(tl.track.track_id)">S</button>
-              <input class="mini-vol" type="range" min="0" max="1.5" step="0.01" title="volume"
+              <input class="mini-vol" type="range" min="0" max="1.5" step="0.01" :title="$t('timeline.volume')"
                      :value="projTrack(tl.track.track_id)?.volume ?? 1"
                      @click.stop
                      @input="setVolume(tl.track.track_id, Number(($event.target as HTMLInputElement).value))" />
               <button v-if="canSwitchInstrument(tl.track.track_type)" class="mini"
-                      title="switch instrument sound"
+                      :title="$t('timeline.switchInstrument')"
                       @click.stop="openInstSwitch(tl.track.track_id)">🎛</button>
-              <button class="mini" title="instrument & effects"
+              <button class="mini" :title="$t('timeline.instrumentFx')"
                       @click.stop="studio.openTrackInspector(tl.track.track_id)">✎</button>
             </div>
             <div v-if="instSwitch === tl.track.track_id" class="inst-pop" @click.stop @dblclick.stop>
-              <input v-model="instQuery" placeholder="Search all instruments…"
+              <input v-model="instQuery" :placeholder="$t('timeline.searchInstruments')"
                      autofocus @pointerdown.stop />
               <div v-if="instQuery.trim().length < 2" class="cat-row">
                 <button v-for="c in catalog" :key="c.category" class="cat-chip"
@@ -487,7 +487,7 @@ async function deleteClip() {
                   <strong>{{ h.label }}</strong>
                 </div>
                 <div v-if="!instHits.length" class="dim small" style="padding: 6px">
-                  {{ catalog.length ? 'no matches' : 'loading instruments…' }}
+                  {{ catalog.length ? $t('timeline.noMatches') : $t('timeline.loadingInstruments') }}
                 </div>
               </div>
             </div>
@@ -497,7 +497,7 @@ async function deleteClip() {
               v-for="c in tl.clips" :key="c.clipId" class="clip"
               :class="{ selected: selectedClip?.clipId === c.clipId }"
               :style="{ left: c.x + 'px', width: c.w + 'px', borderColor: color(tl.track.track_type) }"
-              :title="'drag to move · double-click to edit'"
+              :title="$t('timeline.clipTip')"
               @pointerdown.stop="clipPointerDown($event, tl.track.track_id, c.clipId)"
               @dblclick.stop="studio.openClipEditor(tl.track.track_id, c.clipId)"
             >

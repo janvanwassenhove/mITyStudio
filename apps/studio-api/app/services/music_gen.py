@@ -347,16 +347,7 @@ def generate_chords(project: SongProject, section: Section) -> Clip:
 # MELODY
 # --------------------------------------------------------------------------
 
-_VOWELS = "aeiouy"
-
-
-def _syllables(line: str) -> list[str]:
-    out: list[str] = []
-    for word in re.findall(r"[A-Za-z']+", line):
-        groups = re.findall(r"[^aeiouy]*[aeiouy]+(?:[^aeiouy]+$)?", word,
-                            re.IGNORECASE)
-        out.extend(groups or [word])
-    return out
+from .lyric_text import line_syllables as _syllables  # noqa: E402
 
 
 def _make_motif(rng: random.Random, bpb: float) -> list[tuple[float, float, int]]:

@@ -1,30 +1,33 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { VoiceProfile } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 
 const emit = defineEmits<{ close: [] }>()
+const { t } = useI18n()
 const studio = useStudioStore()
 
 interface InstrumentCard {
   type: string
   icon: string
-  label: string
-  blurb: string
 }
 
+// labels/blurbs live in the locale files under addTrack.inst.<type>
 const INSTRUMENTS: InstrumentCard[] = [
-  { type: 'drums', icon: '🥁', label: 'Drums', blurb: 'Beat matching the song style' },
-  { type: 'bass', icon: '🎸', label: 'Bass', blurb: 'Bassline following the chords' },
-  { type: 'guitar', icon: '🎸', label: 'Guitar', blurb: 'Strummed chords' },
-  { type: 'keys', icon: '🎹', label: 'Keys / Piano', blurb: 'Chords on piano or organ' },
-  { type: 'synth', icon: '🎛️', label: 'Synth', blurb: 'Melodic synth line' },
-  { type: 'strings', icon: '🎻', label: 'Strings', blurb: 'String ensemble pads' },
-  { type: 'brass', icon: '🎺', label: 'Brass', blurb: 'Horn section stabs' },
-  { type: 'lead_vocal', icon: '🎤', label: 'Voice', blurb: 'Singing with lyrics — your voice or synthetic' },
-  { type: 'sample', icon: '🔁', label: 'Samples', blurb: 'Empty lane — drop loops from the Samples browser' },
+  { type: 'drums', icon: '🥁' },
+  { type: 'bass', icon: '🎸' },
+  { type: 'guitar', icon: '🎸' },
+  { type: 'keys', icon: '🎹' },
+  { type: 'synth', icon: '🎛️' },
+  { type: 'strings', icon: '🎻' },
+  { type: 'brass', icon: '🎺' },
+  { type: 'lead_vocal', icon: '🎤' },
+  { type: 'sample', icon: '🔁' },
 ]
+
+const label = (c: InstrumentCard) => t(`addTrack.inst.${c.type}.label`)
 
 const picked = ref<InstrumentCard | null>(null)
 const generate = ref(true)
@@ -76,7 +79,7 @@ async function add() {
     if (res.errors.length) {
       error.value = res.errors.join('; ')
     } else {
-      done.value = `Added ${res.track_name}. Press ▶ to hear it — audio renders automatically.`
+      done.value = t('addTrack.added', { name: res.track_name })
       setTimeout(() => emit('close'), 1600)
     }
   } catch (e) {
@@ -91,7 +94,7 @@ async function add() {
   <div class="overlay" @click.self="emit('close')">
     <div class="dialog panel">
       <div class="head">
-        <h3>{{ picked ? picked.icon + ' ' + picked.label : 'Add a track' }}</h3>
+        <h3>{{ picked ? picked.icon + ' ' + label(picked) : t('addTrack.title') }}</h3>
         <button class="close" @click="emit('close')">✕</button>
       </div>
 
@@ -99,8 +102,8 @@ async function add() {
       <div v-if="!picked" class="cards">
         <button v-for="c in INSTRUMENTS" :key="c.type" class="card" @click="picked = c">
           <span class="icon">{{ c.icon }}</span>
-          <span class="card-label">{{ c.label }}</span>
-          <span class="dim blurb">{{ c.blurb }}</span>
+          <span class="card-label">{{ label(c) }}</span>
+          <span class="dim blurb">{{ t(`addTrack.inst.${c.type}.blurb`) }}</span>
         </button>
       </div>
 
@@ -109,37 +112,35 @@ async function add() {
         <label v-if="picked.type !== 'sample'" class="opt-row">
           <input type="checkbox" v-model="generate" />
           <span>
-            <strong>Write the part for me</strong>
+            <strong>{{ t('addTrack.writeForMe') }}</strong>
             <span class="dim block">
-              {{ isVocal ? 'Lyrics and a melody are created — no music theory needed.'
-                         : 'A ' + picked.label.toLowerCase() + ' part is generated for the whole song, matching key, tempo and style. You never have to enter chords or tabs.' }}
+              {{ isVocal ? t('addTrack.genVocalBlurb')
+                         : t('addTrack.genInstBlurb', { name: label(picked).toLowerCase() }) }}
             </span>
           </span>
         </label>
 
         <template v-if="isVocal">
           <label class="field">
-            Style
+            {{ t('addTrack.style') }}
             <select v-model="vocalStyle">
-              <option value="sing">🎵 Singing — melody with vibrato</option>
-              <option value="rap">🎤 Rap — rhythm-locked flow, natural pitch</option>
+              <option value="sing">{{ t('addTrack.styleSing') }}</option>
+              <option value="rap">{{ t('addTrack.styleRap') }}</option>
             </select>
           </label>
           <label class="field">
-            Singing voice
+            {{ t('addTrack.singingVoice') }}
             <select v-model="voiceProfileId">
-              <option v-if="profiles.length === 0" value="">Synthetic voice (no profile yet)</option>
-              <option v-for="p in profiles" :key="p.id" :value="p.id">🎙 {{ p.name }} — your voice</option>
-              <option v-if="profiles.length" value="">Synthetic voice instead</option>
+              <option v-if="profiles.length === 0" value="">{{ t('addTrack.syntheticNone') }}</option>
+              <option v-for="p in profiles" :key="p.id" :value="p.id">🎙 {{ t('addTrack.yourVoice', { name: p.name }) }}</option>
+              <option v-if="profiles.length" value="">{{ t('addTrack.syntheticInstead') }}</option>
             </select>
             <span v-if="!profiles.length" class="dim block small">
-              To sing with <em>your</em> voice: go to <strong>Voices</strong> → record or upload
-              yourself → create a voice profile (with consent). It then appears here.
+              {{ t('addTrack.voiceHint') }}
             </span>
           </label>
           <div v-if="lyricSections.length && !lyricsText.trim()" class="field">
-            <span>Sings these sections (existing lyrics — uncheck for duets: give
-              each voice its own parts)</span>
+            <span>{{ t('addTrack.singsSections') }}</span>
             <div class="sec-checks">
               <label v-for="s in lyricSections" :key="s.id" class="sec-check">
                 <input type="checkbox" :value="s.id" v-model="selectedSections" />
@@ -148,20 +149,19 @@ async function add() {
             </div>
           </div>
           <label class="field">
-            {{ lyricSections.length ? 'Or write new lyrics instead (optional)' : 'Lyrics (optional — leave empty and I\'ll write some)' }}
-            <textarea v-model="lyricsText" rows="3" placeholder="One line per lyric line…" />
+            {{ lyricSections.length ? t('addTrack.orNewLyrics') : t('addTrack.lyricsOptional') }}
+            <textarea v-model="lyricsText" rows="3" :placeholder="t('addTrack.lyricsPlaceholder')" />
           </label>
         </template>
 
         <div v-if="picked.type === 'sample'" class="dim small">
-          A sample lane is added. Open the <strong>Samples</strong> tab below the
-          timeline to search your 2,900+ samples and click “+ shot” or “+ loop”.
+          {{ t('addTrack.sampleHint') }}
         </div>
 
         <div class="actions">
-          <button @click="picked = null">← Back</button>
+          <button @click="picked = null">{{ t('common.back') }}</button>
           <button class="primary" :disabled="busy" @click="add">
-            {{ busy ? 'Adding…' : 'Add ' + picked.label }}
+            {{ busy ? t('addTrack.adding') : t('addTrack.addName', { name: label(picked) }) }}
           </button>
         </div>
         <div v-if="done" class="ok-box">{{ done }}</div>

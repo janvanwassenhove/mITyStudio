@@ -33,11 +33,12 @@ def qa_take(path: Path) -> dict:
     """Quality-check one recorded take. verdict: pass | warn | fail."""
     issues: list[str] = []
     tips: list[str] = []
+    codes: list[str] = []   # stable ids the UI translates
     try:
         data, rate = read_audio(path)
     except AudioReadError as e:
         return {"verdict": "fail", "issues": [f"unreadable audio: {e}"],
-                "tips": ["try recording again"]}
+                "tips": ["try recording again"], "issue_codes": ["unreadable"]}
     mono = data.mean(axis=1)
     n = len(mono)
     duration = n / rate if rate else 0.0
@@ -64,23 +65,29 @@ def qa_take(path: Path) -> dict:
     if duration < 1.5:
         issues.append("too short")
         tips.append("hold the exercise a little longer (2+ seconds)")
+        codes.append("too_short")
     if clip_ratio > 0.001:
         issues.append("clipping detected")
         tips.append("lower the microphone gain or move back a little")
+        codes.append("clipping")
     if rms_db < -34:
         issues.append("very quiet")
         tips.append("move closer to the microphone or sing a bit louder")
+        codes.append("quiet")
     if has_pauses and noise_db > -35:
         issues.append("noisy background")
         tips.append("find a quieter spot or turn off fans/music")
+        codes.append("noisy")
     if silence_ratio > 0.65:
         issues.append("mostly silence")
         tips.append("start singing right after pressing record")
+        codes.append("silence")
 
     hard = {"clipping detected", "unreadable audio", "mostly silence", "too short"}
     verdict = ("fail" if any(i in hard for i in issues)
                else "warn" if issues else "pass")
     return {"verdict": verdict, "issues": issues, "tips": tips,
+            "issue_codes": codes,
             "duration": round(duration, 2), "peak": round(peak, 3),
             "rms_db": round(rms_db, 1), "noise_floor_db": round(noise_db, 1),
             "clip_ratio": round(clip_ratio, 5)}
@@ -227,33 +234,42 @@ def profile_confidence(profile, recordings: list[dict]) -> dict:
     minutes = sum(r.get("minutes", 0.0) for r in recordings)
     score = 0.0
     notes: list[str] = []
+    codes: list[str] = []   # stable ids the UI translates
     score += min(minutes / 20.0, 1.0) * 0.5          # amount of audio
     if minutes < 5:
         notes.append("under 5 minutes of audio — expect a rough clone; "
                      "record more takes when you can")
+        codes.append("low_audio")
     elif minutes < 15:
         notes.append("decent audio amount — more material would still help")
+        codes.append("medium_audio")
     else:
         notes.append("good amount of training audio")
+        codes.append("good_audio")
     rng = (profile.vocal_range or "")
     if "–" in rng or "-" in rng:
         score += 0.2
         notes.append(f"vocal range mapped ({rng})")
+        codes.append("range_mapped")
     else:
         notes.append("no range test yet — melodies may sit outside the "
                      "comfortable range")
+        codes.append("no_range")
     if profile.consent_recording_id:
         score += 0.05
     exercise_takes = sum(1 for r in recordings if r.get("wizard_take"))
     if exercise_takes >= 4:
         score += 0.25
         notes.append("varied wizard takes (dynamics + range) recorded")
+        codes.append("varied_takes")
     elif exercise_takes:
         score += 0.1
         notes.append("some wizard takes recorded — finish the session for "
                      "better dynamics coverage")
+        codes.append("some_takes")
     else:
         notes.append("built from free-form recordings only — the guided "
                      "wizard adds dynamics/range variety")
+        codes.append("freeform_only")
     return {"score": round(min(score, 1.0), 2), "minutes": round(minutes, 1),
-            "notes": notes}
+            "notes": notes, "note_codes": codes, "vocal_range": rng}

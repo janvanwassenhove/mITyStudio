@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { Asset, VoiceProfile } from '../api/types'
 import VoiceWizard from '../components/VoiceWizard.vue'
+
+const { t } = useI18n()
 
 const recordings = ref<Asset[]>([])
 const profiles = ref<VoiceProfile[]>([])
@@ -63,7 +66,7 @@ async function startRecording() {
     recordSeconds.value = 0
     timer = setInterval(() => recordSeconds.value++, 1000)
   } catch (e) {
-    error.value = 'Microphone unavailable: ' + String(e)
+    error.value = t('transport.micUnavailable') + String(e)
   }
 }
 
@@ -148,16 +151,16 @@ function rvcBadge(p: VoiceProfile): { text: string; cls: string; canTrain?: bool
   const m = rvcModels.value[p.id]
   if (!m) return null
   if (m.stage === 'complete' || (m.ready && !m.training_active)) {
-    return { text: '🎓 high-fidelity model ready', cls: 'ok' }
+    return { text: '🎓 ' + t('voices.modelReady'), cls: 'ok' }
   }
-  if (m.stage === 'failed') return { text: '⚠ training failed — see tools/rvc-training.log', cls: 'err', canTrain: true }
+  if (m.stage === 'failed') return { text: '⚠ ' + t('voices.trainingFailed'), cls: 'err', canTrain: true }
   if (m.training_active || ['preprocess', 'extract', 'train', 'index', 'preparing'].includes(m.stage ?? '')) {
     const detail = m.stage === 'train' || m.current_epoch > 0
-      ? `epoch ${m.current_epoch}/${m.total_epochs}`
+      ? t('voices.epoch', { n: m.current_epoch, total: m.total_epochs })
       : m.stage
-    return { text: `🏋 training… ${detail}${m.ready ? ' (checkpoint already in use)' : ''}`, cls: 'busy' }
+    return { text: `🏋 ${t('voices.training')} ${detail}${m.ready ? ' ' + t('voices.checkpointInUse') : ''}`, cls: 'busy' }
   }
-  return { text: '⏳ not trained yet', cls: 'dim', canTrain: true }
+  return { text: '⏳ ' + t('voices.notTrained'), cls: 'dim', canTrain: true }
 }
 
 const anyTraining = computed(() =>
@@ -203,7 +206,7 @@ async function testVoice(p: VoiceProfile) {
 }
 
 async function deleteProfile(p: VoiceProfile) {
-  if (!confirm(`Delete voice profile "${p.name}"? The source recordings stay.`)) return
+  if (!confirm(t('voices.deleteConfirm', { name: p.name }))) return
   try {
     await api.del(`/voice/profiles/${p.id}`)
     await load()
@@ -218,60 +221,56 @@ onMounted(load)
 <template>
   <div class="voices">
     <div class="col panel">
-      <h3>Voice recordings</h3>
+      <h3>{{ t('voices.recordings') }}</h3>
       <div class="actions">
         <input ref="fileInput" type="file" accept="audio/*" @change="uploadFile" />
-        <button v-if="!recording" @click="startRecording">● Record live</button>
-        <button v-else class="rec" @click="stopRecording">■ Stop ({{ recordSeconds }}s)</button>
+        <button v-if="!recording" @click="startRecording">● {{ t('voices.recordLive') }}</button>
+        <button v-else class="rec" @click="stopRecording">■ {{ t('common.stop') }} ({{ recordSeconds }}s)</button>
       </div>
       <p class="dim small">
-        Recordings are stored in <code>voices/recordings/</code>. They are never
-        modified and never become voice profiles automatically.
+        {{ t('voices.recordingsBlurb') }}
       </p>
       <div v-for="r in recordings" :key="r.id" class="rec-item">
-        <div class="fname">{{ r.filename }} <span v-if="r.is_missing" class="err-text">(missing)</span></div>
+        <div class="fname">{{ r.filename }} <span v-if="r.is_missing" class="err-text">({{ t('assets.missing') }})</span></div>
         <audio v-if="!r.is_missing" controls :src="`/api/assets/${r.id}/file`" style="width: 100%; height: 32px" />
         <div class="rec-actions">
           <button v-if="!r.is_missing" class="small-btn"
-                  title="Create a consented voice profile from this recording — vocal tracks can then sing with this voice"
-                  @click="startProfileFrom(r)">🎙 → Make this my AI voice</button>
+                  :title="t('voices.makeVoiceTip')"
+                  @click="startProfileFrom(r)">🎙 → {{ t('voices.makeVoice') }}</button>
           <label v-if="showProfileForm" class="small">
-            <input type="checkbox" :value="r.id" v-model="selectedRecordings" /> use for profile
+            <input type="checkbox" :value="r.id" v-model="selectedRecordings" /> {{ t('voices.useForProfile') }}
           </label>
         </div>
       </div>
-      <div v-if="!recordings.length" class="dim small">No recordings yet — upload a file or record live.</div>
+      <div v-if="!recordings.length" class="dim small">{{ t('voices.noRecordings') }}</div>
     </div>
 
     <div class="col panel">
-      <h3>Voice profiles</h3>
+      <h3>{{ t('voices.profiles') }}</h3>
       <p class="dim small">
-        A voice profile is a reusable singing voice. Creating one requires
-        explicit consent from the performer. Profiles are only used when you
-        assign them to a vocal track.
+        {{ t('voices.profilesBlurb') }}
       </p>
       <div class="create-row">
         <button class="primary" @click="showWizard = true"
-                title="coached recording session: consent, range test, guided takes with quality checks">
-          🧙 Guided setup (recommended)</button>
+                :title="t('voices.wizardTip')">
+          🧙 {{ t('voices.guidedSetup') }}</button>
         <button v-if="!showProfileForm" @click="showProfileForm = true"
-                title="build a profile from recordings you already uploaded">
-          + From existing recordings</button>
+                :title="t('voices.fromExistingTip')">
+          + {{ t('voices.fromExisting') }}</button>
       </div>
       <div v-if="showProfileForm" class="profile-form">
-        <label>Profile name <input v-model="profileName" /></label>
-        <label>Performer alias <input v-model="performerAlias" /></label>
-        <div class="small dim">Select source recordings in the left column ({{ selectedRecordings.length }} selected)</div>
-        <label>Usage restrictions <input v-model="usageRestrictions" placeholder="e.g. personal projects only" /></label>
+        <label>{{ t('voices.profileName') }} <input v-model="profileName" /></label>
+        <label>{{ t('voices.performerAlias') }} <input v-model="performerAlias" /></label>
+        <div class="small dim">{{ t('voices.selectSources', { n: selectedRecordings.length }) }}</div>
+        <label>{{ t('voices.usageRestrictions') }} <input v-model="usageRestrictions" :placeholder="t('voices.restrictionsPh')" /></label>
         <label class="consent">
           <input type="checkbox" v-model="consentConfirmed" />
-          <span>I confirm the performer of these recordings has given explicit
-          consent to create a reusable singing voice profile from them.</span>
+          <span>{{ t('voices.consentCheck') }}</span>
         </label>
-        <label>Consent notes <textarea v-model="consentNotes" rows="2" placeholder="who consented, when, how" /></label>
+        <label>{{ t('voices.consentNotes') }} <textarea v-model="consentNotes" rows="2" :placeholder="t('voices.consentNotesPh')" /></label>
         <div class="row-btns">
-          <button class="primary" :disabled="!canCreateProfile" @click="createProfile">Create profile</button>
-          <button @click="showProfileForm = false">Cancel</button>
+          <button class="primary" :disabled="!canCreateProfile" @click="createProfile">{{ t('voices.createProfile') }}</button>
+          <button @click="showProfileForm = false">{{ t('common.cancel') }}</button>
         </div>
       </div>
 
@@ -280,33 +279,33 @@ onMounted(load)
           <div class="fname">{{ p.name }} <span class="dim small">({{ p.status }})</span></div>
           <div class="profile-actions">
             <button class="small-btn" :disabled="testingId === p.id"
-                    title="hear this voice speak a test sentence (uses the trained model when ready)"
+                    :title="t('voices.testTip')"
                     @click="testVoice(p)">
-              {{ testingId === p.id ? '⏳ synthesizing…' : '▶ Test voice' }}
+              {{ testingId === p.id ? '⏳ ' + t('voices.synthesizing') : '▶ ' + t('voices.testVoice') }}
             </button>
-            <button class="del-btn" title="delete this voice profile (recordings are kept)"
+            <button class="del-btn" :title="t('voices.deleteTip')"
                     @click="deleteProfile(p)">🗑</button>
           </div>
         </div>
         <div v-if="testResults[p.id]" class="test-result">
           <audio controls autoplay :src="testResults[p.id].url" style="width: 100%; height: 32px" />
-          <span class="dim small">{{ testResults[p.id].rvc ? '✓ trained RVC model applied — this is the learned voice' : 'zero-shot clone (RVC model not trained yet)' }}</span>
+          <span class="dim small">{{ testResults[p.id].rvc ? '✓ ' + t('voices.rvcApplied') : t('voices.zeroShot') }}</span>
         </div>
         <div v-if="rvcBadge(p)" class="badge-row">
           <span class="rvc-badge" :class="rvcBadge(p)!.cls">{{ rvcBadge(p)!.text }}</span>
           <button v-if="rvcBadge(p)!.canTrain" class="small-btn train-btn"
                   :disabled="anyTraining"
-                  :title="anyTraining ? 'another voice is training — one at a time' : 'train a high-fidelity model on this voice (hours, runs in background)'"
-                  @click="startTraining(p)">🏋 Start training</button>
+                  :title="anyTraining ? t('voices.oneAtATime') : t('voices.trainTip')"
+                  @click="startTraining(p)">🏋 {{ t('voices.startTraining') }}</button>
         </div>
         <div v-if="trainMsg" class="dim small">{{ trainMsg }}</div>
         <div class="dim small">
-          {{ p.source_recording_ids.length }} source recording(s)
+          {{ t('voices.sourceCount', { n: p.source_recording_ids.length }) }}
           <span v-if="p.performer_alias"> · {{ p.performer_alias }}</span>
         </div>
-        <div v-if="p.usage_restrictions" class="dim small">restrictions: {{ p.usage_restrictions }}</div>
+        <div v-if="p.usage_restrictions" class="dim small">{{ t('voices.restrictions') }}: {{ p.usage_restrictions }}</div>
       </div>
-      <div v-if="!profiles.length && !showProfileForm" class="dim small">No voice profiles yet.</div>
+      <div v-if="!profiles.length && !showProfileForm" class="dim small">{{ t('voices.noProfiles') }}</div>
     </div>
     <div v-if="error" class="err-box">{{ error }}</div>
     <VoiceWizard v-if="showWizard" @close="wizardClosed" />

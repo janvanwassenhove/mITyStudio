@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { Clip, NoteEvent, Track } from '../api/types'
 import { useStudioStore } from '../stores/studio'
@@ -10,6 +11,7 @@ import BeatSequencer from './BeatSequencer.vue'
 const props = defineProps<{ track: Track; clip: Clip }>()
 const emit = defineEmits<{ changed: [] }>()
 
+const { t } = useI18n()
 const studio = useStudioStore()
 const playback = usePlaybackStore()
 const uid = () => crypto.randomUUID().replace(/-/g, '')
@@ -107,7 +109,7 @@ async function refreshLoop() {
   const p = studio.project
   if (!p || !looping.value) return
   const notes = loopNotes()
-  if (!notes.length) { lastInsert.value = 'nothing to loop yet — place some pieces'; return }
+  if (!notes.length) { lastInsert.value = t('play.nothingToLoop'); return }
   loopLoading.value = true
   try {
     const cfg = props.track.instrument_config
@@ -172,7 +174,7 @@ function insertNotes(midis: number[], dur: number, vel = 100, stagger = 0) {
   // step record: advance the playhead so the next tap lands after this note
   const p = studio.project
   if (p) playback.playhead += (dur * 60) / p.bpm
-  lastInsert.value = `♪ written at beat ${(at + props.clip.start_beat).toFixed(2)}`
+  lastInsert.value = t('play.writtenAt', { beat: (at + props.clip.start_beat).toFixed(2) })
   emit('changed')
   queueLoopRefresh()
 }
@@ -207,7 +209,7 @@ function pickKit(delta: number) {
   props.track.instrument_config.bank = k.bank
   props.track.instrument_config.program = k.program
   props.track.instrument_config.is_drum_kit = true
-  lastInsert.value = `kit: ${k.label}`
+  lastInsert.value = t('play.kit') + ': ' + k.label
   emit('changed')
   if (looping.value) void refreshLoop()   // hear the new kit immediately
   else playDrum(36)
@@ -216,7 +218,7 @@ function pickKit(delta: number) {
 function resetBoard() {
   for (const e of smartEls.value) e.placed = false
   smartBuffer.value = []
-  lastInsert.value = 'board cleared'
+  lastInsert.value = t('play.boardCleared')
 }
 interface SmartEl { midis: number[]; label: string; icon: string; placed: boolean; x: number; y: number }
 const smartEls = ref<SmartEl[]>([
@@ -294,7 +296,7 @@ function regenerateSmart() {
   smartBuffer.value = smartEls.value
     .filter((e) => e.placed)
     .flatMap((e) => smartPattern(e))
-  lastInsert.value = `pattern: ${smartBuffer.value.length} hits over ${SMART_BARS} bars`
+  lastInsert.value = t('play.patternHits', { n: smartBuffer.value.length, bars: SMART_BARS })
   queueLoopRefresh()
 }
 
@@ -303,7 +305,7 @@ function addSmartAsClip() {
   const m = studio.manifest
   if (!p || !m) return
   if (!smartBuffer.value.length) regenerateSmart()
-  if (!smartBuffer.value.length) { lastInsert.value = 'place some pieces first'; return }
+  if (!smartBuffer.value.length) { lastInsert.value = t('play.placePieces'); return }
   const track = p.tracks.find((t) => t.id === props.track.id)
   if (!track) return
   const bpb = m.beats_per_bar
@@ -320,7 +322,7 @@ function addSmartAsClip() {
   }
   track.clips.push(clip)
   studio.selectedClip = { trackId: track.id, clipId: clip.id }
-  lastInsert.value = `✓ ${SMART_BARS}-bar clip added at bar ${startBar + 1} — fine-tune it in ✎ Edit`
+  lastInsert.value = '✓ ' + t('play.smartClipAdded', { bars: SMART_BARS, bar: startBar + 1 })
   emit('changed')
 }
 
@@ -470,84 +472,79 @@ const bgImage = computed(() => {
   <div class="play-surface" :style="bgImage ? { backgroundImage: `linear-gradient(rgba(10,12,16,0.55), rgba(10,12,16,0.7)), url(${bgImage})` } : {}">
     <div class="hint-bar">
       <div class="mode-switch">
-        <button :class="{ on: !writeMode }" title="Taps only make sound — nothing is recorded"
-                @click="writeMode = false">👂 Practice</button>
+        <button :class="{ on: !writeMode }" :title="t('play.practiceTip')"
+                @click="writeMode = false">👂 {{ t('play.practice') }}</button>
         <button :class="{ on: writeMode }" class="write"
-                title="Taps are written into the clip at the playhead"
+                :title="t('play.writeTip')"
                 @click="writeMode = true">
-          <span class="rec-dot" :class="{ live: writeMode }" /> Write
+          <span class="rec-dot" :class="{ live: writeMode }" /> {{ t('play.write') }}
         </button>
       </div>
-      <span v-if="writeMode" class="rec-banner">● REC — taps are being written</span>
+      <span v-if="writeMode" class="rec-banner">● {{ t('play.recBanner') }}</span>
       <button class="loop-btn" :class="{ on: looping }" :disabled="loopLoading"
-              title="loop the first 2 bars with the real instrument sound"
+              :title="t('play.loopTip')"
               @click="toggleLoop">
-        {{ loopLoading ? '⏳' : looping ? '■ Stop loop' : '▶ Loop' }}
+        {{ loopLoading ? '⏳' : looping ? '■ ' + t('play.stopLoop') : '▶ ' + t('play.loop') }}
       </button>
       <span class="dim hint-text">
-        {{ writeMode ? 'taps are written at the playhead and step forward'
-                     : 'taps just play — switch to ● Write to record' }}
+        {{ writeMode ? t('play.writeHint') : t('play.practiceHint') }}
         <span v-if="lastInsert"> · {{ lastInsert }}</span>
       </span>
     </div>
     <div v-if="['lead_vocal', 'backing_vocal'].includes(track.track_type)" class="vocal-note dim">
-      🎤 This keyboard writes the <strong>vocal melody</strong> — the AI voice sings your
-      lyrics on these notes. Manage lyrics in the <strong>Lyrics</strong> tab
-      (“Sing these lyrics” writes melodies automatically).
+      🎤 {{ t('play.vocalNote') }}
     </div>
 
     <!-- drums: smart board or pads -->
     <template v-if="surface === 'drums'">
       <div v-if="showDrumCoach" class="coach">
-        <strong>Three ways to make a beat:</strong>
-        <span>🎛 <b>Smart Drums</b> — drag pieces on the board, the groove writes itself ·
-        🟩 <b>Beat Sequencer</b> — program each hit by hand ·
-        🥁 <b>Pads</b> — tap sounds live like a drum machine.</span>
-        <span>Design freely, then <b>＋ Add as clip</b> puts it in the song.</span>
-        <button class="coach-close" @click="dismissDrumCoach">Got it</button>
+        <strong>{{ t('play.coachTitle') }}</strong>
+        <span>{{ t('play.coachBody') }}</span>
+        <span>{{ t('play.coachAdd') }}</span>
+        <button class="coach-close" @click="dismissDrumCoach">{{ t('play.gotIt') }}</button>
       </div>
       <div class="drum-mode">
         <button :class="{ on: drumMode === 'smart' }"
-                title="Drag pieces on the board — the groove writes itself"
-                @click="drumMode = 'smart'">Smart Drums</button>
+                :title="t('play.smartDesc')"
+                @click="drumMode = 'smart'">{{ t('play.smartDrums') }}</button>
         <button :class="{ on: drumMode === 'seq' }"
-                title="Program each hit by hand, step by step"
-                @click="drumMode = 'seq'">Beat Sequencer</button>
+                :title="t('play.seqDesc')"
+                @click="drumMode = 'seq'">{{ t('play.beatSequencer') }}</button>
         <button :class="{ on: drumMode === 'pads' }"
-                title="Tap sounds live like a drum machine"
-                @click="drumMode = 'pads'">Pads</button>
+                :title="t('play.padsDesc')"
+                @click="drumMode = 'pads'">{{ t('play.pads') }}</button>
         <span class="mode-desc dim">{{
-          drumMode === 'smart' ? 'drag pieces onto the board — the groove writes itself'
-          : drumMode === 'seq' ? 'program each hit by hand'
-          : 'tap to play like a drum machine' }}</span>
+          drumMode === 'smart' ? t('play.smartDesc')
+          : drumMode === 'seq' ? t('play.seqDesc')
+          : t('play.padsDesc') }}</span>
         <template v-if="drumMode === 'smart'">
-          <button class="dice" title="random groove" @click="diceSmart">🎲</button>
-          <button class="reset" title="clear the board" @click="resetBoard">Reset</button>
+          <button class="dice" :title="t('play.diceTip')" @click="diceSmart">🎲</button>
+          <button class="reset" :title="t('play.resetTip')" @click="resetBoard">{{ t('play.reset') }}</button>
           <button class="audition" :class="{ on: looping }" :disabled="loopLoading"
-                  title="audition the board's groove as a loop with the real kit"
+                  :title="t('seq.previewTip')"
                   @click="toggleLoop">
-            {{ loopLoading ? '⏳ rendering…' : looping ? '■ Stop' : '▶ Preview loop' }}
+            {{ loopLoading ? '⏳ ' + t('seq.rendering') : looping ? '■ ' + t('common.stop') : '▶ ' + t('seq.previewLoop') }}
           </button>
-          <button class="add-clip" title="add this groove to the song as a new 4-bar clip at the playhead"
-                  @click="addSmartAsClip">＋ Add as clip</button>
+          <button class="add-clip" :title="t('play.addClipTip')"
+                  @click="addSmartAsClip">＋ {{ t('seq.addAsClip') }}</button>
         </template>
       </div>
       <div v-if="drumMode === 'smart'" class="smart-wrap">
         <!-- kit picker (GarageBand-style left panel) -->
         <div v-if="kits.length" class="kit-panel">
           <div class="kit-visual" v-html="DRUM_SVG['Toms'] + DRUM_SVG['Crash']" />
-          <button class="kit-arrow" title="previous kit" @click="pickKit(-1)">‹</button>
+          <button class="kit-arrow" :title="t('play.prevKit')" @click="pickKit(-1)">‹</button>
           <div class="kit-name" :title="currentKit?.soundfont">
             {{ currentKit?.label ?? 'Drum Kit' }}
           </div>
-          <button class="kit-arrow" title="next kit" @click="pickKit(1)">›</button>
-          <div class="dim tiny">{{ kitIndex + 1 }} / {{ kits.length }} kits</div>
+          <button class="kit-arrow" :title="t('play.nextKit')" @click="pickKit(1)">›</button>
+          <div class="dim tiny">{{ t('play.kitCount', { i: kitIndex + 1, n: kits.length }) }}</div>
         </div>
         <div ref="boardEl" class="smart-board">
-          <span class="axis top">loud</span>
-          <span class="axis bottom">quiet</span>
-          <span class="axis left">simple</span>
-          <span class="axis right">complex</span>
+          <span class="axis top">{{ t('play.loud') }}</span>
+          <span class="axis bottom">{{ t('play.quiet') }}</span>
+          <span class="axis left">{{ t('play.simple') }}</span>
+          <span class="axis right">{{ t('play.complex') }}</span>
           <div v-for="el in smartEls.filter(e => e.placed)" :key="el.label" class="smart-chip on-board"
                :style="{ left: el.x * 100 + '%', top: el.y * 100 + '%' }"
                @pointerdown.prevent="chipDown($event, el)">
@@ -557,7 +554,7 @@ const bgImage = computed(() => {
           </div>
         </div>
         <div class="smart-tray">
-          <div class="dim tiny">drag onto the board</div>
+          <div class="dim tiny">{{ t('play.dragOnto') }}</div>
           <div v-for="el in smartEls.filter(e => !e.placed)" :key="el.label" class="smart-chip"
                @pointerdown.prevent="chipDown($event, el)">
             <span v-if="DRUM_SVG[el.label]" class="chip-svg" v-html="DRUM_SVG[el.label]" />
