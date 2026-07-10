@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { AudioWaveform, Cloud, Copy, Drum, Guitar, KeyboardMusic, Megaphone,
+         MessageSquare, Mic, Music, Music4, Pencil, Piano, Plus, Scissors,
+         SlidersHorizontal, Sparkles, Trash2, Wind } from 'lucide-vue-next'
 import { api } from '../api/client'
+import { TRACK_COLORS, TYPE_ABBR } from '../lib/trackColors'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 import AddTrackDialog from './AddTrackDialog.vue'
@@ -58,11 +62,13 @@ function setVolume(trackId: string, v: number) {
 // --- quick instrument switch: categorized catalog popover ------------------
 interface CatalogPreset { label: string; asset_id: string; soundfont: string; bank: number; program: number }
 interface CatalogCategory { category: string; presets: CatalogPreset[] }
-const CATEGORY_ICONS: Record<string, string> = {
-  'Piano & Keys': '🎹', Organ: '🪗', Guitar: '🎸', Bass: '🎸', Strings: '🎻',
-  Brass: '🎺', 'Sax & Winds': '🎷', 'Voice & Choir': '🎤', 'Synth Lead': '🎛️',
-  'Synth Pad': '🌫️', 'Drum Kits': '🥁', Percussion: '🪘', FX: '✨', Other: '🎵',
+const CATEGORY_ICONS: Record<string, unknown> = {
+  'Piano & Keys': Piano, Organ: KeyboardMusic, Guitar: Guitar, Bass: AudioWaveform,
+  Strings: Music4, Brass: Megaphone, 'Sax & Winds': Wind, 'Voice & Choir': Mic,
+  'Synth Lead': KeyboardMusic, 'Synth Pad': Cloud, 'Drum Kits': Drum,
+  Percussion: Drum, FX: Sparkles, Other: Music,
 }
+const catIcon = (c: string) => CATEGORY_ICONS[c] ?? Music
 const catalog = ref<CatalogCategory[]>([])
 const instSwitch = ref<string | null>(null)
 const instQuery = ref('')
@@ -98,19 +104,7 @@ async function pickInstrument(hit: CatalogPreset) {
 const canSwitchInstrument = (type: string) =>
   !['sample', 'lead_vocal', 'backing_vocal'].includes(type)
 
-// readable type abbreviations so track types aren't distinguished by color alone
-const TYPE_ABBR: Record<string, string> = {
-  drums: 'DR', bass: 'BA', guitar: 'GT', keys: 'KY', synth: 'SY',
-  strings: 'ST', brass: 'BR', sample: 'SMP', lead_vocal: 'VOX',
-  backing_vocal: 'BVX', fx: 'FX',
-}
-
-const TRACK_COLORS: Record<string, string> = {
-  drums: '#e6a23c', bass: '#f2555a', guitar: '#f78fb3', keys: '#4f9cf9',
-  synth: '#9d6ff2', strings: '#3ecf8e', brass: '#e0c341', sample: '#41c9e0',
-  lead_vocal: '#ff7eb6', backing_vocal: '#c792ea', fx: '#8d96a8',
-}
-const color = (t: string) => TRACK_COLORS[t] ?? '#8d96a8'
+const color = (t: string) => TRACK_COLORS[t] ?? TRACK_COLORS.fx
 
 // ------- precomputed layout (rebuilt only when manifest/zoom change) -------
 interface NoteRect { x: number; y: number; w: number; o: number }
@@ -387,11 +381,11 @@ async function deleteClip() {
       <span class="dim small">{{ $t('timeline.zoom') }}</span>
       <input type="range" min="4" max="48" v-model.number="pxPerBeat" style="width: 100px" />
       <span class="sep" />
-      <button class="tb primary" :disabled="saving" @click="showAddTrack = true">＋ {{ $t('timeline.addTrack') }}</button>
+      <button class="tb primary" :disabled="saving" @click="showAddTrack = true"><Plus class="icon" :size="13" /> {{ $t('timeline.addTrack') }}</button>
       <span class="sep" />
-      <button class="tb" :disabled="!selectedClip || saving" :title="$t('timeline.splitTip')" @click="splitClip">✂ {{ $t('timeline.split') }}</button>
-      <button class="tb" :disabled="!selectedClip || saving" :title="$t('timeline.duplicateTip')" @click="duplicateClip">⧉ {{ $t('timeline.duplicate') }}</button>
-      <button class="tb danger" :disabled="!selectedClip || saving" :title="$t('timeline.deleteTip')" @click="deleteClip">✕ {{ $t('timeline.clip') }}</button>
+      <button class="tb" :disabled="!selectedClip || saving" :title="$t('timeline.splitTip')" @click="splitClip"><Scissors class="icon" :size="13" /> {{ $t('timeline.split') }}</button>
+      <button class="tb" :disabled="!selectedClip || saving" :title="$t('timeline.duplicateTip')" @click="duplicateClip"><Copy class="icon" :size="13" /> {{ $t('timeline.duplicate') }}</button>
+      <button class="tb danger" :disabled="!selectedClip || saving" :title="$t('timeline.deleteTip')" @click="deleteClip"><Trash2 class="icon" :size="13" /> {{ $t('timeline.clip') }}</button>
       <span class="spacer" />
       <span class="dim small">{{ $t('timeline.barsSeconds', { bars: manifest.total_bars, s: manifest.duration_seconds.toFixed(1) }) }}<template v-if="saving"> · {{ $t('common.saving') }}</template></span>
     </div>
@@ -399,17 +393,17 @@ async function deleteClip() {
       <p class="dim">{{ $t('timeline.emptySong') }}</p>
       <div class="starter-btns">
         <button class="starter-card" @click="showAddTrack = true">
-          <span class="starter-icon">🎹</span>
+          <Piano class="starter-icon" :size="30" />
           <strong>{{ $t('timeline.addInstrument') }}</strong>
           <span class="dim small">{{ $t('timeline.addInstrumentBlurb') }}</span>
         </button>
         <button class="starter-card" @click="showAddTrack = true">
-          <span class="starter-icon">🎤</span>
+          <Mic class="starter-icon" :size="30" />
           <strong>{{ $t('timeline.addVocals') }}</strong>
           <span class="dim small">{{ $t('timeline.addVocalsBlurb') }}</span>
         </button>
         <div class="starter-card static">
-          <span class="starter-icon">💬</span>
+          <MessageSquare class="starter-icon" :size="30" />
           <strong>{{ $t('timeline.orChat') }}</strong>
           <span class="dim small">{{ $t('timeline.orChatBlurb') }}</span>
         </div>
@@ -464,9 +458,9 @@ async function deleteClip() {
                      @input="setVolume(tl.track.track_id, Number(($event.target as HTMLInputElement).value))" />
               <button v-if="canSwitchInstrument(tl.track.track_type)" class="mini"
                       :title="$t('timeline.switchInstrument')"
-                      @click.stop="openInstSwitch(tl.track.track_id)">🎛</button>
+                      @click.stop="openInstSwitch(tl.track.track_id)"><SlidersHorizontal class="icon" :size="11" /></button>
               <button class="mini" :title="$t('timeline.instrumentFx')"
-                      @click.stop="studio.openTrackInspector(tl.track.track_id)">✎</button>
+                      @click.stop="studio.openTrackInspector(tl.track.track_id)"><Pencil class="icon" :size="11" /></button>
             </div>
             <div v-if="instSwitch === tl.track.track_id" class="inst-pop" @click.stop @dblclick.stop>
               <input v-model="instQuery" :placeholder="$t('timeline.searchInstruments')"
@@ -476,11 +470,11 @@ async function deleteClip() {
                         :class="{ on: instCategory === c.category }"
                         :title="c.category"
                         @click="instCategory = c.category">
-                  {{ CATEGORY_ICONS[c.category] ?? '🎵' }}
+                  <component :is="catIcon(c.category)" class="icon" :size="14" />
                 </button>
               </div>
               <div v-if="instQuery.trim().length < 2" class="dim tiny cat-name">
-                {{ CATEGORY_ICONS[instCategory] }} {{ instCategory }}
+                <component :is="catIcon(instCategory)" class="icon" :size="11" /> {{ instCategory }}
               </div>
               <div class="inst-hits">
                 <div v-for="(h, i) in instHits" :key="i" class="inst-hit" @click="pickInstrument(h)">
@@ -533,7 +527,7 @@ async function deleteClip() {
 .starter-card { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 18px 20px; width: 200px; border-radius: 12px; }
 .starter-card:hover:not(.static) { border-color: var(--accent); background: var(--bg-elevated); }
 .starter-card.static { border: 1px dashed var(--border); background: transparent; cursor: default; }
-.starter-icon { font-size: 30px; }
+.starter-icon { color: var(--accent); }
 .tb { padding: 3px 9px; font-size: 12px; }
 .tb.danger:not(:disabled) { border-color: var(--err); color: var(--err); }
 .scroll-area { flex: 1; overflow: auto; }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Music, RefreshCw, Tag, Upload } from 'lucide-vue-next'
 import { api } from '../api/client'
 import type { Asset } from '../api/types'
 
@@ -179,17 +180,18 @@ onMounted(load)
       <input v-model="tagFilter" :placeholder="t('assets.tagPh')" style="width: 140px" />
       <span class="spacer" />
       <button v-if="tab === 'sample'" :disabled="tagging" @click="autoTagAll">
-        {{ tagging ? t('assets.tagging') + ' ' + tagProgress : '🏷 ' + t('assets.autoTag') }}
+        <template v-if="tagging">{{ t('assets.tagging') }} {{ tagProgress }}</template>
+        <template v-else><Tag class="icon" :size="12" /> {{ t('assets.autoTag') }}</template>
       </button>
       <template v-if="tab === 'score'">
         <input ref="scoreFile" type="file" accept=".mid,.midi,.musicxml,.xml,.mxl,.gp3,.gp4,.gp5,.mscz,.pdf,.jpg,.jpeg,.png"
                style="display: none" @change="uploadScore" />
         <button :disabled="busy" @click="($refs.scoreFile as HTMLInputElement).click()">
-          ⬆ {{ t('assets.uploadScore') }}
+          <Upload class="icon" :size="12" /> {{ t('assets.uploadScore') }}
         </button>
       </template>
       <span class="dim small">{{ scanMsg }}</span>
-      <button :disabled="busy" @click="rescan">{{ t('assets.rescan') }}</button>
+      <button :disabled="busy" @click="rescan"><RefreshCw class="icon" :size="12" /> {{ t('assets.rescan') }}</button>
     </div>
     <div class="content">
       <div class="list panel">
@@ -242,7 +244,8 @@ onMounted(load)
             <button v-if="tab === 'sample' || tab === 'voice_recording'" :disabled="busy" @click="analyse">{{ t('assets.analyse') }}</button>
             <button v-if="tab === 'score' && !selected.is_missing" :disabled="importing"
                     class="primary" @click="importScoreAsSong">
-              {{ importing ? t('assets.reading') : '♫ ' + t('assets.turnIntoSong') }}
+              <template v-if="importing">{{ t('assets.reading') }}</template>
+              <template v-else><Music class="icon" :size="12" /> {{ t('assets.turnIntoSong') }}</template>
             </button>
           </div>
           <div v-if="importMsg" class="dim small">{{ importMsg }}</div>

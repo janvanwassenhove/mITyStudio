@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Mic } from 'lucide-vue-next'
 import { api } from '../api/client'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
@@ -99,7 +100,8 @@ function seekToLine(start: number | null) {
       <button :class="{ active: mode === 'karaoke' }" @click="mode = 'karaoke'">{{ t('lyrics.karaoke') }}</button>
       <button v-if="hasLyrics && unsungSections > 0" class="sing-btn"
               :disabled="singing" @click="singLyrics">
-        {{ singing ? t('lyrics.writingMelody') : '🎤 ' + t('lyrics.singThese', { n: unsungSections }) }}
+        <template v-if="singing">{{ t('lyrics.writingMelody') }}</template>
+        <template v-else><Mic class="icon" :size="12" /> {{ t('lyrics.singThese', { n: unsungSections }) }}</template>
       </button>
       <span class="dim small sing-msg">{{ singMsg }}</span>
       <span class="dim small" style="margin-left: auto">

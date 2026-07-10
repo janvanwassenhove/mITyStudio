@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { Pencil, Piano } from 'lucide-vue-next'
 import type { Clip, NoteEvent, Track } from '../api/types'
+import { TRACK_COLORS } from '../lib/trackColors'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 import InstrumentPlayView from './InstrumentPlayView.vue'
+import TrackIcon from './TrackIcon.vue'
 
 const studio = useStudioStore()
 const playback = usePlaybackStore()
@@ -17,17 +20,8 @@ const found = computed<{ track: Track; clip: Clip } | null>(() => {
   return track && clip ? { track, clip } : null
 })
 
-const TRACK_COLORS: Record<string, string> = {
-  drums: '#e6a23c', bass: '#f2555a', guitar: '#f78fb3', keys: '#4f9cf9',
-  synth: '#9d6ff2', strings: '#3ecf8e', brass: '#e0c341', sample: '#41c9e0',
-  lead_vocal: '#ff7eb6', backing_vocal: '#c792ea', fx: '#8d96a8',
-}
-const trackColor = computed(() => TRACK_COLORS[found.value?.track.track_type ?? ''] ?? '#4f9cf9')
-
-const TYPE_ICONS: Record<string, string> = {
-  drums: '🥁', bass: '🎸', guitar: '🎸', keys: '🎹', synth: '🎛️',
-  strings: '🎻', brass: '🎺', sample: '🔁', lead_vocal: '🎤', backing_vocal: '🎤', fx: '✨',
-}
+const trackColor = computed(() =>
+  TRACK_COLORS[found.value?.track.track_type ?? ''] ?? TRACK_COLORS.keys)
 
 const isDrums = computed(() => found.value?.track.track_type === 'drums')
 const isSample = computed(() => found.value?.clip.clip_type === 'sample')
@@ -234,12 +228,12 @@ onBeforeUnmount(stopPh)
   </div>
   <div v-else class="editor">
     <div class="ed-toolbar" :style="{ borderLeft: `3px solid ${trackColor}` }">
-      <span class="ed-icon">{{ TYPE_ICONS[found.track.track_type] }}</span>
+      <TrackIcon class="ed-icon" :type="found.track.track_type" :size="16" colored />
       <strong>{{ found.track.name }}</strong>
       <span class="dim small">{{ isSample ? $t('clipEditor.audioClip') : isDrums ? $t('clipEditor.beatGrid') : $t('clipEditor.pianoRoll') }} · {{ $t('clipEditor.beats', { n: found.clip.duration_beats }) }}</span>
       <div v-if="!isSample" class="view-toggle">
-        <button :class="{ on: viewMode === 'edit' }" @click="viewMode = 'edit'">✎ {{ $t('clipEditor.edit') }}</button>
-        <button :class="{ on: viewMode === 'play' }" @click="viewMode = 'play'">🎹 {{ $t('clipEditor.play') }}</button>
+        <button :class="{ on: viewMode === 'edit' }" @click="viewMode = 'edit'"><Pencil class="icon" :size="12" /> {{ $t('clipEditor.edit') }}</button>
+        <button :class="{ on: viewMode === 'play' }" @click="viewMode = 'play'"><Piano class="icon" :size="12" /> {{ $t('clipEditor.play') }}</button>
       </div>
       <span class="spacer" />
       <template v-if="!isSample">

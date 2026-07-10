@@ -368,13 +368,14 @@ function chipUp() {
 }
 
 // ---------------- drums: pad grid ----------------
+// svg key: which DRUM_SVG glyph draws this pad (the app's own drum icon set)
 const PADS = [
-  { midi: 49, label: 'Crash', icon: '💥' }, { midi: 51, label: 'Ride', icon: '🛎' },
-  { midi: 46, label: 'Open Hat', icon: '✨' }, { midi: 42, label: 'Hi-Hat', icon: '🎩' },
-  { midi: 50, label: 'Hi Tom', icon: '🥁' }, { midi: 47, label: 'Mid Tom', icon: '🥁' },
-  { midi: 45, label: 'Lo Tom', icon: '🥁' }, { midi: 39, label: 'Clap', icon: '👏' },
-  { midi: 70, label: 'Shaker', icon: '🪇' }, { midi: 37, label: 'Rimshot', icon: '🪘' },
-  { midi: 38, label: 'Snare', icon: '🥁' }, { midi: 36, label: 'Kick', icon: '🦶' },
+  { midi: 49, label: 'Crash', svg: 'Crash' }, { midi: 51, label: 'Ride', svg: 'Ride' },
+  { midi: 46, label: 'Open Hat', svg: 'Open Hat' }, { midi: 42, label: 'Hi-Hat', svg: 'Hi-Hat' },
+  { midi: 50, label: 'Hi Tom', svg: 'Toms' }, { midi: 47, label: 'Mid Tom', svg: 'Toms' },
+  { midi: 45, label: 'Lo Tom', svg: 'Lo Tom' }, { midi: 39, label: 'Clap', svg: 'Clap' },
+  { midi: 70, label: 'Shaker', svg: 'Shaker' }, { midi: 37, label: 'Rimshot', svg: 'Snare' },
+  { midi: 38, label: 'Snare', svg: 'Snare' }, { midi: 36, label: 'Kick', svg: 'Kick' },
 ]
 const hitPad = ref<number | null>(null)
 function tapPad(midi: number) {
@@ -569,7 +570,7 @@ const bgImage = computed(() => {
       <div v-else class="pads">
         <button v-for="p in PADS" :key="p.midi" class="pad-btn"
                 :class="{ hit: hitPad === p.midi }" @pointerdown="tapPad(p.midi)">
-          <span class="pad-icon">{{ p.icon }}</span>
+          <span class="pad-icon" v-html="DRUM_SVG[p.svg] ?? DRUM_SVG['Toms']" />
           <span class="pad-label">{{ p.label }}</span>
         </button>
       </div>
@@ -652,7 +653,8 @@ const bgImage = computed(() => {
 .pads { flex: 1; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 4px 12px 12px; }
 .pad-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; border-radius: 10px; background: rgba(30,33,40,0.82); border: 1px solid #3a3f49; box-shadow: inset 0 -3px 8px rgba(0,0,0,0.5), 0 2px 4px rgba(0,0,0,0.4); cursor: pointer; min-height: 0; }
 .pad-btn:active, .pad-btn.hit { background: rgba(79,156,249,0.35); border-color: var(--accent); box-shadow: inset 0 0 14px rgba(79,156,249,0.4); }
-.pad-icon { font-size: 22px; }
+.pad-icon { display: flex; color: currentColor; }
+.pad-icon :deep(svg) { width: 26px; height: 26px; }
 .pad-label { font-size: 10px; color: var(--text-dim); }
 /* chord strips */
 .strips { flex: 1; display: flex; gap: 6px; padding: 4px 12px 12px; }

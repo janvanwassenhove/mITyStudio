@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Dumbbell, Mic, Play, Trash2, Wand2 } from 'lucide-vue-next'
 import { api } from '../api/client'
 import type { Asset, VoiceProfile } from '../api/types'
 import VoiceWizard from '../components/VoiceWizard.vue'
@@ -236,7 +237,7 @@ onMounted(load)
         <div class="rec-actions">
           <button v-if="!r.is_missing" class="small-btn"
                   :title="t('voices.makeVoiceTip')"
-                  @click="startProfileFrom(r)">🎙 → {{ t('voices.makeVoice') }}</button>
+                  @click="startProfileFrom(r)"><Mic class="icon" :size="12" /> {{ t('voices.makeVoice') }}</button>
           <label v-if="showProfileForm" class="small">
             <input type="checkbox" :value="r.id" v-model="selectedRecordings" /> {{ t('voices.useForProfile') }}
           </label>
@@ -253,7 +254,7 @@ onMounted(load)
       <div class="create-row">
         <button class="primary" @click="showWizard = true"
                 :title="t('voices.wizardTip')">
-          🧙 {{ t('voices.guidedSetup') }}</button>
+          <Wand2 class="icon" :size="13" /> {{ t('voices.guidedSetup') }}</button>
         <button v-if="!showProfileForm" @click="showProfileForm = true"
                 :title="t('voices.fromExistingTip')">
           + {{ t('voices.fromExisting') }}</button>
@@ -281,10 +282,11 @@ onMounted(load)
             <button class="small-btn" :disabled="testingId === p.id"
                     :title="t('voices.testTip')"
                     @click="testVoice(p)">
-              {{ testingId === p.id ? '⏳ ' + t('voices.synthesizing') : '▶ ' + t('voices.testVoice') }}
+              <template v-if="testingId === p.id">⏳ {{ t('voices.synthesizing') }}</template>
+              <template v-else><Play class="icon" :size="11" /> {{ t('voices.testVoice') }}</template>
             </button>
             <button class="del-btn" :title="t('voices.deleteTip')"
-                    @click="deleteProfile(p)">🗑</button>
+                    @click="deleteProfile(p)"><Trash2 class="icon" :size="12" /></button>
           </div>
         </div>
         <div v-if="testResults[p.id]" class="test-result">
@@ -296,7 +298,7 @@ onMounted(load)
           <button v-if="rvcBadge(p)!.canTrain" class="small-btn train-btn"
                   :disabled="anyTraining"
                   :title="anyTraining ? t('voices.oneAtATime') : t('voices.trainTip')"
-                  @click="startTraining(p)">🏋 {{ t('voices.startTraining') }}</button>
+                  @click="startTraining(p)"><Dumbbell class="icon" :size="12" /> {{ t('voices.startTraining') }}</button>
         </div>
         <div v-if="trainMsg" class="dim small">{{ trainMsg }}</div>
         <div class="dim small">

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Dumbbell, Ear, Play, Wand2 } from 'lucide-vue-next'
 import { api } from '../api/client'
 import type { Asset } from '../api/types'
 import { currentLocale } from '../i18n'
@@ -301,7 +302,7 @@ onMounted(async () => {
   <div class="overlay" @click.self="emit('close', !!createdProfileId)">
     <div class="wiz panel">
       <div class="head">
-        <h3>🧙 {{ t('wizard.title') }}</h3>
+        <h3><Wand2 class="icon" :size="17" /> {{ t('wizard.title') }}</h3>
         <span class="dim small steps">{{ ['consent', 'setup', 'takes', 'finish'].indexOf(step) + 1 }} / 4</span>
         <button class="close" @click="emit('close', !!createdProfileId)">✕</button>
       </div>
@@ -346,7 +347,7 @@ onMounted(async () => {
         <h4>{{ t('wizard.rangeCheck') }}</h4>
         <p class="dim small">{{ t('wizard.rangeBlurb') }}</p>
         <div class="row">
-          <button @click="playRangeGuide">▶ {{ t('wizard.playGuide') }}</button>
+          <button @click="playRangeGuide"><Play class="icon" :size="12" /> {{ t('wizard.playGuide') }}</button>
           <button :class="{ reclive: recording }" :disabled="rangeBusy" @click="recordRange">
             {{ recording ? `■ ${t('common.stop')} (${recSeconds}s)` : '● ' + t('wizard.recordScale') }}
           </button>
@@ -377,10 +378,11 @@ onMounted(async () => {
         <template v-if="currentEx">
           <p class="coach">🎤 {{ exCoach(currentEx) }}</p>
           <div class="row">
-            <button @click="playGuide">▶ {{ t('wizard.hearGuide') }}</button>
+            <button @click="playGuide"><Play class="icon" :size="12" /> {{ t('wizard.hearGuide') }}</button>
             <button :disabled="takeBusy" @click="doPractice"
                     :class="{ reclive: recording && !takeBusy }">
-              {{ recording ? `■ ${t('common.stop')} (${recSeconds}s)` : '👂 ' + t('wizard.practice') }}
+              <template v-if="recording">■ {{ t('common.stop') }} ({{ recSeconds }}s)</template>
+              <template v-else><Ear class="icon" :size="12" /> {{ t('wizard.practice') }}</template>
             </button>
             <button class="primary" :disabled="takeBusy" @click="doTake">
               {{ recording ? `■ ${t('wizard.stopTake')} (${recSeconds}s)` : '● ' + t('wizard.take') }}
@@ -425,7 +427,7 @@ onMounted(async () => {
         <p class="dim small">{{ t('wizard.nextTraining') }}</p>
         <div class="row" v-if="device">
           <button class="primary" @click="startTraining(device.recommended_tier)">
-            🏋 {{ t('wizard.startTier', { tier: t('wizard.tier.' + device.recommended_tier), epochs: device.tiers[device.recommended_tier] }) }}
+            <Dumbbell class="icon" :size="13" /> {{ t('wizard.startTier', { tier: t('wizard.tier.' + device.recommended_tier), epochs: device.tiers[device.recommended_tier] }) }}
           </button>
           <button @click="startTraining(device.recommended_tier === 'full' ? 'quick' : 'full')">
             {{ t('wizard.tierInstead', { tier: t('wizard.tier.' + (device.recommended_tier === 'full' ? 'quick' : 'full')) }) }}

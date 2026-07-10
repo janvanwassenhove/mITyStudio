@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Loader, Mic, Pause, Play, Redo2, Square, Timer, Undo2 } from 'lucide-vue-next'
 import { api } from '../api/client'
 import type { Asset, SongProject } from '../api/types'
 import { useStudioStore } from '../stores/studio'
@@ -109,21 +110,24 @@ onUnmounted(() => { if (recording.value) stopRecord() })
 
 <template>
   <div class="transport panel">
-    <button :title="t('transport.stop')" @click="playback.stop()">⏹</button>
+    <button :title="t('transport.stop')" @click="playback.stop()"><Square class="icon" :size="14" /></button>
     <button class="primary" :title="playback.playing ? t('transport.pause') : t('transport.play')"
             :disabled="!studio.manifest || playback.preparing"
             @click="playback.playing ? playback.pause() : playback.play()">
-      {{ playback.preparing ? '⏳' : playback.playing ? '⏸' : '▶' }}
+      <Loader v-if="playback.preparing" class="icon spin" :size="14" />
+      <Pause v-else-if="playback.playing" class="icon" :size="14" />
+      <Play v-else class="icon" :size="14" />
     </button>
     <button :class="{ 'rec-on': recording }" :disabled="!studio.project"
             :title="recording ? t('transport.stopRecording') : t('transport.recordTip')"
             @click="toggleRecord">
-      {{ recording ? '■ ' + recSeconds + 's' : '🎙' }}
+      <template v-if="recording">■ {{ recSeconds }}s</template>
+      <Mic v-else class="icon" :size="14" />
     </button>
     <button :class="{ active: playback.metronome }" :title="t('transport.metronome')"
-            @click="playback.metronome = !playback.metronome">🕐</button>
-    <button :disabled="!studio.canUndo" :title="t('transport.undo')" @click="studio.undo()">↶</button>
-    <button :disabled="!studio.canRedo" :title="t('transport.redo')" @click="studio.redo()">↷</button>
+            @click="playback.metronome = !playback.metronome"><Timer class="icon" :size="14" /></button>
+    <button :disabled="!studio.canUndo" :title="t('transport.undo')" @click="studio.undo()"><Undo2 class="icon" :size="14" /></button>
+    <button :disabled="!studio.canRedo" :title="t('transport.redo')" @click="studio.redo()"><Redo2 class="icon" :size="14" /></button>
     <button class="time-toggle" :title="studio.timeMode === 'bars' ? t('transport.switchToSeconds') : t('transport.switchToBars')"
             @click="studio.timeMode = studio.timeMode === 'bars' ? 'seconds' : 'bars'">
       <span class="time">{{ studio.timeMode === 'bars' ? t('transport.bar') + ' ' + barBeat : timeDisplay }}</span>

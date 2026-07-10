@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { VoiceProfile } from '../api/types'
 import { useStudioStore } from '../stores/studio'
+import TrackIcon from './TrackIcon.vue'
 
 const emit = defineEmits<{ close: [] }>()
 const { t } = useI18n()
@@ -11,20 +12,13 @@ const studio = useStudioStore()
 
 interface InstrumentCard {
   type: string
-  icon: string
 }
 
 // labels/blurbs live in the locale files under addTrack.inst.<type>
 const INSTRUMENTS: InstrumentCard[] = [
-  { type: 'drums', icon: '🥁' },
-  { type: 'bass', icon: '🎸' },
-  { type: 'guitar', icon: '🎸' },
-  { type: 'keys', icon: '🎹' },
-  { type: 'synth', icon: '🎛️' },
-  { type: 'strings', icon: '🎻' },
-  { type: 'brass', icon: '🎺' },
-  { type: 'lead_vocal', icon: '🎤' },
-  { type: 'sample', icon: '🔁' },
+  { type: 'drums' }, { type: 'bass' }, { type: 'guitar' }, { type: 'keys' },
+  { type: 'synth' }, { type: 'strings' }, { type: 'brass' },
+  { type: 'lead_vocal' }, { type: 'sample' },
 ]
 
 const label = (c: InstrumentCard) => t(`addTrack.inst.${c.type}.label`)
@@ -94,14 +88,14 @@ async function add() {
   <div class="overlay" @click.self="emit('close')">
     <div class="dialog panel">
       <div class="head">
-        <h3>{{ picked ? picked.icon + ' ' + label(picked) : t('addTrack.title') }}</h3>
+        <h3><TrackIcon v-if="picked" :type="picked.type" :size="18" colored /> {{ picked ? label(picked) : t('addTrack.title') }}</h3>
         <button class="close" @click="emit('close')">✕</button>
       </div>
 
       <!-- step 1: pick instrument -->
       <div v-if="!picked" class="cards">
         <button v-for="c in INSTRUMENTS" :key="c.type" class="card" @click="picked = c">
-          <span class="icon">{{ c.icon }}</span>
+          <TrackIcon :type="c.type" :size="28" colored />
           <span class="card-label">{{ label(c) }}</span>
           <span class="dim blurb">{{ t(`addTrack.inst.${c.type}.blurb`) }}</span>
         </button>
@@ -180,7 +174,6 @@ h3 { margin: 0; }
 .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .card { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 14px 8px; border-radius: 10px; }
 .card:hover { border-color: var(--accent); background: var(--bg-elevated); }
-.icon { font-size: 28px; }
 .card-label { font-weight: 600; font-size: 13px; }
 .blurb { font-size: 10px; text-align: center; line-height: 1.3; }
 .options { display: flex; flex-direction: column; gap: 14px; }

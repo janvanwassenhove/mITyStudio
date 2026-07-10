@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { AudioWaveform, Cloud, Drum, Guitar, KeyboardMusic, Mic, Piano,
+         Repeat, Sparkles, Speaker, Zap } from 'lucide-vue-next'
 import { api } from '../api/client'
 import { useStudioStore } from '../stores/studio'
 
@@ -22,12 +24,12 @@ const busy = ref(false)
 const message = ref('')
 
 const CATEGORIES = [
-  { tag: 'kick', icon: '🦶' }, { tag: 'snare', icon: '🥁' },
-  { tag: 'hihat', icon: '🎩' }, { tag: '808', icon: '🔊' },
-  { tag: 'bass', icon: '🎸' }, { tag: 'pad', icon: '🌫️' },
-  { tag: 'loop', icon: '🔁' }, { tag: 'vocal', icon: '🎤' },
-  { tag: 'guitar', icon: '🎸' }, { tag: 'piano', icon: '🎹' },
-  { tag: 'synth', icon: '🎛️' }, { tag: 'fx', icon: '✨' },
+  { tag: 'kick', icon: Zap }, { tag: 'snare', icon: Drum },
+  { tag: 'hihat', icon: Drum }, { tag: '808', icon: Speaker },
+  { tag: 'bass', icon: AudioWaveform }, { tag: 'pad', icon: Cloud },
+  { tag: 'loop', icon: Repeat }, { tag: 'vocal', icon: Mic },
+  { tag: 'guitar', icon: Guitar }, { tag: 'piano', icon: Piano },
+  { tag: 'synth', icon: KeyboardMusic }, { tag: 'fx', icon: Sparkles },
 ]
 const activeTag = ref('')
 function toggleTag(tag: string) {
@@ -90,7 +92,7 @@ onMounted(search)
     <div class="cat-chips">
       <button v-for="c in CATEGORIES" :key="c.tag" class="chip"
               :class="{ on: activeTag === c.tag }" @click="toggleTag(c.tag)">
-        {{ c.icon }} {{ c.tag }}
+        <component :is="c.icon" class="icon" :size="11" /> {{ c.tag }}
       </button>
       <span class="dim small">{{ t('samples.chipsHint') }}</span>
     </div>
