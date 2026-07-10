@@ -80,6 +80,9 @@ Key params per operation:
 - add_section: name, start_bar?, length_bars, energy (0-1), description?
 - add_track: name, track_type (drums|bass|guitar|keys|synth|strings|brass|sample|lead_vocal|backing_vocal|fx), soundfont_asset_id?, program?
 - update_track: track (name or id), name? (rename), volume? (0-2), pan? (-1..1), mute?, solo?
+- split_clip: track, at_bar (1-based bar where the cut falls)
+- duplicate_clip: track, at_bar? (clip covering that bar; omit = last clip)
+- delete_clip: track, at_bar? (omit = last clip)
 - assign_soundfont: track (name or id), soundfont_asset_id, bank, program, preset (label, for the summary)
 - select_sample: sample_asset_id, track?, section?, start_beat?, duration_beats?, loop?
 - generate_drums/generate_bassline/generate_chords/generate_melody: section (name, id, or "all" for every section), track? (created if missing)

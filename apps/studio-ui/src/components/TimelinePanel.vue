@@ -98,6 +98,13 @@ async function pickInstrument(hit: CatalogPreset) {
 const canSwitchInstrument = (type: string) =>
   !['sample', 'lead_vocal', 'backing_vocal'].includes(type)
 
+// readable type abbreviations so track types aren't distinguished by color alone
+const TYPE_ABBR: Record<string, string> = {
+  drums: 'DR', bass: 'BA', guitar: 'GT', keys: 'KY', synth: 'SY',
+  strings: 'ST', brass: 'BR', sample: 'SMP', lead_vocal: 'VOX',
+  backing_vocal: 'BVX', fx: 'FX',
+}
+
 const TRACK_COLORS: Record<string, string> = {
   drums: '#e6a23c', bass: '#f2555a', guitar: '#f78fb3', keys: '#4f9cf9',
   synth: '#9d6ff2', strings: '#3ecf8e', brass: '#e0c341', sample: '#41c9e0',
@@ -439,14 +446,18 @@ async function deleteClip() {
                title="double-click for instrument & effects"
                @dblclick="studio.openTrackInspector(tl.track.track_id)">
             <div class="label-top">
-              <span class="track-dot" :style="{ background: color(tl.track.track_type) }" />
-              <span class="track-name">{{ tl.track.name }}</span>
+              <span class="type-chip" :style="{ background: color(tl.track.track_type) }"
+                    :title="'Track type: ' + tl.track.track_type.replace('_', ' ')">
+                {{ TYPE_ABBR[tl.track.track_type] ?? '??' }}</span>
+              <span class="track-name" :title="tl.track.name">{{ tl.track.name }}</span>
             </div>
             <div class="label-controls" @dblclick.stop>
               <button class="mini" :class="{ mute: projTrack(tl.track.track_id)?.mute }"
-                      title="mute" @click.stop="toggleMute(tl.track.track_id)">M</button>
+                      title="Mute — silence this track in playback and mixes"
+                      @click.stop="toggleMute(tl.track.track_id)">M</button>
               <button class="mini" :class="{ solo: projTrack(tl.track.track_id)?.solo }"
-                      title="solo" @click.stop="toggleSolo(tl.track.track_id)">S</button>
+                      title="Solo — play only soloed tracks"
+                      @click.stop="toggleSolo(tl.track.track_id)">S</button>
               <input class="mini-vol" type="range" min="0" max="1.5" step="0.01" title="volume"
                      :value="projTrack(tl.track.track_id)?.volume ?? 1"
                      @click.stop
@@ -533,6 +544,7 @@ async function deleteClip() {
 .ruler-row .label, .row .label.small { overflow: hidden; }
 .track-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.type-chip { flex: none; font-size: 8px; font-weight: 800; color: #101216; border-radius: 4px; padding: 1px 4px; letter-spacing: 0.04em; }
 .track-label { flex-direction: column; align-items: stretch !important; gap: 3px !important; justify-content: center; cursor: default; }
 .track-label.pop-open { z-index: 30; }
 .label-top { display: flex; align-items: center; gap: 6px; min-width: 0; }

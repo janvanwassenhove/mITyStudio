@@ -18,7 +18,10 @@ function queueSave() {
 
 <template>
   <div class="mixer">
-    <div v-if="!tracks.length" class="dim empty">No tracks yet.</div>
+    <div v-if="!tracks.length" class="dim empty">
+      No tracks to mix yet — click <strong>＋ Add Track</strong> above the timeline,
+      or ask the chat: “create a pop song with drums, bass and keys”.
+    </div>
     <div v-for="t in tracks" :key="t.id" class="strip">
       <div class="strip-name" :title="t.name">{{ t.name }}</div>
       <input

@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useStudioStore } from '../stores/studio'
+import { usePlaybackStore } from '../stores/playback'
 import TransportControls from '../components/TransportControls.vue'
 import ProjectSidebar from '../components/ProjectSidebar.vue'
 import TimelinePanel from '../components/TimelinePanel.vue'
@@ -33,7 +34,65 @@ function startResize(e: PointerEvent) {
     () => window.removeEventListener('pointermove', move), { once: true })
 }
 
-onMounted(() => studio.refreshProjects())
+// --- keyboard shortcuts -----------------------------------------------------
+const playback = usePlaybackStore()
+const showShortcuts = ref(false)
+
+function inTextField(e: KeyboardEvent): boolean {
+  const t = e.target as HTMLElement
+  return ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName) || t.isContentEditable
+}
+
+async function deleteSelectedClip() {
+  const p = studio.project
+  const sel = studio.selectedClip
+  if (!p || !sel) return
+  const track = p.tracks.find((t) => t.id === sel.trackId)
+  if (!track) return
+  track.clips = track.clips.filter((c) => c.id !== sel.clipId)
+  studio.selectedClip = null
+  await studio.saveProject()
+}
+
+function onKeydown(e: KeyboardEvent) {
+  if (inTextField(e)) return
+  const mod = e.ctrlKey || e.metaKey
+  if (e.code === 'Space') {
+    e.preventDefault()
+    if (studio.manifest) playback.playing ? playback.pause() : void playback.play()
+  } else if (mod && !e.shiftKey && e.key.toLowerCase() === 'z') {
+    e.preventDefault()
+    void studio.undo()
+  } else if ((mod && e.shiftKey && e.key.toLowerCase() === 'z') ||
+             (mod && e.key.toLowerCase() === 'y')) {
+    e.preventDefault()
+    void studio.redo()
+  } else if ((e.key === 'Delete' || e.key === 'Backspace') && studio.selectedClip) {
+    e.preventDefault()
+    void deleteSelectedClip()
+  } else if (e.key === '?') {
+    showShortcuts.value = !showShortcuts.value
+  } else if (e.key === 'Escape') {
+    showShortcuts.value = false
+  }
+}
+
+onMounted(() => {
+  studio.refreshProjects()
+  window.addEventListener('keydown', onKeydown)
+})
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+
+const SHORTCUTS = [
+  ['Space', 'Play / pause'],
+  ['Ctrl+Z', 'Undo'],
+  ['Ctrl+Shift+Z or Ctrl+Y', 'Redo'],
+  ['Delete', 'Delete the selected clip'],
+  ['Double-click clip', 'Open the clip editor'],
+  ['Double-click track header', 'Open instrument & effects'],
+  ['Drag ruler', 'Scrub the playhead'],
+  ['?', 'Show / hide this help'],
+]
 </script>
 
 <template>
@@ -70,6 +129,20 @@ onMounted(() => studio.refreshProjects())
         <ExportPanel v-else />
       </aside>
     </div>
+
+    <!-- keyboard shortcuts reference (press ?) -->
+    <div v-if="showShortcuts" class="shortcuts-overlay" @click.self="showShortcuts = false">
+      <div class="shortcuts panel">
+        <h3>Keyboard shortcuts</h3>
+        <table>
+          <tr v-for="[key, desc] in SHORTCUTS" :key="key">
+            <td><kbd>{{ key }}</kbd></td>
+            <td>{{ desc }}</td>
+          </tr>
+        </table>
+        <button @click="showShortcuts = false">Close (Esc)</button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -83,6 +156,11 @@ onMounted(() => studio.refreshProjects())
 .bottom { flex: none; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 .resize-handle { height: 5px; cursor: ns-resize; flex: none; background: transparent; }
 .resize-handle:hover { background: var(--accent); opacity: 0.5; }
+.shortcuts-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: flex; align-items: center; justify-content: center; z-index: 60; }
+.shortcuts { padding: 20px 26px; display: flex; flex-direction: column; gap: 12px; }
+.shortcuts h3 { margin: 0; }
+.shortcuts td { padding: 3px 14px 3px 0; font-size: 13px; }
+.shortcuts kbd { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px; font-size: 12px; }
 .rightbar { width: 340px; flex: none; display: flex; flex-direction: column; overflow: hidden; }
 .tabs { display: flex; gap: 4px; padding: 6px; border-bottom: 1px solid var(--border); flex: none; }
 .tabs button { padding: 4px 10px; font-size: 12px; border: none; background: transparent; color: var(--text-dim); }

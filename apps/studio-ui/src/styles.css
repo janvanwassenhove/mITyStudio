@@ -4,7 +4,7 @@
   --bg-elevated: #252932;
   --border: #31363f;
   --text: #e6e8ec;
-  --text-dim: #9aa1ad;
+  --text-dim: #aab1bd; /* AA-contrast on panel backgrounds for small text */
   --accent: #4f9cf9;
   --accent-2: #9d6ff2;
   --ok: #3ecf8e;

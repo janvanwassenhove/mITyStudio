@@ -129,6 +129,80 @@ def op_update_track(project: SongProject, p: dict) -> str:
     return f"track {t.name!r}: " + ", ".join(changes)
 
 
+def _clip_at_bar(project: SongProject, track: Track, at_bar) :
+    """The clip covering the given bar (1-based, as users speak); without
+    at_bar, the track's last clip."""
+    if not track.clips:
+        raise OperationError(f"track {track.name!r} has no clips")
+    if at_bar is None:
+        return max(track.clips, key=lambda c: c.start_beat)
+    beat = (float(at_bar) - 1) * project.beats_per_bar
+    for c in track.clips:
+        if c.start_beat <= beat < c.start_beat + c.duration_beats:
+            return c
+    raise OperationError(f"no clip on track {track.name!r} at bar {at_bar}")
+
+
+def op_split_clip(project: SongProject, p: dict) -> str:
+    from ..models.song import new_id
+    t = _find_track(project, p.get("track", ""))
+    if p.get("at_bar") is None:
+        raise OperationError("split_clip requires 'at_bar'")
+    clip = _clip_at_bar(project, t, p["at_bar"])
+    cut = (float(p["at_bar"]) - 1) * project.beats_per_bar
+    rel = cut - clip.start_beat
+    if rel <= 0.01 or rel >= clip.duration_beats - 0.01:
+        raise OperationError("the split point must fall inside the clip")
+    second = clip.model_copy(deep=True)
+    second.id = new_id()
+    second.start_beat = clip.start_beat + rel
+    second.duration_beats = clip.duration_beats - rel
+    second.fade_in_seconds = 0.0
+    clip.fade_out_seconds = 0.0
+    if clip.clip_type == "sample":
+        second.source_offset_seconds = (clip.source_offset_seconds
+                                        + rel * 60.0 / project.bpm)
+        second.note_events = []
+    else:
+        first_notes, moved = [], []
+        for n in clip.note_events:
+            if n.start_beat < rel:
+                n.duration_beats = min(n.duration_beats, rel - n.start_beat)
+                if n.duration_beats > 0.01:
+                    first_notes.append(n)
+            else:
+                n2 = n.model_copy()
+                n2.id = new_id()
+                n2.start_beat = n.start_beat - rel
+                moved.append(n2)
+        clip.note_events = first_notes
+        second.note_events = moved
+    clip.duration_beats = rel
+    t.clips.insert(t.clips.index(clip) + 1, second)
+    return f"split the clip on {t.name!r} at bar {p['at_bar']}"
+
+
+def op_duplicate_clip(project: SongProject, p: dict) -> str:
+    from ..models.song import new_id
+    t = _find_track(project, p.get("track", ""))
+    clip = _clip_at_bar(project, t, p.get("at_bar"))
+    copy = clip.model_copy(deep=True)
+    copy.id = new_id()
+    copy.start_beat = clip.start_beat + clip.duration_beats
+    for n in copy.note_events:
+        n.id = new_id()
+    t.clips.insert(t.clips.index(clip) + 1, copy)
+    bar = int(copy.start_beat / project.beats_per_bar) + 1
+    return f"duplicated the clip on {t.name!r} (copy starts at bar {bar})"
+
+
+def op_delete_clip(project: SongProject, p: dict) -> str:
+    t = _find_track(project, p.get("track", ""))
+    clip = _clip_at_bar(project, t, p.get("at_bar"))
+    t.clips = [c for c in t.clips if c.id != clip.id]
+    return f"deleted a clip from {t.name!r}"
+
+
 def op_remove_track(project: SongProject, p: dict) -> str:
     t = _find_track(project, p.get("track", ""))
     project.tracks = [x for x in project.tracks if x.id != t.id]
@@ -436,6 +510,9 @@ _HANDLERS: dict[str, Callable[[SongProject, dict], str]] = {
     "add_track": op_add_track,
     "update_track": op_update_track,
     "remove_track": op_remove_track,
+    "split_clip": op_split_clip,
+    "duplicate_clip": op_duplicate_clip,
+    "delete_clip": op_delete_clip,
     "assign_soundfont": op_assign_soundfont,
     "select_sample": op_select_sample,
     "generate_chords": op_generate_chords,

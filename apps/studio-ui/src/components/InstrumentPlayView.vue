@@ -72,6 +72,14 @@ function playDrum(midi: number) {
 // ---------------- write vs practice + step record ----------------
 const writeMode = ref(false)   // practice by default: tap to hear only
 
+// first-use coach mark for the drum modes
+const showDrumCoach = ref(props.track.track_type === 'drums'
+  && !localStorage.getItem('mity-drums-coach'))
+function dismissDrumCoach() {
+  showDrumCoach.value = false
+  localStorage.setItem('mity-drums-coach', '1')
+}
+
 // ---------------- loop preview with the REAL instrument sound -------------
 const looping = ref(false)
 const loopLoading = ref(false)
@@ -462,9 +470,15 @@ const bgImage = computed(() => {
   <div class="play-surface" :style="bgImage ? { backgroundImage: `linear-gradient(rgba(10,12,16,0.55), rgba(10,12,16,0.7)), url(${bgImage})` } : {}">
     <div class="hint-bar">
       <div class="mode-switch">
-        <button :class="{ on: !writeMode }" @click="writeMode = false">👂 Practice</button>
-        <button :class="{ on: writeMode }" class="write" @click="writeMode = true">● Write</button>
+        <button :class="{ on: !writeMode }" title="Taps only make sound — nothing is recorded"
+                @click="writeMode = false">👂 Practice</button>
+        <button :class="{ on: writeMode }" class="write"
+                title="Taps are written into the clip at the playhead"
+                @click="writeMode = true">
+          <span class="rec-dot" :class="{ live: writeMode }" /> Write
+        </button>
       </div>
+      <span v-if="writeMode" class="rec-banner">● REC — taps are being written</span>
       <button class="loop-btn" :class="{ on: looping }" :disabled="loopLoading"
               title="loop the first 2 bars with the real instrument sound"
               @click="toggleLoop">
@@ -484,10 +498,28 @@ const bgImage = computed(() => {
 
     <!-- drums: smart board or pads -->
     <template v-if="surface === 'drums'">
+      <div v-if="showDrumCoach" class="coach">
+        <strong>Three ways to make a beat:</strong>
+        <span>🎛 <b>Smart Drums</b> — drag pieces on the board, the groove writes itself ·
+        🟩 <b>Beat Sequencer</b> — program each hit by hand ·
+        🥁 <b>Pads</b> — tap sounds live like a drum machine.</span>
+        <span>Design freely, then <b>＋ Add as clip</b> puts it in the song.</span>
+        <button class="coach-close" @click="dismissDrumCoach">Got it</button>
+      </div>
       <div class="drum-mode">
-        <button :class="{ on: drumMode === 'smart' }" @click="drumMode = 'smart'">Smart Drums</button>
-        <button :class="{ on: drumMode === 'seq' }" @click="drumMode = 'seq'">Beat Sequencer</button>
-        <button :class="{ on: drumMode === 'pads' }" @click="drumMode = 'pads'">Pads</button>
+        <button :class="{ on: drumMode === 'smart' }"
+                title="Drag pieces on the board — the groove writes itself"
+                @click="drumMode = 'smart'">Smart Drums</button>
+        <button :class="{ on: drumMode === 'seq' }"
+                title="Program each hit by hand, step by step"
+                @click="drumMode = 'seq'">Beat Sequencer</button>
+        <button :class="{ on: drumMode === 'pads' }"
+                title="Tap sounds live like a drum machine"
+                @click="drumMode = 'pads'">Pads</button>
+        <span class="mode-desc dim">{{
+          drumMode === 'smart' ? 'drag pieces onto the board — the groove writes itself'
+          : drumMode === 'seq' ? 'program each hit by hand'
+          : 'tap to play like a drum machine' }}</span>
         <template v-if="drumMode === 'smart'">
           <button class="dice" title="random groove" @click="diceSmart">🎲</button>
           <button class="reset" title="clear the board" @click="resetBoard">Reset</button>
@@ -573,6 +605,13 @@ const bgImage = computed(() => {
 .mode-switch button { border: none; background: transparent; color: var(--text-dim); font-size: 11px; padding: 2px 10px; }
 .mode-switch button.on { background: var(--bg-elevated); color: var(--text); border-radius: 4px; }
 .mode-switch button.write.on { background: var(--err); color: #fff; }
+.rec-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #777; margin-right: 3px; }
+.rec-dot.live { background: #fff; animation: rec-pulse 1.1s ease-in-out infinite; }
+@keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+.rec-banner { font-size: 11px; color: var(--err); font-weight: 700; }
+.coach { display: flex; flex-direction: column; gap: 4px; font-size: 12px; background: rgba(79,156,249,0.12); border: 1px solid var(--accent); border-radius: 8px; padding: 8px 12px; margin: 0 12px 6px; position: relative; }
+.coach-close { align-self: flex-end; font-size: 11px; padding: 2px 10px; }
+.mode-desc { font-size: 11px; margin-left: 6px; }
 .loop-btn { font-size: 11px; padding: 2px 10px; }
 .loop-btn.on { border-color: var(--accent); color: var(--accent); }
 .hint-text { font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

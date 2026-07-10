@@ -120,6 +120,8 @@ onUnmounted(() => { if (recording.value) stopRecord() })
     </button>
     <button :class="{ active: playback.metronome }" title="Metronome"
             @click="playback.metronome = !playback.metronome">🕐</button>
+    <button :disabled="!studio.canUndo" title="Undo (Ctrl+Z)" @click="studio.undo()">↶</button>
+    <button :disabled="!studio.canRedo" title="Redo (Ctrl+Shift+Z)" @click="studio.redo()">↷</button>
     <button class="time-toggle" :title="'Switch ruler to ' + (studio.timeMode === 'bars' ? 'seconds' : 'bars')"
             @click="studio.timeMode = studio.timeMode === 'bars' ? 'seconds' : 'bars'">
       <span class="time">{{ studio.timeMode === 'bars' ? 'bar ' + barBeat : timeDisplay }}</span>
@@ -130,8 +132,10 @@ onUnmounted(() => { if (recording.value) stopRecord() })
     <span class="spacer" />
     <template v-if="studio.project">
       <span class="title">{{ studio.project.title }}</span>
-      <span class="dim">{{ studio.project.bpm }} BPM · {{ studio.project.key }} · {{ studio.project.time_signature }}</span>
-      <span v-if="studio.manifest && studio.manifest.stems.length" class="dim">
+      <span class="dim" title="Tempo (beats per minute) · musical key · time signature — change them via chat: “make it 140 bpm”, “change key to A minor”">
+        {{ studio.project.bpm }} BPM · {{ studio.project.key }} · {{ studio.project.time_signature }}</span>
+      <span v-if="studio.manifest && studio.manifest.stems.length" class="dim"
+            title="Stems are the rendered audio files, one per track. They render automatically when you press play and load here for playback.">
         · {{ playback.stemsLoaded }}/{{ studio.manifest.stems.length }} stems loaded
       </span>
     </template>

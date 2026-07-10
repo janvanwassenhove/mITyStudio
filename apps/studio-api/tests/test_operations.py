@@ -141,6 +141,50 @@ def test_update_track_operation(client, workspace):
     assert not results[2].applied and "at least one" in results[2].error
 
 
+def test_clip_operations_via_chat_ops(client, workspace):
+    """split/duplicate/delete clips are chat-reachable (toolbar parity)."""
+    from app.models.operations import ChatOperation
+    from app.models.song import Clip, NoteEvent, SongProject, Track
+    from app.services import operation_applier
+
+    project = SongProject(title="t", bpm=120)
+    clip = Clip(clip_type="midi", start_beat=0, duration_beats=16,
+                note_events=[
+                    NoteEvent(midi_note=60, start_beat=1, duration_beats=1),
+                    NoteEvent(midi_note=64, start_beat=9, duration_beats=1)])
+    project.tracks = [Track(name="Keys", track_type="keys", clips=[clip])]
+
+    # split at bar 3 (beat 8): notes divide across the two halves
+    r = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="split_clip", params={"track": "Keys", "at_bar": 3})])
+    assert r[0].applied, r[0].error
+    keys = project.tracks[0]
+    assert len(keys.clips) == 2
+    assert keys.clips[0].duration_beats == 8
+    assert keys.clips[1].start_beat == 8
+    assert [n.midi_note for n in keys.clips[0].note_events] == [60]
+    assert [n.midi_note for n in keys.clips[1].note_events] == [64]
+    assert keys.clips[1].note_events[0].start_beat == 1  # rebased
+
+    # duplicate the clip at bar 1 → copy directly after it
+    r = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="duplicate_clip", params={"track": "Keys", "at_bar": 1})])
+    assert r[0].applied, r[0].error
+    assert len(keys.clips) == 3
+    assert keys.clips[1].start_beat == 8  # the copy
+
+    # delete the last clip (no at_bar = last)
+    r = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="delete_clip", params={"track": "Keys"})])
+    assert r[0].applied
+    assert len(keys.clips) == 2
+
+    # errors are clear
+    r = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="split_clip", params={"track": "Keys", "at_bar": 99})])
+    assert not r[0].applied and "no clip" in r[0].error
+
+
 def test_failed_op_rolls_back_but_others_apply(client):
     p = make_project(client)
     r = client.post(f"/api/projects/{p['id']}/chat",

@@ -197,6 +197,25 @@ onMounted(load)
     <div class="content">
       <div class="list panel">
         <div class="dim small count">{{ filtered.length }} / {{ assets.length }} assets</div>
+        <div v-if="!assets.length" class="dim empty-hint">
+          <template v-if="tab === 'score'">
+            No scores yet — click <strong>⬆ Upload</strong> above (MIDI, MusicXML,
+            Guitar Pro, or a PDF/photo of a chord sheet), then <strong>♫ Turn into song</strong>.
+          </template>
+          <template v-else-if="tab === 'soundfont'">
+            No SoundFonts yet — drop <code>.sf2</code>/<code>.sf3</code> files into the
+            <code>soundfonts/</code> folder and click <strong>Rescan folders</strong>.
+          </template>
+          <template v-else-if="tab === 'sample'">
+            No samples yet — drop audio files into <code>samples/</code>, click
+            <strong>Rescan folders</strong>, then <strong>🏷 Auto-tag</strong> to make
+            them searchable by BPM, key and type.
+          </template>
+          <template v-else>
+            No voice recordings yet — record or upload your voice on the
+            <strong>Voices</strong> page to build an AI singing voice.
+          </template>
+        </div>
         <div
           v-for="a in filtered" :key="a.id" class="item"
           :class="{ active: selected?.id === a.id, missing: a.is_missing }"
@@ -263,6 +282,7 @@ onMounted(load)
 .content { flex: 1; display: flex; gap: 8px; min-height: 0; }
 .list { flex: 1; overflow-y: auto; padding: 6px; }
 .count { padding: 4px 8px; }
+.empty-hint { padding: 24px 18px; font-size: 13px; line-height: 1.6; }
 .item { padding: 6px 10px; border-radius: 6px; cursor: pointer; }
 .item:hover { background: var(--bg-elevated); }
 .item.active { background: var(--bg-elevated); outline: 1px solid var(--accent); }
