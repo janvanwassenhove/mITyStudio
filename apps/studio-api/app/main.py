@@ -37,6 +37,29 @@ def create_app() -> FastAPI:
               routes_voice):
         app.include_router(r.router)
 
+    # desktop mode: serve the built frontend from the same origin
+    import os
+    ui_dist = os.environ.get("MITY_UI_DIST")
+    if ui_dist and os.path.isdir(ui_dist):
+        from fastapi.staticfiles import StaticFiles
+        from starlette.responses import FileResponse as _FR
+
+        app.mount("/assets", StaticFiles(directory=os.path.join(ui_dist, "assets")),
+                  name="ui-assets")
+        instruments = os.path.join(ui_dist, "instruments")
+        if os.path.isdir(instruments):
+            app.mount("/instruments", StaticFiles(directory=instruments),
+                      name="ui-instruments")
+
+        @app.get("/{path:path}", include_in_schema=False)
+        def spa(path: str):  # SPA fallback: every non-API route gets index.html
+            candidate = os.path.join(ui_dist, path)
+            if path and os.path.isfile(candidate):
+                return _FR(candidate)
+            return _FR(os.path.join(ui_dist, "index.html"))
+
+        log.info("serving UI from %s", ui_dist)
+
     log.info("mITyStudio API ready (root=%s)", cfg.root)
     return app
 

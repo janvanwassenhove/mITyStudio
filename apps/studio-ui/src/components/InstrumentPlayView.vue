@@ -523,6 +523,11 @@ const bgImage = computed(() => {
         <template v-if="drumMode === 'smart'">
           <button class="dice" title="random groove" @click="diceSmart">🎲</button>
           <button class="reset" title="clear the board" @click="resetBoard">Reset</button>
+          <button class="audition" :class="{ on: looping }" :disabled="loopLoading"
+                  title="audition the board's groove as a loop with the real kit"
+                  @click="toggleLoop">
+            {{ loopLoading ? '⏳ rendering…' : looping ? '■ Stop' : '▶ Preview loop' }}
+          </button>
           <button class="add-clip" title="add this groove to the song as a new 4-bar clip at the playhead"
                   @click="addSmartAsClip">＋ Add as clip</button>
         </template>
@@ -623,6 +628,8 @@ const bgImage = computed(() => {
 .drum-mode .dice { font-size: 14px; margin-left: auto; }
 .drum-mode .reset { font-size: 11px; }
 .drum-mode .add-clip { font-size: 11px; border-color: var(--accent); color: var(--accent); }
+.drum-mode .audition { font-size: 11px; font-weight: 600; border-color: #3ecf6e; border-radius: 14px; }
+.drum-mode .audition.on { color: #3ecf6e; box-shadow: 0 0 10px rgba(62,207,110,0.35); }
 /* kit picker */
 .kit-panel { width: 110px; flex: none; display: flex; flex-direction: column; align-items: center; gap: 6px; background: rgba(22,25,31,0.85); border: 1px solid #3a3f49; border-radius: 12px; padding: 12px 6px; }
 .kit-visual { color: var(--text-dim); display: flex; }

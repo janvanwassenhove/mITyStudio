@@ -1,0 +1,53 @@
+{
+  "name": "mitystudio-desktop",
+  "productName": "mITyStudio",
+  "version": "1.0.0",
+  "description": "Local-first AI music studio",
+  "author": "Jan Vanwassenhove",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "cross-env MITY_DEV=1 electron .",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "cross-env": "^7.0.3",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "studio.mity.app",
+    "productName": "mITyStudio",
+    "directories": { "output": "dist", "buildResources": "build" },
+    "files": ["electron/**", "splash.html", "setup.html", "package.json"],
+    "extraResources": [
+      { "from": "../studio-ui/dist", "to": "ui" },
+      { "from": "../studio-api/app", "to": "backend/app" },
+      { "from": "../studio-api/requirements-core.txt", "to": "backend/requirements-core.txt" },
+      { "from": "../studio-api/requirements-voice.txt", "to": "backend/requirements-voice.txt" },
+      { "from": "runtime", "to": "python" },
+      { "from": "seed", "to": "seed" }
+    ],
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "icon": "build/icon.png",
+      "category": "public.app-category.music",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
+    },
+    "afterSign": "build/notarize.js",
+    "publish": { "provider": "github" }
+  }
+}

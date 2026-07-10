@@ -243,8 +243,9 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
         <option v-for="(_, name) in PATTERNS" :key="name" :value="name">{{ name }}</option>
       </select>
       <button class="power" :class="{ on: playing }" :disabled="loading"
-              title="start/stop the loop (real kit sound)" @click="togglePower">
-        {{ loading ? '⏳' : '⏻' }}
+              title="audition the pattern as a loop with the real kit sound"
+              @click="togglePower">
+        {{ loading ? '⏳ rendering…' : playing ? '■ Stop' : '▶ Preview loop' }}
       </button>
       <div class="tools">
         <button :class="{ on: tool === 'toggle' }" @click="tool = 'toggle'">Step On/Off</button>
@@ -275,8 +276,8 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
 .vel-dot { position: absolute; inset: 25%; border-radius: 50%; background: #fff; }
 .seq-bar { display: flex; align-items: center; gap: 10px; padding-top: 8px; flex: none; flex-wrap: wrap; }
 .pattern-pick { font-size: 12px; background: rgba(0,0,0,0.5); }
-.power { font-size: 20px; padding: 2px 14px; border-radius: 20px; color: var(--text-dim); }
-.power.on { color: #3ecf6e; border-color: #3ecf6e; box-shadow: 0 0 12px rgba(62,207,110,0.4); }
+.power { font-size: 13px; font-weight: 600; padding: 4px 14px; border-radius: 16px; color: var(--text); border-color: #3ecf6e; }
+.power.on { color: #3ecf6e; box-shadow: 0 0 12px rgba(62,207,110,0.4); }
 .tools { display: flex; gap: 2px; background: rgba(0,0,0,0.45); border-radius: 6px; padding: 2px; }
 .tools button { border: none; background: transparent; color: var(--text-dim); font-size: 11px; padding: 2px 10px; }
 .tools button.on { background: var(--bg-elevated); color: var(--text); border-radius: 4px; }

@@ -1,0 +1,84 @@
+name: Release desktop apps
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            python_build: cpython-3.12.8+20250106-x86_64-pc-windows-msvc-install_only.tar.gz
+          - os: macos-latest
+            python_build: cpython-3.12.8+20250106-aarch64-apple-darwin-install_only.tar.gz
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - name: Build frontend
+        working-directory: apps/studio-ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Bundle Python runtime (python-build-standalone)
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          mkdir -p runtime
+          curl -fsSL -o python.tar.gz \
+            "https://github.com/astral-sh/python-build-standalone/releases/download/20250106/${{ matrix.python_build }}"
+          tar -xzf python.tar.gz --strip-components=1 -C runtime
+          rm python.tar.gz
+
+      - name: Stage seed assets
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          mkdir -p seed/soundfonts
+          # starter General MIDI bank so instruments have a sound on day one
+          curl -fsSL -o seed/soundfonts/MuseScore_General.sf3 \
+            "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3"
+
+      - name: Build installers
+        working-directory: apps/desktop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # TODO code signing (manual prerequisites, see docs/desktop.md):
+          #   Windows: CSC_LINK + CSC_KEY_PASSWORD (paid OV/EV certificate)
+          #   macOS:   APPLE_ID + APPLE_APP_PASSWORD + APPLE_TEAM_ID
+          #            (paid developer account; notarize hook activates itself)
+        run: |
+          npm ci
+          npx electron-builder --publish always
+
+      - name: Upload artifacts (also outside releases)
+        uses: actions/upload-artifact@v4
+        with:
+          name: installers-${{ matrix.os }}
+          path: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/latest*.yml
+          if-no-files-found: warn
+
+  changelog:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Generate release notes
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true

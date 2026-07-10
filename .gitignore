@@ -9,6 +9,11 @@ venv/
 node_modules/
 dist/
 
+# Desktop packaging
+apps/desktop/runtime/
+apps/desktop/seed/
+apps/desktop/dist/
+
 # Local settings & secrets
 .env
 local_settings.json

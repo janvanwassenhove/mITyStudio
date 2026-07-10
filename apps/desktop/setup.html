@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; background: #14161a; color: #e6e8ec;
+    font-family: 'Segoe UI', system-ui, sans-serif; }
+  .wrap { padding: 34px 40px; }
+  h1 { font-size: 22px; margin: 0 0 6px; } h1 span { color: #4f9cf9; }
+  p { color: #aab1bd; font-size: 13px; line-height: 1.55; }
+  .folder { display: flex; gap: 8px; margin: 18px 0; }
+  .folder input { flex: 1; background: #1c1f26; border: 1px solid #31363f;
+    color: #e6e8ec; border-radius: 6px; padding: 8px 10px; font-size: 13px; }
+  button { background: #252932; color: #e6e8ec; border: 1px solid #31363f;
+    border-radius: 6px; padding: 8px 16px; cursor: pointer; font-size: 13px; }
+  button.primary { background: #4f9cf9; border-color: #4f9cf9; color: #fff; }
+  .actions { margin-top: 26px; display: flex; justify-content: flex-end; gap: 10px; }
+  .hint { font-size: 12px; color: #aab1bd; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Welcome to mITy<span>Studio</span></h1>
+    <p>Pick a folder for your music workspace. Your projects, SoundFonts,
+       samples, voice recordings and exports will live there — plain files you
+       own, never locked in.</p>
+    <div class="folder">
+      <input id="folder" placeholder="Default: Documents\mITyStudio" readonly />
+      <button id="browse">Browse…</button>
+    </div>
+    <p class="hint">You can add SoundFonts (.sf2) and samples to this folder at
+       any time — the studio picks them up with one rescan. API keys for the
+       chat assistant are set later inside the app (Settings), or read from
+       environment variables automatically.</p>
+    <div class="actions">
+      <button id="go" class="primary">Start making music →</button>
+    </div>
+  </div>
+  <script>
+    let chosen = null
+    document.getElementById('browse').onclick = async () => {
+      const dir = await window.mity.chooseFolder()
+      if (dir) { chosen = dir; document.getElementById('folder').value = dir }
+    }
+    document.getElementById('go').onclick = () => window.mity.setupDone(chosen)
+  </script>
+</body>
+</html>

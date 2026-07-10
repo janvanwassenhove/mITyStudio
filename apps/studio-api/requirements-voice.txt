@@ -1,0 +1,7 @@
+# Neural voice stack (heavy, GPU-aware) — installed on demand by the desktop
+# bootstrap ("Install voice AI") AFTER torch, which the bootstrap installs
+# separately with the right index for the detected device:
+#   NVIDIA:       pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu124
+#   Apple/CPU:    pip install torch torchaudio
+coqui-tts==0.25.3
+transformers==4.46.2
