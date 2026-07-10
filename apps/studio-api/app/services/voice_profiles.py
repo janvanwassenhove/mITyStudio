@@ -26,7 +26,14 @@ def create_profile(req: CreateVoiceProfileRequest) -> VoiceProfile:
         if asset is None or asset.asset_type != "voice_recording":
             raise InvalidSourceRecording(
                 f"{rid} is not a registered voice recording")
+    if req.consent_recording_id:
+        c = asset_repo.get_asset(req.consent_recording_id)
+        if c is None or c.asset_type != "voice_recording":
+            raise InvalidSourceRecording(
+                "consent_recording_id is not a registered voice recording")
     profile = VoiceProfile(**req.model_dump())
+    from ..models.song import now_iso
+    profile.consent_recorded_at = now_iso()  # persistent audit timestamp
     get_db().execute(
         "INSERT INTO voice_profiles (id, data) VALUES (?, ?)",
         (profile.id, profile.model_dump_json()))

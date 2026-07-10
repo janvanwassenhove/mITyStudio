@@ -22,7 +22,8 @@ _UPLOAD_EXTENSIONS = AUDIO_EXTENSIONS | {".webm"}
 @router.post("/recordings/upload", status_code=201)
 async def upload_recording(file: UploadFile = File(...),
                            source: str = Form("upload"),
-                           user_notes: str = Form("")) -> Asset:
+                           user_notes: str = Form(""),
+                           tags: str = Form("")) -> Asset:
     cfg = get_config()
     original_name = file.filename or "recording.wav"
     ext = Path(original_name).suffix.lower()
@@ -47,7 +48,8 @@ async def upload_recording(file: UploadFile = File(...),
         extension=ext, file_size=len(content),
         modified_at=datetime.now(timezone.utc).isoformat(),
         created_at=datetime.now(timezone.utc).isoformat(),
-        source=source, user_description=user_notes)
+        source=source, user_description=user_notes,
+        tags=[t.strip() for t in tags.split(",") if t.strip()])
     asset_repo.upsert_asset(asset)
 
     # best-effort duration/channels metadata (never blocks the upload)
@@ -61,6 +63,78 @@ async def upload_recording(file: UploadFile = File(...),
         asset.generated_description = f"{source} (duration unknown)"
         asset_repo.upsert_asset(asset)
     return asset
+
+
+# --------------------------------------------------------------------------
+# guided recording wizard
+# --------------------------------------------------------------------------
+
+@router.get("/device")
+def device() -> dict:
+    """Detected acceleration (CUDA > MPS > CPU) + honest training expectation."""
+    from ..services.voice_wizard import TIER_EPOCHS, detect_device
+    return {**detect_device(), "tiers": TIER_EPOCHS}
+
+
+@router.get("/wizard/exercises")
+def wizard_exercises() -> list[dict]:
+    from ..services.voice_wizard import EXERCISES
+    return EXERCISES
+
+
+@router.get("/wizard/guide/{exercise_id}")
+def wizard_guide(exercise_id: str) -> FileResponse:
+    """Synthesized guide clip the user hears before attempting a take."""
+    from ..services.voice_wizard import EXERCISES, render_guide
+    if exercise_id not in {e["id"] for e in EXERCISES}:
+        raise HTTPException(404, "unknown exercise")
+    return FileResponse(render_guide(exercise_id), media_type="audio/wav")
+
+
+@router.post("/recordings/{asset_id}/qa")
+def recording_qa(asset_id: str) -> dict:
+    """Per-take quality check: clipping, noise floor, level, silence."""
+    from ..services.voice_wizard import qa_take
+    asset = asset_repo.get_asset(asset_id)
+    if asset is None or asset.asset_type != "voice_recording":
+        raise HTTPException(404, "voice recording not found")
+    return qa_take(Path(asset.original_path))
+
+
+@router.post("/recordings/{asset_id}/range-test")
+def recording_range(asset_id: str) -> dict:
+    """Detect the singer's comfortable range from a recorded scale."""
+    from ..services.voice_wizard import detect_range
+    asset = asset_repo.get_asset(asset_id)
+    if asset is None or asset.asset_type != "voice_recording":
+        raise HTTPException(404, "voice recording not found")
+    result = detect_range(Path(asset.original_path))
+    if "error" in result:
+        raise HTTPException(422, result["error"])
+    return result
+
+
+@router.get("/profiles/{profile_id}/confidence")
+def profile_confidence(profile_id: str) -> dict:
+    """Honest expectation tags computed from the profile's training material."""
+    from ..services.audio_io import AudioReadError, read_audio
+    from ..services.voice_wizard import profile_confidence as conf
+    profile = voice_profiles.get_profile(profile_id)
+    if profile is None:
+        raise HTTPException(404, "voice profile not found")
+    recordings = []
+    for rid in profile.source_recording_ids:
+        a = asset_repo.get_asset(rid)
+        if a is None or a.is_missing:
+            continue
+        entry = {"minutes": 0.0, "wizard_take": "wizard" in (a.tags or [])}
+        try:
+            data, rate = read_audio(Path(a.original_path))
+            entry["minutes"] = len(data) / rate / 60
+        except AudioReadError:
+            pass
+        recordings.append(entry)
+    return conf(profile, recordings)
 
 
 @router.get("/profiles")
@@ -134,10 +208,15 @@ def test_voice(profile_id: str, req: VoiceTestRequest) -> FileResponse:
 
 
 @router.post("/profiles/{profile_id}/train")
-def start_training(profile_id: str) -> dict:
-    """Launch async RVC training for this voice (detached process, hours on
-    GPU). One training at a time; progress shows in the profile badge."""
+def start_training(profile_id: str, tier: str = "full") -> dict:
+    """Launch async RVC training for this voice (detached process). One at a
+    time; progress shows in the profile badge. tier: 'quick' (~60 epochs,
+    keeps CPU/MPS machines practical) or 'full' (200 epochs)."""
     import subprocess
+
+    from ..services.voice_wizard import TIER_EPOCHS
+    if tier not in TIER_EPOCHS:
+        raise HTTPException(422, f"tier must be one of {list(TIER_EPOCHS)}")
 
     from ..services.rvc_convert import (_applio_dir, _applio_python,
                                         rvc_available, training_status)
@@ -161,13 +240,15 @@ def start_training(profile_id: str) -> dict:
     creationflags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP
     with open(log_dir / "rvc-training-stdout.log", "ab") as out, \
          open(log_dir / "rvc-training-stderr.log", "ab") as err:
-        subprocess.Popen([str(_applio_python()), str(script), profile_id],
+        subprocess.Popen([str(_applio_python()), str(script), profile_id,
+                          str(TIER_EPOCHS[tier])],
                          cwd=str(_applio_dir()), stdout=out, stderr=err,
                          creationflags=creationflags)
-    return {"started": True,
-            "message": f"training {profile.name!r} started — this runs for "
-                       "hours in the background; the badge shows progress and "
-                       "renders improve as checkpoints land"}
+    return {"started": True, "tier": tier, "epochs": TIER_EPOCHS[tier],
+            "message": f"{tier} training of {profile.name!r} started "
+                       f"({TIER_EPOCHS[tier]} epochs) — it runs in the "
+                       "background; the badge shows progress and renders "
+                       "improve as checkpoints land"}
 
 
 @router.get("/rvc-status")

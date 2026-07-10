@@ -28,9 +28,10 @@ PYTHON = APPLIO / ".venv" / "Scripts" / "python.exe"
 LOG = ROOT / "tools" / "rvc-training.log"
 
 SAMPLE_RATE = "40000"
-EPOCHS = "200"
+# epochs come from argv[2] when launched by the studio ("quick" tier = 60)
+EPOCHS = sys.argv[2] if len(sys.argv) > 2 else "200"
 BATCH = "4"           # fits an 8 GB RTX 3050
-SAVE_EVERY = "25"
+SAVE_EVERY = "25" if int(EPOCHS) > 100 else "15"
 
 
 def log(msg: str) -> None:

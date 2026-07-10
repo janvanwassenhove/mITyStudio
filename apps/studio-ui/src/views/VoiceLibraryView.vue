@@ -2,10 +2,20 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api/client'
 import type { Asset, VoiceProfile } from '../api/types'
+import VoiceWizard from '../components/VoiceWizard.vue'
 
 const recordings = ref<Asset[]>([])
 const profiles = ref<VoiceProfile[]>([])
 const error = ref('')
+const showWizard = ref(false)
+
+async function wizardClosed(created: boolean) {
+  showWizard.value = false
+  if (created) {
+    await load()
+    await loadRvcStatus()
+  }
+}
 
 // --- upload ---
 const fileInput = ref<HTMLInputElement | null>(null)
@@ -240,8 +250,15 @@ onMounted(load)
         explicit consent from the performer. Profiles are only used when you
         assign them to a vocal track.
       </p>
-      <button v-if="!showProfileForm" class="primary" @click="showProfileForm = true">+ Create voice profile</button>
-      <div v-else class="profile-form">
+      <div class="create-row">
+        <button class="primary" @click="showWizard = true"
+                title="coached recording session: consent, range test, guided takes with quality checks">
+          🧙 Guided setup (recommended)</button>
+        <button v-if="!showProfileForm" @click="showProfileForm = true"
+                title="build a profile from recordings you already uploaded">
+          + From existing recordings</button>
+      </div>
+      <div v-if="showProfileForm" class="profile-form">
         <label>Profile name <input v-model="profileName" /></label>
         <label>Performer alias <input v-model="performerAlias" /></label>
         <div class="small dim">Select source recordings in the left column ({{ selectedRecordings.length }} selected)</div>
@@ -292,6 +309,7 @@ onMounted(load)
       <div v-if="!profiles.length && !showProfileForm" class="dim small">No voice profiles yet.</div>
     </div>
     <div v-if="error" class="err-box">{{ error }}</div>
+    <VoiceWizard v-if="showWizard" @close="wizardClosed" />
   </div>
 </template>
 
@@ -312,6 +330,7 @@ h3 { margin: 0 0 8px; }
 .profile-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
 .profile-head { display: flex; justify-content: space-between; align-items: center; }
 .profile-actions { display: flex; gap: 6px; }
+.create-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .badge-row { display: flex; gap: 8px; align-items: center; margin: 3px 0; }
 .train-btn { border-color: var(--accent); }
 .rvc-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; display: inline-block; }

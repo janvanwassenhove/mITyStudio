@@ -15,6 +15,10 @@ class VoiceProfile(BaseModel):
     source_recording_ids: list[str] = Field(default_factory=list)
     consent_confirmed: bool = False
     consent_notes: str = ""
+    # persistent consent audit record: when consent was given and, when the
+    # wizard was used, the recorded verbal consent clip
+    consent_recorded_at: str = ""
+    consent_recording_id: str | None = None
     performer_alias: str = ""
     vocal_range: str = ""
     language_notes: str = ""
@@ -29,6 +33,7 @@ class CreateVoiceProfileRequest(BaseModel):
     source_recording_ids: list[str] = Field(min_length=1)
     consent_confirmed: bool
     consent_notes: str = ""
+    consent_recording_id: str | None = None   # verbal consent clip (wizard)
     performer_alias: str = ""
     vocal_range: str = ""
     language_notes: str = ""
