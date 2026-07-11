@@ -5,6 +5,7 @@ MITY_FLUIDSYNTH_PATH / MITY_FFMPEG_PATH; PATH lookup is the dev fallback.
 """
 from __future__ import annotations
 
+import importlib.util
 import os
 import shutil
 from functools import lru_cache
@@ -22,7 +23,21 @@ def detect_capabilities() -> dict:
     return {
         "fluidsynth": fluidsynth_path() is not None,
         "ffmpeg": ffmpeg_path() is not None,
+        # The AI voice-cloning stack (XTTS/torch) is a heavyweight optional
+        # add-on the desktop bundle does not ship by default — probe for it
+        # cheaply (find_spec does NOT import torch) so the UI can explain its
+        # absence instead of hard-failing "voice engine not installed".
+        "voice_clone": voice_clone_available(),
     }
+
+
+@lru_cache(maxsize=1)
+def voice_clone_available() -> bool:
+    try:
+        return all(importlib.util.find_spec(m) is not None
+                   for m in ("torch", "TTS"))
+    except Exception:  # noqa: BLE001 — a broken partial install shouldn't 500
+        return False
 
 
 def fluidsynth_path() -> str | None:

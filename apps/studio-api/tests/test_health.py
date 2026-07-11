@@ -4,4 +4,4 @@ def test_health(client):
     body = r.json()
     assert body["status"] == "ok"
     assert "capabilities" in body
-    assert set(body["capabilities"]) == {"fluidsynth", "ffmpeg"}
+    assert set(body["capabilities"]) == {"fluidsynth", "ffmpeg", "voice_clone"}

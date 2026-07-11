@@ -143,8 +143,94 @@ def _midi_freq(m: float) -> float:
     return 440.0 * 2 ** ((m - 69) / 12)
 
 
+# --------------------------------------------------------------------------
+# Karaoke guides — a single source of truth for BOTH the synthesized guide
+# audio and the on-screen note/lyric cues, so what the user sees is exactly
+# what they hear. Fixed notes + phrases mean the trainer knows the intended
+# target for every frame (better pitch/phoneme alignment when we later map
+# the voice), which is why the wizard prescribes them instead of "sing
+# anything". Each cue: (midi | None, dur seconds, amp, label).
+# --------------------------------------------------------------------------
+
+_GAP = 0.12
+
+# Phonetically rich fixed sentences per language — reading known text gives the
+# clone broad, consistent phoneme coverage (vowels + hard/soft consonants).
+SPEECH_TEXT = {
+    "en": ["The quick brown fox jumps over the lazy dog.",
+           "Bright vivid colours dance while soft waves whisper.",
+           "Ask me anything and I will happily sing it back."],
+    "nl": ["Zwarte vogels vliegen snel over het rustige water.",
+           "Lieve mensen zingen graag een vrolijk en helder lied.",
+           "Vraag mij iets en ik antwoord je met plezier."],
+    "fr": ["Le vif renard brun saute par-dessus le chien paresseux.",
+           "De douces vagues chuchotent sous un ciel clair et vif.",
+           "Demande-moi ce que tu veux, je te le chanterai."],
+    "de": ["Der flinke braune Fuchs springt über den faulen Hund.",
+           "Sanfte Wellen flüstern unter einem klaren, hellen Himmel.",
+           "Frag mich irgendetwas und ich singe es dir zurück."],
+}
+READING_TEXT = {
+    "en": "Sing this slowly and clearly. Every warm vowel and crisp "
+          "consonant you give the model becomes part of your voice — "
+          "so relax, breathe, and let the words flow naturally.",
+    "nl": "Zing dit rustig en helder. Elke warme klinker en scherpe "
+          "medeklinker die je geeft wordt deel van je stem — dus "
+          "ontspan, adem, en laat de woorden natuurlijk stromen.",
+    "fr": "Chante ceci lentement et clairement. Chaque voyelle chaude et "
+          "chaque consonne nette que tu donnes devient une partie de ta "
+          "voix — alors détends-toi, respire et laisse les mots couler.",
+    "de": "Singe dies langsam und deutlich. Jeder warme Vokal und klare "
+          "Konsonant, den du gibst, wird Teil deiner Stimme — also "
+          "entspanne dich, atme und lass die Worte natürlich fließen.",
+}
+
+
+def _cue_sequence(exercise_id: str) -> list[tuple[int | None, float, float, str]]:
+    """(midi, dur, amp, label) cues for the note/vowel-based exercises."""
+    if exercise_id == "range_scale":
+        return [(m, 0.28, 0.28, _note_name(m)) for m in range(48, 72)]
+    if exercise_id == "sustain_low":
+        return [(52, 3.0, 0.28, "aaah")]
+    if exercise_id == "sustain_high":
+        return [(64, 3.0, 0.28, "aaah")]
+    if exercise_id == "dynamics":
+        return [(57, 1.5, 0.10, "soft"), (57, 1.5, 0.38, "loud")]
+    if exercise_id == "phrase":
+        return [(m, 0.5, 0.28, "la") for m in (57, 60, 62, 60, 57)]
+    if exercise_id == "vowels":
+        return [(57, 1.6, 0.28, v) for v in ("aa", "ee", "ii", "oo", "uu")]
+    if exercise_id == "soft_head":
+        return [(69, 3.0, 0.12, "oo")]
+    return []
+
+
+def guide_for(exercise_id: str, language: str = "en") -> dict:
+    """Karaoke timeline the UI overlays while recording. kind:
+    'notes' (pitched cues with note names) | 'text' (fixed lines to read) |
+    'siren' (a continuous glide)."""
+    lang = language if language in SPEECH_TEXT else "en"
+    if exercise_id == "siren":
+        return {"kind": "siren", "total": 4.0,
+                "cues": [{"at": 0.0, "dur": 4.0, "label": "oo", "midi": None}]}
+    if exercise_id == "speech":
+        lines = SPEECH_TEXT[lang]
+        return {"kind": "text", "total": 0.0, "lines": lines}
+    if exercise_id == "reading":
+        return {"kind": "text", "total": 0.0, "lines": [READING_TEXT[lang]]}
+    seq = _cue_sequence(exercise_id)
+    cues, at = [], 0.0
+    for midi, dur, _amp, label in seq:
+        cues.append({"at": round(at, 3), "dur": round(dur, 3),
+                     "label": label, "midi": midi,
+                     "note": _note_name(midi) if midi is not None else None})
+        at += dur + _GAP
+    return {"kind": "notes", "total": round(at, 3), "cues": cues}
+
+
 def render_guide(exercise_id: str) -> Path:
-    """Synthesized guide audio per exercise, cached on disk."""
+    """Synthesized guide audio per exercise, cached on disk. Built from the
+    same cue sequence the UI shows, so audio and karaoke stay in lock-step."""
     rate = 32000
     cache = get_config().analysis_cache_dir / "wizard"
     cache.mkdir(parents=True, exist_ok=True)
@@ -152,35 +238,21 @@ def render_guide(exercise_id: str) -> Path:
     if out.exists():
         return out
 
-    parts: list[np.ndarray] = []
-    gap = np.zeros(int(0.12 * rate), np.float32)
-    if exercise_id == "range_scale":
-        for m in range(48, 72):                      # chromatic-ish rise C3→C5
-            parts += [_tone(_midi_freq(m), 0.28, rate), gap]
-    elif exercise_id == "sustain_low":
-        parts = [_tone(_midi_freq(52), 3.0, rate)]   # E3
-    elif exercise_id == "sustain_high":
-        parts = [_tone(_midi_freq(64), 3.0, rate)]   # E4
-    elif exercise_id == "dynamics":
-        parts = [_tone(_midi_freq(57), 1.5, rate, 0.10), gap,
-                 _tone(_midi_freq(57), 1.5, rate, 0.38)]
-    elif exercise_id == "phrase":
-        for m in (57, 60, 62, 60, 57):
-            parts += [_tone(_midi_freq(m), 0.5, rate), gap]
-    elif exercise_id == "vowels":                    # five equal reference tones
-        for _ in range(5):
-            parts += [_tone(_midi_freq(57), 1.6, rate), gap, gap]
-    elif exercise_id == "siren":                     # smooth low→high→low sweep
+    gap = np.zeros(int(_GAP * rate), np.float32)
+    if exercise_id == "siren":                       # smooth low→high→low sweep
         t = np.arange(int(4.0 * rate)) / rate
         midi = 52 + 12 * np.sin(np.pi * t / 4.0)     # E3 up an octave and back
         phase = 2 * np.pi * np.cumsum(_midi_freq(midi)) / rate
         env = np.minimum(np.minimum(t / 0.05, 1), np.minimum((4.0 - t) / 0.15, 1))
-        parts = [(0.26 * env * np.sin(phase)).astype(np.float32)]
-    elif exercise_id == "soft_head":
-        parts = [_tone(_midi_freq(69), 3.0, rate, 0.12)]   # soft A4
-    else:                                            # generic A3 reference
-        parts = [_tone(_midi_freq(57), 2.0, rate)]
-    audio = np.concatenate(parts)
+        audio = (0.26 * env * np.sin(phase)).astype(np.float32)
+    else:
+        seq = _cue_sequence(exercise_id)
+        if not seq:                                  # speech/reading/unknown
+            seq = [(57, 2.0, 0.28, "")]              # generic A3 reference
+        parts: list[np.ndarray] = []
+        for midi, dur, amp, _label in seq:
+            parts += [_tone(_midi_freq(midi), dur, rate, amp), gap]
+        audio = np.concatenate(parts)
     write_wav(out, audio[:, None], rate)
     return out
 

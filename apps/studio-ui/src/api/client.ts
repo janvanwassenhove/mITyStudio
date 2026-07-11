@@ -49,7 +49,7 @@ export const api = {
 export interface HealthResponse {
   status: string
   root: string
-  capabilities: { fluidsynth: boolean; ffmpeg: boolean }
+  capabilities: { fluidsynth: boolean; ffmpeg: boolean; voice_clone?: boolean }
 }
 
 export const getHealth = () => api.get<HealthResponse>('/health')

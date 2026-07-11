@@ -57,7 +57,22 @@ def test_range_detection(workspace, tmp_path):
 def test_wizard_endpoints(client, workspace):
     exercises = client.get("/api/voice/wizard/exercises").json()
     assert len(exercises) >= 5
-    assert all({"id", "title", "coach"} <= set(e) for e in exercises)
+    assert all({"id", "title", "coach", "guide"} <= set(e) for e in exercises)
+
+    # every exercise carries a karaoke guide; note exercises expose timed cues
+    by_id = {e["id"]: e for e in exercises}
+    phrase = by_id["phrase"]["guide"]
+    assert phrase["kind"] == "notes" and len(phrase["cues"]) == 5
+    assert phrase["cues"][0]["note"] and phrase["cues"][0]["at"] == 0.0
+    assert phrase["cues"][1]["at"] > phrase["cues"][0]["at"]  # cues advance
+
+    # spoken exercises carry fixed text, localized by ?language=
+    en = {e["id"]: e for e in client.get(
+        "/api/voice/wizard/exercises?language=en").json()}
+    nl = {e["id"]: e for e in client.get(
+        "/api/voice/wizard/exercises?language=nl").json()}
+    assert en["speech"]["guide"]["lines"] != nl["speech"]["guide"]["lines"]
+    assert en["speech"]["guide"]["kind"] == "text"
 
     g = client.get(f"/api/voice/wizard/guide/{exercises[0]['id']}")
     assert g.status_code == 200

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Dumbbell, Ear, Play, Wand2 } from 'lucide-vue-next'
 import { api } from '../api/client'
@@ -41,6 +41,9 @@ let audioCtx: AudioContext | null = null
 let analyser: AnalyserNode | null = null
 let pitchRaf = 0
 const pitchHistory: number[] = []
+// karaoke playback position (seconds since the recorder actually started)
+const elapsed = ref(0)
+let recStartMs = 0
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
 
@@ -62,6 +65,7 @@ function detectPitch(buf: Float32Array, rate: number): number {
 
 function pitchLoop() {
   if (!analyser || !audioCtx) return
+  if (recStartMs) elapsed.value = (performance.now() - recStartMs) / 1000
   const buf = new Float32Array(2048)
   analyser.getFloatTimeDomainData(buf)
   const f = detectPitch(buf, audioCtx.sampleRate)
@@ -111,6 +115,8 @@ async function startRecording(countIn = false) {
   analyser.fftSize = 2048
   src.connect(analyser)
   pitchHistory.length = 0
+  elapsed.value = 0
+  recStartMs = performance.now()
   pitchLoop()
 }
 
@@ -121,6 +127,7 @@ function stopRecording(): Promise<Blob> {
       mediaStream?.getTracks().forEach((t) => t.stop())
       cancelAnimationFrame(pitchRaf)
       recording.value = false
+      recStartMs = 0
       if (recTimer) clearInterval(recTimer)
       resolve(new Blob(chunks, { type: mediaRecorder?.mimeType || 'audio/webm' }))
     }
@@ -191,7 +198,9 @@ async function recordRange() {
 }
 
 // ---------------- step 3: takes ----------------
-interface Exercise { id: string; title: string; coach: string; seconds: number }
+interface Cue { at: number; dur: number; label: string; midi: number | null; note: string | null }
+interface Guide { kind: 'notes' | 'text' | 'siren'; total: number; cues?: Cue[]; lines?: string[] }
+interface Exercise { id: string; title: string; coach: string; seconds: number; guide?: Guide }
 interface TakeState { asset_id?: string; qa?: { verdict: string; issues: string[]; tips: string[]; issue_codes?: string[]; duration?: number }; practicing?: string }
 
 // exercise titles/coaching live in the locale files, keyed by exercise id;
@@ -218,6 +227,16 @@ const totalMinutes = computed(() =>
 const MINUTES_GOAL = 10
 
 const currentEx = computed(() => exercises.value[exIndex.value])
+const currentGuide = computed(() => currentEx.value?.guide)
+// which cue is "now" while recording, for the karaoke highlight (-1 = none)
+const activeCue = computed(() => {
+  const g = currentGuide.value
+  if (!g || g.kind !== 'notes' || !g.cues || !recording.value) return -1
+  const tsec = elapsed.value
+  let idx = -1
+  g.cues.forEach((c, i) => { if (tsec >= c.at) idx = i })
+  return idx
+})
 const doneCount = computed(() =>
   exercises.value.filter((e) => takes.value[e.id]?.qa?.verdict === 'pass'
     || takes.value[e.id]?.qa?.verdict === 'warn').length)
@@ -305,9 +324,16 @@ async function startTraining(tier: string) {
   } catch (e) { trainMsg.value = String(e) }
 }
 
+async function loadExercises() {
+  exercises.value = await api.get<Exercise[]>(
+    `/voice/wizard/exercises?language=${language.value}`)
+}
+// spoken/read exercises show fixed text in the chosen language
+watch(language, () => { void loadExercises() })
+
 onMounted(async () => {
   device.value = await api.get<DeviceInfo>('/voice/device')
-  exercises.value = await api.get<Exercise[]>('/voice/wizard/exercises')
+  await loadExercises()
 })
 </script>
 
@@ -357,6 +383,7 @@ onMounted(async () => {
             </select>
           </label>
         </div>
+        <p class="dim small langnote">🌍 {{ t('wizard.langNote') }}</p>
         <h4>{{ t('wizard.rangeCheck') }}</h4>
         <p class="dim small">{{ t('wizard.rangeBlurb') }}</p>
         <div class="row">
@@ -390,6 +417,24 @@ onMounted(async () => {
         </div>
         <template v-if="currentEx">
           <p class="coach">🎤 {{ exCoach(currentEx) }}</p>
+          <div v-if="currentGuide" class="karaoke" :class="currentGuide.kind">
+            <div class="klabel dim small">{{ t('wizard.singThis') }}</div>
+            <template v-if="currentGuide.kind === 'notes' && currentGuide.cues">
+              <div class="cues">
+                <div v-for="(c, i) in currentGuide.cues" :key="i" class="cue"
+                     :class="{ active: i === activeCue, past: recording && i < activeCue }">
+                  <span v-if="c.note" class="cnote">{{ c.note }}</span>
+                  <span v-if="c.label && c.label !== c.note" class="clabel">{{ c.label }}</span>
+                </div>
+              </div>
+              <div class="kbar"><div class="kfill"
+                :style="{ width: (recording && currentGuide.total ? Math.min(elapsed / currentGuide.total, 1) : 0) * 100 + '%' }" /></div>
+            </template>
+            <template v-else-if="currentGuide.kind === 'text'">
+              <p v-for="(ln, i) in currentGuide.lines" :key="i" class="ktext">{{ ln }}</p>
+            </template>
+            <div v-else class="siren-hint">〰 {{ t('wizard.sirenGlide') }}</div>
+          </div>
           <div class="row">
             <button @click="playGuide"><Play class="icon" :size="12" /> {{ t('wizard.hearGuide') }}</button>
             <button :disabled="takeBusy" @click="doPractice"
@@ -486,6 +531,19 @@ onMounted(async () => {
 .ex-tab.on { border-color: var(--accent); color: var(--accent); }
 .ex-tab.done { border-color: var(--ok); }
 .coach { font-size: 13.5px; background: var(--bg-elevated); border-radius: 8px; padding: 10px 14px; margin: 0; }
+.karaoke { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: var(--bg); display: flex; flex-direction: column; gap: 8px; }
+.klabel { text-transform: uppercase; letter-spacing: 0.05em; }
+.cues { display: flex; flex-wrap: wrap; gap: 6px; }
+.cue { display: flex; flex-direction: column; align-items: center; min-width: 40px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--bg-elevated); transition: all 0.12s; }
+.cue .cnote { font-family: monospace; font-size: 13px; font-weight: 700; color: var(--accent); }
+.cue .clabel { font-size: 11px; color: var(--text-dim); }
+.cue.past { opacity: 0.45; }
+.cue.active { border-color: var(--ok); background: var(--ok); transform: translateY(-2px) scale(1.06); box-shadow: 0 3px 12px rgba(0,0,0,0.35); }
+.cue.active .cnote, .cue.active .clabel { color: #06210f; }
+.kbar { height: 5px; background: var(--bg-elevated); border-radius: 3px; overflow: hidden; }
+.kfill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--ok)); transition: width 0.08s linear; }
+.ktext { margin: 0; font-size: 15px; line-height: 1.5; color: var(--text); }
+.siren-hint { font-size: 22px; letter-spacing: 0.3em; color: var(--accent); text-align: center; }
 .qa { font-size: 12.5px; border-radius: 6px; padding: 8px 12px; }
 .qa.pass { border: 1px solid var(--ok); color: var(--ok); }
 .qa.warn { border: 1px solid var(--warn); color: var(--warn); }

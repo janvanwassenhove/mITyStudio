@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Download, Dumbbell, Mic, PackageOpen, Play, Trash2, Wand2 } from 'lucide-vue-next'
-import { api } from '../api/client'
+import { ChevronDown, ChevronRight, Download, Dumbbell, Mic, PackageOpen, Play, Trash2, Wand2 } from 'lucide-vue-next'
+import { api, getHealth } from '../api/client'
 import type { Asset, VoiceProfile } from '../api/types'
 import VoiceWizard from '../components/VoiceWizard.vue'
 import { runCountdown } from '../composables/countdown'
@@ -13,6 +13,31 @@ const recordings = ref<Asset[]>([])
 const profiles = ref<VoiceProfile[]>([])
 const error = ref('')
 const showWizard = ref(false)
+
+// Whether the heavyweight AI voice-cloning engine (XTTS/torch) is present.
+// The desktop bundle omits it by default, so we explain rather than hard-fail.
+const cloneAvailable = ref(true)
+async function loadHealth() {
+  try {
+    const h = await getHealth()
+    cloneAvailable.value = h.capabilities.voice_clone !== false
+  } catch { /* keep optimistic; the test call will surface any real error */ }
+}
+
+// Per-profile expansion: show which recordings belong to each voice.
+const expandedProfiles = ref<Set<string>>(new Set())
+function toggleProfile(id: string) {
+  const s = new Set(expandedProfiles.value)
+  s.has(id) ? s.delete(id) : s.add(id)
+  expandedProfiles.value = s
+}
+function profileRecordings(p: VoiceProfile): Asset[] {
+  const byId = new Map(recordings.value.map((r) => [r.id, r]))
+  return p.source_recording_ids.map((id) => byId.get(id)).filter(Boolean) as Asset[]
+}
+function missingCount(p: VoiceProfile): number {
+  return p.source_recording_ids.length - profileRecordings(p).length
+}
 
 async function wizardClosed(created: boolean) {
   showWizard.value = false
@@ -230,6 +255,7 @@ async function importVoice() {
 }
 
 onMounted(() => {
+  void loadHealth()
   void loadRvcStatus()
   rvcTimer = setInterval(loadRvcStatus, 30000)
 })
@@ -300,6 +326,10 @@ onMounted(load)
       <p class="dim small">
         {{ t('voices.profilesBlurb') }}
       </p>
+      <div v-if="!cloneAvailable" class="engine-note">
+        <strong>{{ t('voices.engineMissingTitle') }}</strong>
+        <span class="dim small">{{ t('voices.engineMissingBody') }}</span>
+      </div>
       <div class="create-row">
         <button class="primary" @click="showWizard = true"
                 :title="t('voices.wizardTip')">
@@ -334,10 +364,13 @@ onMounted(load)
 
       <div v-for="p in profiles" :key="p.id" class="profile-item">
         <div class="profile-head">
+          <button class="expander" :title="t('voices.showRecordings')" @click="toggleProfile(p.id)">
+            <component :is="expandedProfiles.has(p.id) ? ChevronDown : ChevronRight" :size="14" />
+          </button>
           <div class="fname">{{ p.name }} <span class="dim small">({{ p.status }})</span></div>
           <div class="profile-actions">
-            <button class="small-btn" :disabled="testingId === p.id"
-                    :title="t('voices.testTip')"
+            <button class="small-btn" :disabled="testingId === p.id || !cloneAvailable"
+                    :title="cloneAvailable ? t('voices.testTip') : t('voices.engineMissingTitle')"
                     @click="testVoice(p)">
               <template v-if="testingId === p.id">⏳ {{ t('voices.synthesizing') }}</template>
               <template v-else><Play class="icon" :size="11" /> {{ t('voices.testVoice') }}</template>
@@ -365,6 +398,15 @@ onMounted(load)
           <span v-if="p.performer_alias"> · {{ p.performer_alias }}</span>
         </div>
         <div v-if="p.usage_restrictions" class="dim small">{{ t('voices.restrictions') }}: {{ p.usage_restrictions }}</div>
+        <div v-if="expandedProfiles.has(p.id)" class="profile-recordings">
+          <div v-for="r in profileRecordings(p)" :key="r.id" class="pr-item">
+            <div class="fname small">{{ r.filename }}</div>
+            <audio v-if="!r.is_missing" controls :src="`/api/assets/${r.id}/file`" style="width: 100%; height: 30px" />
+            <span v-else class="err-text small">({{ t('assets.missing') }})</span>
+          </div>
+          <div v-if="!profileRecordings(p).length" class="dim small">{{ t('voices.noRecordings') }}</div>
+          <div v-if="missingCount(p)" class="dim small">{{ t('voices.recordingsUnavailable', { n: missingCount(p) }) }}</div>
+        </div>
       </div>
       <div v-if="!profiles.length && !showProfileForm" class="dim small">{{ t('voices.noProfiles') }}</div>
     </div>
@@ -388,8 +430,15 @@ h3 { margin: 0 0 8px; }
 .profile-form label { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
 .consent { flex-direction: row !important; align-items: flex-start; gap: 8px !important; color: var(--warn) !important; }
 .profile-item { padding: 8px 0; border-bottom: 1px solid var(--border); }
-.profile-head { display: flex; justify-content: space-between; align-items: center; }
+.profile-head { display: flex; justify-content: space-between; align-items: center; gap: 6px; }
+.profile-head .fname { flex: 1; }
 .profile-actions { display: flex; gap: 6px; }
+.expander { padding: 2px; background: none; border: none; color: var(--text-dim); display: flex; align-items: center; cursor: pointer; }
+.expander:hover { color: var(--text); }
+.profile-recordings { margin: 8px 0 2px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); display: flex; flex-direction: column; gap: 8px; }
+.pr-item { display: flex; flex-direction: column; gap: 3px; }
+.engine-note { border: 1px solid var(--warn); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 3px; }
+.engine-note strong { color: var(--warn); font-size: 12px; }
 .create-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .log-row { margin-bottom: 8px; }
 .train-log { font-size: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 180px; overflow: auto; white-space: pre-wrap; margin: 6px 0 0; }

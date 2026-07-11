@@ -77,9 +77,11 @@ def device() -> dict:
 
 
 @router.get("/wizard/exercises")
-def wizard_exercises() -> list[dict]:
-    from ..services.voice_wizard import EXERCISES
-    return EXERCISES
+def wizard_exercises(language: str = "en") -> list[dict]:
+    """Exercises plus their karaoke guide (fixed notes/phrases) for the given
+    language, so the UI can show exactly what to sing and when."""
+    from ..services.voice_wizard import EXERCISES, guide_for
+    return [{**e, "guide": guide_for(e["id"], language)} for e in EXERCISES]
 
 
 @router.get("/wizard/guide/{exercise_id}")
@@ -180,7 +182,10 @@ def test_voice(profile_id: str, req: VoiceTestRequest) -> FileResponse:
     from ..services.vocal_clone import (CloneSingingEngine, _tts_line,
                                         clone_engine_available)
     if not clone_engine_available():
-        raise HTTPException(503, "voice engine not installed")
+        raise HTTPException(503, "The AI voice engine (XTTS) is not installed "
+                            "in this build. Your recordings and profile are "
+                            "saved — install the optional voice add-on to "
+                            "enable cloning and singing previews.")
     engine = CloneSingingEngine(profile)
     refs = engine._speaker_wavs()
     if not refs:
