@@ -4,6 +4,10 @@
   "version": "1.0.0",
   "description": "Local-first AI music studio",
   "author": "Jan Vanwassenhove",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/janvanwassenhove/mITyStudio2.git"
+  },
   "main": "electron/main.js",
   "scripts": {
     "dev": "cross-env MITY_DEV=1 electron .",
