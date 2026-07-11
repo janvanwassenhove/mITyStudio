@@ -25,14 +25,18 @@ analysis-cache/
 stems/
 exports/
 midi/
-soundfonts/*.sf2
-soundfonts/*.SF2
-soundfonts/*.sf3
-samples/*.wav
-samples/*.mp3
-samples/*.flac
+# user-provided asset libraries — added AFTER installation, never shipped.
+# Only the README scaffolding in each folder is tracked.
+soundfonts/*
+!soundfonts/README.md
+samples/*
+!samples/README.md
+scores/*
+!scores/README.md
 voices/recordings/*
 !voices/recordings/README.md
+voices/profiles/*
+!voices/profiles/README.md
 projects/*/
 
 # RVC training artifacts (personal voice datasets, trained models, logs) and
