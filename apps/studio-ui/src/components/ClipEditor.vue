@@ -250,6 +250,16 @@ onBeforeUnmount(stopPh)
         </template>
         <span v-else class="dim small">{{ isDrums ? $t('clipEditor.drumHint') : $t('clipEditor.rollHint') }}</span>
       </template>
+      <template v-if="!isSample">
+        <label class="fade-inline">{{ $t('clipEditor.fadeIn') }}
+          <input type="number" step="0.1" min="0" :value="found.clip.fade_in_seconds"
+                 @change="found!.clip.fade_in_seconds = Number(($event.target as HTMLInputElement).value); save()" />
+        </label>
+        <label class="fade-inline">{{ $t('clipEditor.fadeOut') }}
+          <input type="number" step="0.1" min="0" :value="found.clip.fade_out_seconds"
+                 @change="found!.clip.fade_out_seconds = Number(($event.target as HTMLInputElement).value); save()" />
+        </label>
+      </template>
       <span v-if="saving" class="dim small">{{ $t('common.saving') }}</span>
     </div>
 
@@ -340,6 +350,8 @@ onBeforeUnmount(stopPh)
 .small { font-size: 11px; }
 .tb { padding: 2px 8px; font-size: 11px; }
 .tb.danger { border-color: var(--err); color: var(--err); }
+.fade-inline { display: flex; gap: 4px; align-items: center; font-size: 11px; color: var(--text-dim); }
+.fade-inline input { width: 52px; padding: 1px 4px; font-size: 11px; }
 .view-toggle { display: flex; gap: 2px; background: var(--bg); border-radius: 6px; padding: 2px; }
 .view-toggle button { border: none; background: transparent; padding: 2px 10px; font-size: 11px; color: var(--text-dim); }
 .view-toggle button.on { background: var(--bg-elevated); color: var(--text); border-radius: 4px; }

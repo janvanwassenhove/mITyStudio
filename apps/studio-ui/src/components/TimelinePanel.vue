@@ -174,8 +174,10 @@ const layout = computed<TrackLayout[]>(() => {
     if (arr) arr.push(n)
     else notesByClip.set(n.clip_id, [n])
   }
-  const waveByTrack = new Map(m.waveform_metadata.map((w) => [w.track_id, w.peaks]))
+  const waveByTrack = new Map(m.waveform_metadata.map((w) =>
+    [w.track_id, { peaks: w.peaks, duration: w.duration_seconds }]))
   return m.tracks.map((t) => {
+    const vocal = ['lead_vocal', 'backing_vocal'].includes(t.track_type)
     const clips: ClipLayout[] = m.clips
       .filter((c) => c.track_id === t.track_id)
       .map((c) => {
@@ -183,7 +185,21 @@ const layout = computed<TrackLayout[]>(() => {
         const notes: NoteRect[] = []
         let wavePath: string | null = null
         const clipNotes = notesByClip.get(c.clip_id) ?? []
-        if (clipNotes.length) {
+        // vocal lanes show the RENDERED VOICE's waveform, sliced to the clip
+        // span — the actual singing signal instead of note rectangles
+        if (vocal) {
+          const wf = waveByTrack.get(t.track_id)
+          if (wf && wf.duration > 0) {
+            const n = wf.peaks.length
+            const i0 = Math.max(0, Math.floor((c.start_beat * 60 / m.bpm) / wf.duration * n))
+            const i1 = Math.min(n, Math.ceil((c.end_beat * 60 / m.bpm) / wf.duration * n))
+            const slice = wf.peaks.slice(i0, Math.max(i1, i0 + 2))
+            if (slice.length >= 2 && slice.some((p) => p > 0.01)) {
+              wavePath = wavePathFor(slice, 200, noteH)
+            }
+          }
+        }
+        if (!wavePath && clipNotes.length) {
           let lo = 127, hi = 0
           for (const n of clipNotes) { lo = Math.min(lo, n.midi_note); hi = Math.max(hi, n.midi_note) }
           lo = Math.max(0, lo - 1); hi = Math.min(127, hi + 1)
@@ -196,9 +212,9 @@ const layout = computed<TrackLayout[]>(() => {
               o: 0.4 + (n.velocity / 127) * 0.6,
             })
           }
-        } else if (c.clip_type === 'sample') {
-          const peaks = waveByTrack.get(t.track_id)
-          if (peaks) wavePath = wavePathFor(peaks, 200, noteH)
+        } else if (!wavePath && c.clip_type === 'sample') {
+          const wf = waveByTrack.get(t.track_id)
+          if (wf) wavePath = wavePathFor(wf.peaks, 200, noteH)
         }
         return { clipId: c.clip_id, type: c.clip_type, x: c.start_beat * ppb, w, notes, wavePath }
       })
@@ -628,15 +644,15 @@ async function deleteClip() {
               @pointerdown.stop="clipPointerDown($event, tl.track.track_id, c.clipId)"
               @dblclick.stop="studio.openClipEditor(tl.track.track_id, c.clipId)"
             >
-              <svg v-if="c.notes.length" class="notes-svg"
+              <svg v-if="c.wavePath" class="notes-svg"
+                   :viewBox="`0 0 200 ${TRACK_H - 6}`" preserveAspectRatio="none">
+                <path :d="c.wavePath" :fill="color(tl.track.track_type)" opacity="0.55" />
+              </svg>
+              <svg v-else-if="c.notes.length" class="notes-svg"
                    :viewBox="`0 0 ${c.w} ${TRACK_H - 6}`" preserveAspectRatio="none">
                 <rect v-for="(n, i) in c.notes" :key="i"
                       :x="n.x" :y="n.y" :width="n.w" height="3" rx="1"
                       :fill="color(tl.track.track_type)" :opacity="n.o" />
-              </svg>
-              <svg v-else-if="c.wavePath" class="notes-svg"
-                   :viewBox="`0 0 200 ${TRACK_H - 6}`" preserveAspectRatio="none">
-                <path :d="c.wavePath" :fill="color(tl.track.track_type)" opacity="0.55" />
               </svg>
               <div v-else class="wave-placeholder" :style="{ background: color(tl.track.track_type) }" />
               <div class="clip-grip l" :title="$t('timeline.resizeTip')"

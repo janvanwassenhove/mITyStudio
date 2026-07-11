@@ -167,6 +167,10 @@ def render_instrument_stems(project: SongProject) -> dict:
         except (RenderUnavailable, RenderFailed) as e:
             results["errors"].append(f"{track.name}: {e}")
             continue
+        from .clip_fades import apply_midi_clip_fades
+        results["warnings"].extend(
+            w for w in apply_midi_clip_fades(project, track, out_path)
+            if "skipped" in w)
         rel = out_path.relative_to(cfg.root).as_posix()
         project.stems = [s for s in project.stems
                          if not (s.track_id == track.id and s.stem_type == "instrument")]

@@ -542,27 +542,66 @@ def get_engine(engine_name: str = "mock", profile=None) -> SingingVoiceEngine:
 
 
 def _mix_recorded_takes(project: SongProject, track: Track,
-                        stem_path: Path, result: VocalRenderResult) -> None:
+                        stem_path: Path, result: VocalRenderResult,
+                        profile=None) -> None:
     """Vocal tracks can carry sample clips (live-recorded takes). Mix them
-    into the rendered vocal stem at their timeline position."""
+    into the rendered vocal stem at their timeline position.
+
+    Sing-it-yourself: when the track has a voice profile with a trained RVC
+    model, each take is CONVERTED to that voice first — real human singing
+    as the source gives the most natural result the studio can produce."""
     sample_clips = [c for c in track.clips if c.clip_type == "sample"]
     if not sample_clips:
         return
     import soundfile as sf
 
     from .render.sample_renderer import _render_clip
+    from .rvc_convert import convert_stem, rvc_model_ready
     data, rate = sf.read(str(stem_path), dtype="float32", always_2d=True)
     total = max(int(project.duration_seconds() * SAMPLE_RATE), SAMPLE_RATE)
     if len(data) < total:
         data = np.vstack([data, np.zeros((total - len(data), 2), np.float32)])
+
+    convert = profile is not None and rvc_model_ready(profile)
+    converted = 0
     for clip in sample_clips:
+        if convert:
+            # render the take alone, convert its dense span, place converted
+            tmp = np.zeros_like(data)
+            _render_clip(project, clip, tmp, result.warnings)
+            nz = np.flatnonzero(np.abs(tmp).max(axis=1) > 1e-4)
+            if nz.size:
+                s0, s1 = int(nz[0]), int(nz[-1]) + 1
+                cfg = get_config()
+                tdir = cfg.analysis_cache_dir / "tts"
+                tdir.mkdir(parents=True, exist_ok=True)
+                tin = tdir / f"_take_in_{clip.id[:8]}.wav"
+                tout = tdir / f"_take_out_{clip.id[:8]}.wav"
+                write_wav(tin, tmp[s0:s1], SAMPLE_RATE)
+                warns = convert_stem(tin, tout, profile)
+                if not warns and tout.exists():
+                    from .audio_io import read_audio, resample_linear
+                    conv, crate = read_audio(tout)
+                    if crate != SAMPLE_RATE:
+                        conv = resample_linear(conv, crate, SAMPLE_RATE)
+                    if conv.shape[1] == 1:
+                        conv = np.repeat(conv, 2, axis=1)
+                    n = min(len(conv), len(data) - s0)
+                    data[s0:s0 + n] += conv[:n]
+                    converted += 1
+                    continue
+                result.warnings.extend(warns)
+            else:
+                continue   # silent take — nothing to place
         _render_clip(project, clip, data, result.warnings)
     peak = float(np.max(np.abs(data)))
     if peak > 1.0:
         data /= peak
     write_wav(stem_path, data, SAMPLE_RATE)
-    result.render_log.append(
-        f"mixed {len(sample_clips)} recorded take(s) into {stem_path.name}")
+    msg = f"mixed {len(sample_clips)} recorded take(s) into {stem_path.name}"
+    if converted:
+        msg += f" ({converted} converted to {profile.name!r} via RVC)"
+    result.render_log.append(msg)
 
 
 def render_vocal_stems(project: SongProject) -> dict:
@@ -606,7 +645,9 @@ def render_vocal_stems(project: SongProject) -> dict:
         out_path = cfg.stems_dir / project.id / f"vocal_{_safe_name(track.name)}_{track.id[:8]}.wav"
         try:
             r = engine.render(project, track, out_path)
-            _mix_recorded_takes(project, track, out_path, r)
+            _mix_recorded_takes(project, track, out_path, r, profile)
+            from .render.clip_fades import apply_midi_clip_fades
+            r.render_log.extend(apply_midi_clip_fades(project, track, out_path))
         except Exception as e:
             results["errors"].append(f"{track.name}: {e}")
             continue

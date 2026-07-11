@@ -137,6 +137,13 @@ export const usePlaybackStore = defineStore('playback', () => {
       m = studio.manifest!
       if (!m) return
     }
+    await startPlayback(m)
+  }
+
+  /** Start WebAudio playback from the current playhead WITHOUT the
+   *  auto-render check — used by play() after rendering and by seek(),
+   *  where a render round-trip would make every jump feel like a hang. */
+  async function startPlayback(m: PlaybackManifest) {
     if (!ctx) ctx = new AudioContext()
     await ctx.resume()
     if (buffers.size === 0 && manifestStems(m).length > 0) await loadStems()
@@ -181,7 +188,8 @@ export const usePlaybackStore = defineStore('playback', () => {
     const wasPlaying = playing.value
     pause()
     playhead.value = Math.max(0, Math.min(seconds, duration.value))
-    if (wasPlaying) void play()
+    // resume instantly from loaded buffers — no render/auto round-trip
+    if (wasPlaying && studio.manifest) void startPlayback(studio.manifest)
   }
 
   // reset when switching projects
