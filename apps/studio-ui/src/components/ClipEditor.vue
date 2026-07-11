@@ -27,6 +27,39 @@ const isDrums = computed(() => found.value?.track.track_type === 'drums')
 const isSample = computed(() => found.value?.clip.clip_type === 'sample')
 const viewMode = ref<'edit' | 'play'>('edit')
 
+// a fresh empty clip opens on its PLAY surface (Smart Drums / chord strips /
+// keyboard) — the natural place to start making sound, not an empty grid
+watch(() => found.value?.clip.id, () => {
+  const f = found.value
+  if (f && f.clip.clip_type === 'midi' && !f.clip.note_events.length) {
+    viewMode.value = 'play'
+  }
+}, { immediate: true })
+
+// no clip selected: offer to create one on the selected track right here
+const selectedTrack = computed(() =>
+  studio.project?.tracks.find((t) => t.id === studio.selectedTrackId) ?? null)
+const canCreateHere = computed(() =>
+  !found.value && selectedTrack.value != null
+  && selectedTrack.value.track_type !== 'sample')
+
+async function createClipHere() {
+  const track = selectedTrack.value
+  const m = studio.manifest
+  if (!track || !m) return
+  const bpb = m.beats_per_bar
+  const beat = Math.max(0, Math.floor(((playback.playhead * m.bpm) / 60) / bpb) * bpb)
+  const clip: Clip = {
+    id: uid(), section_id: '', clip_type: 'midi',
+    start_beat: beat, duration_beats: bpb * 4, note_events: [],
+    source_asset_id: null, gain_db: 0, loop: false,
+    fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
+  }
+  track.clips.push(clip)
+  studio.selectedClip = { trackId: track.id, clipId: clip.id }
+  save()
+}
+
 const saving = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
 function save() {
@@ -224,7 +257,12 @@ onBeforeUnmount(stopPh)
 
 <template>
   <div v-if="!found" class="dim empty">
-    {{ $t('clipEditor.empty') }}
+    <template v-if="canCreateHere">
+      <button class="primary" @click="createClipHere">
+        ＋ {{ $t('clipEditor.createHere', { name: selectedTrack!.name }) }}
+      </button>
+    </template>
+    <template v-else>{{ $t('clipEditor.empty') }}</template>
   </div>
   <div v-else class="editor">
     <div class="ed-toolbar" :style="{ borderLeft: `3px solid ${trackColor}` }">

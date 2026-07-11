@@ -1,0 +1,110 @@
+name: Windows installer on main
+
+# Every push to master builds the Windows installer and publishes a GitHub
+# release whose notes embed the app screenshots. Versioned multi-OS releases
+# still come from the tag-triggered release.yml.
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-release
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+
+      - name: Build frontend
+        working-directory: apps/studio-ui
+        run: |
+          npm ci
+          npm run build
+
+      - name: Bundle Python runtime (python-build-standalone)
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          mkdir -p runtime
+          curl -fsSL -o python.tar.gz \
+            "https://github.com/astral-sh/python-build-standalone/releases/download/20250106/cpython-3.12.8+20250106-x86_64-pc-windows-msvc-install_only.tar.gz"
+          tar -xzf python.tar.gz --strip-components=1 -C runtime
+          rm python.tar.gz
+
+      - name: Stage seed assets
+        shell: bash
+        working-directory: apps/desktop
+        run: |
+          mkdir -p seed/soundfonts
+          curl -fsSL -o seed/soundfonts/MuseScore_General.sf3 \
+            "https://ftp.osuosl.org/pub/musescore/soundfont/MuseScore_General/MuseScore_General.sf3"
+
+      - name: Build installer
+        working-directory: apps/desktop
+        env:
+          # Code signing intentionally unset — see docs/desktop.md for the
+          # manual signing prerequisites (paid cert). Unsigned builds work
+          # but show a SmartScreen prompt.
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          npm ci
+          npx electron-builder --win --publish never
+
+      - name: Compute release metadata
+        id: meta
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./apps/desktop/package.json').version")
+          echo "tag=v${VERSION}-build.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Write release notes (with screenshots)
+        shell: bash
+        env:
+          # env indirection: commit messages must never be interpolated into
+          # the script text itself (quote/backtick injection)
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          SHA="${{ github.sha }}"
+          RAW="https://raw.githubusercontent.com/${{ github.repository }}/$SHA/docs/screenshots"
+          {
+            echo "## mITyStudio ${{ steps.meta.outputs.version }} (build ${{ github.run_number }})"
+            echo
+            echo "Automated Windows build of \`master\` @ ${SHA:0:7}."
+            echo
+            echo "**Installing over a previous version updates in place** — your"
+            echo "workspace (projects, soundfonts, samples, voices) lives outside the"
+            echo "install directory and is preserved."
+            echo
+            echo "![Studio]($RAW/studio.png)"
+            echo "![First-start guide]($RAW/onboarding.png)"
+            echo "![Voices]($RAW/voices.png)"
+            echo
+            echo "### Changes"
+            printf '%s\n' "$COMMIT_MSG"
+          } > notes.md
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: mITyStudio ${{ steps.meta.outputs.version }} build ${{ github.run_number }}
+          body_path: notes.md
+          make_latest: true
+          files: |
+            apps/desktop/dist/*.exe
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/latest.yml

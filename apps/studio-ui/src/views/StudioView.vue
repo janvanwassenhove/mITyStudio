@@ -79,9 +79,12 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => {
-  studio.refreshProjects()
+onMounted(async () => {
+  await studio.refreshProjects()
   window.addEventListener('keydown', onKeydown)
+  // deep link: /?project=<id> opens a project directly (docs, screenshots)
+  const wanted = new URLSearchParams(window.location.search).get('project')
+  if (wanted) void studio.openProject(wanted)
 })
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 

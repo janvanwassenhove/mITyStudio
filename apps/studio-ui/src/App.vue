@@ -3,10 +3,19 @@ import { onMounted, onUnmounted, ref } from 'vue'
 import { getHealth, type HealthResponse } from './api/client'
 import { LOCALES, currentLocale, setLocale, type LocaleCode } from './i18n'
 import { useStudioStore } from './stores/studio'
+import OnboardingGuide from './components/OnboardingGuide.vue'
 
 const health = ref<HealthResponse | null>(null)
 const healthError = ref('')
+// deep-link support: ?lang=nl forces a locale, ?noguide skips onboarding
+const urlParams = new URLSearchParams(window.location.search)
+const urlLang = urlParams.get('lang')
+if (urlLang && LOCALES.some((l) => l.code === urlLang)) {
+  setLocale(urlLang as LocaleCode)
+}
 const locale = ref<LocaleCode>(currentLocale())
+const showOnboarding = ref(!localStorage.getItem('mity-onboarding-done')
+  && !urlParams.has('noguide'))
 const studio = useStudioStore()
 
 function changeLocale() {
@@ -76,6 +85,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
     <main class="main">
       <RouterView />
     </main>
+    <OnboardingGuide v-if="showOnboarding" @close="showOnboarding = false" />
   </div>
 </template>
 

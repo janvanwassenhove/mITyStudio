@@ -106,6 +106,24 @@ function stopRecord() {
 }
 
 onUnmounted(() => { if (recording.value) stopRecord() })
+
+// --- editable BPM: the whole song (stems re-render at the new tempo) -------
+const editingBpm = ref(false)
+const bpmDraft = ref(120)
+
+function startBpmEdit() {
+  if (!studio.project) return
+  bpmDraft.value = studio.project.bpm
+  editingBpm.value = true
+}
+async function commitBpm() {
+  editingBpm.value = false
+  const p = studio.project
+  const v = Math.round(Number(bpmDraft.value))
+  if (!p || !Number.isFinite(v) || v < 30 || v > 300 || v === p.bpm) return
+  p.bpm = v
+  await studio.saveProject()   // fingerprints change → re-render on next ▶
+}
 </script>
 
 <template>
@@ -138,8 +156,13 @@ onUnmounted(() => { if (recording.value) stopRecord() })
     <span class="spacer" />
     <template v-if="studio.project">
       <span class="title">{{ studio.project.title }}</span>
+      <input v-if="editingBpm" v-model.number="bpmDraft" type="number" min="30" max="300"
+             class="bpm-input" autofocus
+             @blur="commitBpm" @keyup.enter="($event.target as HTMLInputElement).blur()" />
+      <button v-else class="bpm-btn dim" :title="t('transport.bpmTip')" @click="startBpmEdit">
+        {{ studio.project.bpm }} BPM</button>
       <span class="dim" :title="t('transport.tempoTip')">
-        {{ studio.project.bpm }} BPM · {{ studio.project.key }} · {{ studio.project.time_signature }}</span>
+        · {{ studio.project.key }} · {{ studio.project.time_signature }}</span>
       <span v-if="studio.manifest && studio.manifest.stems.length" class="dim"
             :title="t('transport.stemsTip')">
         · {{ t('transport.stemsLoaded', { n: playback.stemsLoaded, total: studio.manifest.stems.length }) }}
@@ -158,5 +181,8 @@ onUnmounted(() => { if (recording.value) stopRecord() })
 .spacer { flex: 1; }
 .preparing { font-size: 12px; color: var(--warn); }
 .rec-on { background: var(--err); border-color: var(--err); color: #fff; }
+.bpm-btn { border: none; background: transparent; padding: 2px 4px; font-size: 13px; }
+.bpm-btn:hover { color: var(--accent); border: none; }
+.bpm-input { width: 64px; padding: 2px 6px; font-size: 13px; }
 button.active { border-color: var(--accent); color: var(--accent); }
 </style>

@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AudioWaveform, Cloud, Copy, Drum, Guitar, KeyboardMusic, Megaphone,
-         MessageSquare, Mic, Music, Music4, Pencil, Piano, Plus, Scissors,
-         SlidersHorizontal, Sparkles, Trash2, Wind } from 'lucide-vue-next'
+         MessageSquare, Mic, Music, Music4, Pencil, Piano, Plus, Repeat,
+         Scissors, SlidersHorizontal, Sparkles, Trash2, Wind } from 'lucide-vue-next'
 import { api } from '../api/client'
 import { TRACK_COLORS, TYPE_ABBR } from '../lib/trackColors'
 import { useStudioStore } from '../stores/studio'
@@ -129,7 +129,52 @@ async function pickVoice(trackId: string, profileId: string) {
   await save()
 }
 
-// --- click-outside closes the instrument / voice popovers -------------------
+// --- quick sample switch for sample tracks (mirrors instrument switch) -----
+interface SampleHit { id: string; filename: string }
+const sampleSwitch = ref<string | null>(null)
+const sampleQuery = ref('')
+const sampleHits = ref<SampleHit[]>([])
+let sampleTimer: ReturnType<typeof setTimeout> | null = null
+
+async function searchSamples() {
+  const params = new URLSearchParams({ asset_type: 'sample' })
+  if (sampleQuery.value.trim()) params.set('text', sampleQuery.value.trim())
+  sampleHits.value = (await api.get<SampleHit[]>(`/assets/search?${params}`)).slice(0, 30)
+}
+function queueSampleSearch() {
+  if (sampleTimer) clearTimeout(sampleTimer)
+  sampleTimer = setTimeout(searchSamples, 300)
+}
+async function openSampleSwitch(trackId: string) {
+  sampleSwitch.value = sampleSwitch.value === trackId ? null : trackId
+  instSwitch.value = voiceSwitch.value = null
+  sampleQuery.value = ''
+  if (sampleSwitch.value) await searchSamples()
+}
+async function pickSample(trackId: string, hit: SampleHit) {
+  const t = projTrack(trackId)
+  if (!t) return
+  // the track's sample clips all play this sample from now on
+  for (const c of t.clips) {
+    if (c.clip_type === 'sample') c.source_asset_id = hit.id
+  }
+  sampleSwitch.value = null
+  await save()
+}
+
+// --- remove track (same confirm as the inspector) ---------------------------
+async function removeTrack(trackId: string) {
+  const p = studio.project
+  const track = projTrack(trackId)
+  if (!p || !track) return
+  if (!confirm(t('inspector.removeConfirm', { name: track.name }))) return
+  p.tracks = p.tracks.filter((x) => x.id !== trackId)
+  if (studio.selectedTrackId === trackId) studio.selectedTrackId = null
+  if (studio.selectedClip?.trackId === trackId) studio.selectedClip = null
+  await save()
+}
+
+// --- click-outside closes the instrument / voice / sample popovers ----------
 function onDocPointerDown(e: PointerEvent) {
   const el = e.target as HTMLElement | null
   if (!el) return
@@ -138,6 +183,9 @@ function onDocPointerDown(e: PointerEvent) {
   }
   if (voiceSwitch.value && !el.closest('.voice-pop') && !el.closest('.voice-toggle')) {
     voiceSwitch.value = null
+  }
+  if (sampleSwitch.value && !el.closest('.sample-pop') && !el.closest('.sample-toggle')) {
+    sampleSwitch.value = null
   }
 }
 onMounted(() => window.addEventListener('pointerdown', onDocPointerDown))
@@ -616,8 +664,13 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
               <button v-if="isVocal(tl.track.track_type)" class="mini voice-toggle"
                       :title="$t('timeline.switchVoice')"
                       @click.stop="openVoiceSwitch(tl.track.track_id)"><Mic class="icon" :size="11" /></button>
+              <button v-if="tl.track.track_type === 'sample'" class="mini sample-toggle"
+                      :title="$t('timeline.switchSample')"
+                      @click.stop="openSampleSwitch(tl.track.track_id)"><Repeat class="icon" :size="11" /></button>
               <button class="mini" :title="$t('timeline.instrumentFx')"
                       @click.stop="studio.openTrackInspector(tl.track.track_id)"><Pencil class="icon" :size="11" /></button>
+              <button class="mini danger" :title="$t('inspector.removeTrack')"
+                      @click.stop="removeTrack(tl.track.track_id)"><Trash2 class="icon" :size="11" /></button>
             </div>
             <div v-if="instSwitch === tl.track.track_id" class="inst-pop" @click.stop @dblclick.stop>
               <input v-model="instQuery" :placeholder="$t('timeline.searchInstruments')"
@@ -642,6 +695,18 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
                 <div v-if="!instHits.length" class="dim small" style="padding: 6px">
                   {{ catalog.length ? $t('timeline.noMatches') : $t('timeline.loadingInstruments') }}
                 </div>
+              </div>
+            </div>
+            <!-- sample picker for sample tracks -->
+            <div v-if="sampleSwitch === tl.track.track_id" class="inst-pop sample-pop" @click.stop @dblclick.stop>
+              <input v-model="sampleQuery" :placeholder="$t('samples.searchPh')"
+                     autofocus @input="queueSampleSearch" @pointerdown.stop />
+              <div class="inst-hits">
+                <div v-for="h in sampleHits" :key="h.id" class="inst-hit" @click="pickSample(tl.track.track_id, h)">
+                  <Repeat class="icon hit-icon" :size="13" :style="{ color: color('sample') }" />
+                  <strong>{{ h.filename }}</strong>
+                </div>
+                <div v-if="!sampleHits.length" class="dim small" style="padding: 6px">{{ $t('timeline.noMatches') }}</div>
               </div>
             </div>
             <!-- voice-profile picker for vocal tracks -->
@@ -727,6 +792,7 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
 .label-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .label-controls { display: flex; align-items: center; gap: 4px; }
 .mini { padding: 0 6px; font-size: 10px; height: 18px; line-height: 1; }
+.mini.danger:hover { border-color: var(--err); color: var(--err); }
 .mini.mute { background: var(--warn); color: #000; border-color: var(--warn); }
 .mini.solo { background: var(--ok); color: #000; border-color: var(--ok); }
 .mini-vol { width: 70px; height: 14px; }
