@@ -292,6 +292,12 @@ function smartPattern(el: SmartEl): { beat: number; midi: number; vel: number }[
 // smart drums design into a BUFFER — "＋ Add as clip" drops it in the song
 const smartBuffer = ref<{ beat: number; midi: number; vel: number }[]>([])
 
+onMounted(() => {
+  // the default chips are already on the board: their groove must exist
+  // immediately, or loop-preview/add-as-clip start from an empty pattern
+  if (props.track.track_type === 'drums') regenerateSmart()
+})
+
 function regenerateSmart() {
   smartBuffer.value = smartEls.value
     .filter((e) => e.placed)

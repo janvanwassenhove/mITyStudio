@@ -64,6 +64,12 @@ class QuickAddTrackRequest(BaseModel):
     sections: list[str] | None = None     # vocal: which sections to sing
     #   (ids or names; None = every section that has lyrics — duet support:
     #    give each vocal track its own subset)
+    # instrument sound variant (a preset from the SoundFont catalog);
+    # None = auto-match at render time
+    soundfont_asset_id: str | None = None
+    bank: int | None = None
+    program: int | None = None
+    preset: str = ""
 
 
 _GENERATOR_FOR_TYPE = {
@@ -147,6 +153,13 @@ def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
         ops.append(ChatOperation(op_type="add_track",
                                  params={"name": name,
                                          "track_type": req.track_type}))
+        if req.soundfont_asset_id and req.bank is not None and req.program is not None:
+            ops.append(ChatOperation(op_type="assign_soundfont",
+                                     params={"track": name,
+                                             "soundfont_asset_id": req.soundfont_asset_id,
+                                             "bank": req.bank,
+                                             "program": req.program,
+                                             "preset": req.preset}))
         gen = _GENERATOR_FOR_TYPE.get(req.track_type)
         if req.generate and gen:
             ops.append(ChatOperation(op_type=gen,

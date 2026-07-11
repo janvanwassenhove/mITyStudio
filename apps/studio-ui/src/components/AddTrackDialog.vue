@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { VoiceProfile } from '../api/types'
+import { Play } from 'lucide-vue-next'
 import { useStudioStore } from '../stores/studio'
 import TrackIcon from './TrackIcon.vue'
 
@@ -25,6 +26,54 @@ const label = (c: InstrumentCard) => t(`addTrack.inst.${c.type}.label`)
 
 const picked = ref<InstrumentCard | null>(null)
 const generate = ref(true)
+
+// ---- sound variant: real presets from the SoundFont catalog ---------------
+interface CatalogPreset { label: string; asset_id: string; soundfont: string; bank: number; program: number }
+const TYPE_CATEGORIES: Record<string, string[]> = {
+  drums: ['Drum Kits'], bass: ['Bass'], guitar: ['Guitar'],
+  keys: ['Piano & Keys', 'Organ'], synth: ['Synth Lead', 'Synth Pad'],
+  strings: ['Strings'], brass: ['Brass', 'Sax & Winds'],
+}
+const catalog = ref<{ category: string; presets: CatalogPreset[] }[]>([])
+const presetChoice = ref<CatalogPreset | null>(null)   // null = auto-match
+const presetOptions = computed<CatalogPreset[]>(() => {
+  const cats = TYPE_CATEGORIES[picked.value?.type ?? ''] ?? []
+  return catalog.value.filter((c) => cats.includes(c.category))
+    .flatMap((c) => c.presets)
+})
+watch(picked, () => { presetChoice.value = null })
+
+const auditioning = ref(false)
+let auditionAudio: HTMLAudioElement | null = null
+async function auditionPreset() {
+  const pc = presetChoice.value
+  const p = studio.project
+  if (!pc || !p || auditioning.value) return
+  auditioning.value = true
+  try {
+    const isKit = picked.value?.type === 'drums'
+    const notes = isKit
+      ? [36, 42, 38, 42, 36, 42, 38, 46].map((m, i) => (
+          { midi_note: m, start_beat: i * 0.5, duration_beats: 0.2, velocity: i % 2 ? 85 : 110 }))
+      : [60, 64, 67, 72].map((m, i) => (
+          { midi_note: m, start_beat: i * 0.5, duration_beats: i === 3 ? 1.5 : 0.45, velocity: 96 }))
+    const res = await fetch('/api/projects/preview/instrument', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ soundfont_asset_id: pc.asset_id, bank: pc.bank,
+                             program: pc.program, is_drum_kit: isKit,
+                             bpm: 110, notes }),
+    })
+    if (!res.ok) throw new Error((await res.json()).detail ?? res.statusText)
+    auditionAudio?.pause()
+    auditionAudio = new Audio(URL.createObjectURL(await res.blob()))
+    await auditionAudio.play()
+  } catch (e) {
+    error.value = String(e)
+  } finally {
+    auditioning.value = false
+  }
+}
 const lyricsText = ref('')
 const voiceProfileId = ref('')
 const vocalStyle = ref<'sing' | 'rap'>('sing')
@@ -50,6 +99,7 @@ const isVocal = computed(() => picked.value?.type === 'lead_vocal')
 onMounted(async () => {
   profiles.value = await api.get<VoiceProfile[]>('/voice/profiles')
   if (profiles.value.length) voiceProfileId.value = profiles.value[0].id
+  catalog.value = await api.get<typeof catalog.value>('/assets/instruments')
 })
 
 async function add() {
@@ -63,6 +113,10 @@ async function add() {
       `/projects/${p.id}/tracks/quick-add`, {
         track_type: picked.value.type,
         generate: picked.value.type === 'sample' ? false : generate.value,
+        soundfont_asset_id: presetChoice.value?.asset_id ?? null,
+        bank: presetChoice.value?.bank ?? null,
+        program: presetChoice.value?.program ?? null,
+        preset: presetChoice.value?.label ?? '',
         voice_profile_id: isVocal.value && voiceProfileId.value ? voiceProfileId.value : null,
         lyrics: isVocal.value && lines.length ? lines : null,
         vocal_style: vocalStyle.value,
@@ -113,6 +167,25 @@ async function add() {
             </span>
           </span>
         </label>
+
+        <div v-if="presetOptions.length" class="field">
+          <span>{{ t('addTrack.sound') }}</span>
+          <div class="sound-row">
+            <select :value="presetChoice ? presetChoice.label + '|' + presetChoice.bank + '|' + presetChoice.program : ''"
+                    style="flex: 1"
+                    @change="presetChoice = presetOptions.find(o => o.label + '|' + o.bank + '|' + o.program === ($event.target as HTMLSelectElement).value) ?? null">
+              <option value="">{{ t('addTrack.soundAuto') }}</option>
+              <option v-for="(o, i) in presetOptions" :key="i" :value="o.label + '|' + o.bank + '|' + o.program">
+                {{ o.label }}
+              </option>
+            </select>
+            <button v-if="presetChoice" type="button" :disabled="auditioning"
+                    :title="t('addTrack.audition')" @click="auditionPreset">
+              <Play class="icon" :size="12" /> {{ auditioning ? '…' : t('addTrack.audition') }}
+            </button>
+          </div>
+          <span class="dim block small">{{ t('addTrack.soundHint') }}</span>
+        </div>
 
         <template v-if="isVocal">
           <label class="field">
@@ -180,6 +253,7 @@ h3 { margin: 0; }
 .opt-row { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
 .block { display: block; font-size: 11px; margin-top: 2px; }
 .field { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.sound-row { display: flex; gap: 6px; align-items: center; }
 .sec-checks { display: flex; flex-wrap: wrap; gap: 8px; }
 .sec-check { display: flex; gap: 4px; align-items: center; font-size: 12px; color: var(--text); background: var(--bg-elevated); border-radius: 5px; padding: 3px 8px; }
 .small { font-size: 11px; }

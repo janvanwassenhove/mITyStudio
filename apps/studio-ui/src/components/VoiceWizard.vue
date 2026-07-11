@@ -190,7 +190,7 @@ async function recordRange() {
 
 // ---------------- step 3: takes ----------------
 interface Exercise { id: string; title: string; coach: string; seconds: number }
-interface TakeState { asset_id?: string; qa?: { verdict: string; issues: string[]; tips: string[]; issue_codes?: string[] }; practicing?: string }
+interface TakeState { asset_id?: string; qa?: { verdict: string; issues: string[]; tips: string[]; issue_codes?: string[]; duration?: number }; practicing?: string }
 
 // exercise titles/coaching live in the locale files, keyed by exercise id;
 // the backend's English text is the fallback for unknown ids
@@ -207,6 +207,13 @@ const exIndex = ref(0)
 const takes = ref<Record<string, TakeState>>({})
 const takeBusy = ref(false)
 const practiceUrl = ref('')
+
+// EVERY good take feeds the profile — re-recording an exercise adds material
+// instead of replacing it. More minutes = better clone.
+const allTakes = ref<{ id: string; seconds: number }[]>([])
+const totalMinutes = computed(() =>
+  allTakes.value.reduce((s, tk) => s + tk.seconds, 0) / 60)
+const MINUTES_GOAL = 10
 
 const currentEx = computed(() => exercises.value[exIndex.value])
 const doneCount = computed(() =>
@@ -239,6 +246,9 @@ async function doTake() {
         `wizard,${ex.id}`)
       const qa = await api.post<TakeState['qa']>(`/voice/recordings/${asset.id}/qa`)
       takes.value[ex.id] = { asset_id: asset.id, qa }
+      if (qa?.verdict !== 'fail') {
+        allTakes.value.push({ id: asset.id, seconds: qa?.duration ?? 0 })
+      }
     } catch (e) { error.value = String(e) }
     takeBusy.value = false
   } else {
@@ -266,8 +276,9 @@ async function finish() {
   creating.value = true
   error.value = ''
   try {
-    const ids = [rangeAssetId.value,
-      ...Object.values(takes.value).map((t) => t.asset_id)].filter(Boolean) as string[]
+    const ids = [...new Set([rangeAssetId.value,
+      ...allTakes.value.map((tk) => tk.id),
+      ...Object.values(takes.value).map((tk) => tk.asset_id)])].filter(Boolean) as string[]
     const p = await api.post<{ id: string }>('/voice/profiles', {
       name: profileName.value.trim(),
       source_recording_ids: ids,
@@ -405,6 +416,10 @@ onMounted(async () => {
             </template>
           </div>
         </template>
+        <div class="minutes">
+          <div class="conf-bar"><div :style="{ width: Math.min(totalMinutes / MINUTES_GOAL, 1) * 100 + '%' }" /></div>
+          <span class="dim small">{{ t('wizard.minutesMeter', { m: totalMinutes.toFixed(1), goal: MINUTES_GOAL }) }}</span>
+        </div>
         <div class="nav">
           <button @click="step = 'setup'">{{ t('common.back') }}</button>
           <span class="dim small">{{ t('wizard.exercisesDone', { done: doneCount, total: exercises.length }) }}</span>
@@ -473,6 +488,8 @@ onMounted(async () => {
 .qa.pass { border: 1px solid var(--ok); color: var(--ok); }
 .qa.warn { border: 1px solid var(--warn); color: var(--warn); }
 .qa.fail { border: 1px solid var(--err); color: var(--err); }
+.minutes { display: flex; align-items: center; gap: 10px; }
+.minutes .conf-bar { flex: 1; }
 .conf-bar { height: 10px; background: var(--bg-elevated); border-radius: 5px; overflow: hidden; }
 .conf-bar div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--ok)); }
 ul { margin: 4px 0 0; padding-left: 18px; }

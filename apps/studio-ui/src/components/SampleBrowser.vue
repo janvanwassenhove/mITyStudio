@@ -61,7 +61,10 @@ async function addToProject(hit: SearchHit, loop: boolean) {
     ? (lastSection ? (lastSection.start_bar + lastSection.length_bars) * beatsPerBar : beatsPerBar * 8)
     : Math.max(((hit.analysis?.duration ?? 2) * p.bpm) / 60, 1)
 
-  let track = p.tracks.find((t) => t.track_type === 'sample' && t.name === 'Samples')
+  // selected sample track wins; otherwise any sample track; otherwise create one
+  const selected = p.tracks.find((t) => t.id === studio.selectedTrackId)
+  let track = selected?.track_type === 'sample' ? selected
+    : p.tracks.find((t) => t.track_type === 'sample')
   if (!track) {
     track = {
       id: crypto.randomUUID().replace(/-/g, ''),
@@ -73,6 +76,7 @@ async function addToProject(hit: SearchHit, loop: boolean) {
     }
     p.tracks.push(track)
   }
+  studio.selectedTrackId = track.id
   track.clips.push({
     id: crypto.randomUUID().replace(/-/g, ''),
     section_id: '', clip_type: 'sample',
@@ -81,7 +85,8 @@ async function addToProject(hit: SearchHit, loop: boolean) {
     fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
   })
   await studio.saveProject()
-  message.value = t('samples.added', { name: hit.filename }) + (loop ? ` (${t('samples.looped')})` : ` (${t('samples.oneShot')})`)
+  message.value = t('samples.added', { name: hit.filename })
+    + ` → ${track.name}` + (loop ? ` (${t('samples.looped')})` : ` (${t('samples.oneShot')})`)
 }
 
 onMounted(search)

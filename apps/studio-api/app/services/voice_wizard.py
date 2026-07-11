@@ -167,6 +167,17 @@ def render_guide(exercise_id: str) -> Path:
     elif exercise_id == "phrase":
         for m in (57, 60, 62, 60, 57):
             parts += [_tone(_midi_freq(m), 0.5, rate), gap]
+    elif exercise_id == "vowels":                    # five equal reference tones
+        for _ in range(5):
+            parts += [_tone(_midi_freq(57), 1.6, rate), gap, gap]
+    elif exercise_id == "siren":                     # smooth low→high→low sweep
+        t = np.arange(int(4.0 * rate)) / rate
+        midi = 52 + 12 * np.sin(np.pi * t / 4.0)     # E3 up an octave and back
+        phase = 2 * np.pi * np.cumsum(_midi_freq(midi)) / rate
+        env = np.minimum(np.minimum(t / 0.05, 1), np.minimum((4.0 - t) / 0.15, 1))
+        parts = [(0.26 * env * np.sin(phase)).astype(np.float32)]
+    elif exercise_id == "soft_head":
+        parts = [_tone(_midi_freq(69), 3.0, rate, 0.12)]   # soft A4
     else:                                            # generic A3 reference
         parts = [_tone(_midi_freq(57), 2.0, rate)]
     audio = np.concatenate(parts)
@@ -191,9 +202,23 @@ EXERCISES = [
     {"id": "phrase", "title": "Melodic phrase",
      "coach": "Follow the little melody on “la”. Timing matters more than "
               "perfection.", "seconds": 8},
+    {"id": "vowels", "title": "All five vowels",
+     "coach": "Sing “aa – ee – ii – oo – uu” on the reference note, each for "
+              "a couple of seconds. Vowel color is what the model learns "
+              "here.", "seconds": 12},
+    {"id": "siren", "title": "Siren glide",
+     "coach": "Glide smoothly low→high→low like a siren on “oo”. Connects "
+              "your registers — go gently through the break.", "seconds": 8},
+    {"id": "soft_head", "title": "Soft high voice",
+     "coach": "A soft, light “oo” on a comfortable high note (head voice is "
+              "fine). Quiet and airy is exactly right.", "seconds": 6},
     {"id": "speech", "title": "Spoken sentences",
      "coach": "Read 3–4 sentences in your language, naturally, like telling "
               "a friend a story. Consonants matter here.", "seconds": 20},
+    {"id": "reading", "title": "Longer reading",
+     "coach": "Read half a minute from any book or article, relaxed. This "
+              "adds the most raw material — repeat it as often as you like.",
+     "seconds": 40},
 ]
 
 
