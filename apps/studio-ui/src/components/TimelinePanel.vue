@@ -9,6 +9,7 @@ import { TRACK_COLORS, TYPE_ABBR } from '../lib/trackColors'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 import AddTrackDialog from './AddTrackDialog.vue'
+import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import type { Clip, Track, VoiceProfile } from '../api/types'
 
 const { t } = useI18n()
@@ -160,6 +161,63 @@ async function pickSample(trackId: string, hit: SampleHit) {
   }
   sampleSwitch.value = null
   await save()
+}
+
+// --- right-click context menus ----------------------------------------------
+const ctxMenu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
+
+function trackMenu(e: MouseEvent, trackId: string) {
+  e.preventDefault()
+  const track = projTrack(trackId)
+  if (!track) return
+  studio.selectedTrackId = trackId
+  ctxMenu.value = {
+    x: e.clientX, y: e.clientY,
+    items: [
+      { label: t('ctx.rename'), action: () => void renameTrack(track) },
+      { label: t('ctx.duplicate'), action: () => void duplicateTrack(track) },
+      { label: t('timeline.instrumentFx'), action: () => studio.openTrackInspector(trackId) },
+      { label: t('inspector.removeTrack'), danger: true,
+        action: () => void removeTrack(trackId) },
+    ],
+  }
+}
+
+async function renameTrack(track: Track) {
+  const name = prompt(t('ctx.renamePrompt'), track.name)?.trim()
+  if (!name || name === track.name) return
+  track.name = name
+  await save()
+}
+
+async function duplicateTrack(track: Track) {
+  const p = studio.project
+  if (!p) return
+  const copy: Track = JSON.parse(JSON.stringify(track))
+  copy.id = uid()
+  copy.name = `${track.name} copy`
+  copy.clips = copy.clips.map((c) => ({
+    ...c, id: uid(),
+    note_events: c.note_events.map((n) => ({ ...n, id: uid() })),
+  }))
+  p.tracks.splice(p.tracks.findIndex((x) => x.id === track.id) + 1, 0, copy)
+  await save()
+}
+
+function clipMenu(e: MouseEvent, trackId: string, clipId: string) {
+  e.preventDefault()
+  e.stopPropagation()
+  studio.selectedTrackId = trackId
+  selectedClip.value = { trackId, clipId }
+  ctxMenu.value = {
+    x: e.clientX, y: e.clientY,
+    items: [
+      { label: t('studio.editor'), action: () => studio.openClipEditor(trackId, clipId) },
+      { label: t('timeline.split'), action: () => void splitClip() },
+      { label: t('timeline.duplicate'), action: () => void duplicateClip() },
+      { label: t('timeline.deleteTip'), danger: true, action: () => void deleteClip() },
+    ],
+  }
 }
 
 // --- remove track (same confirm as the inspector) ---------------------------
@@ -640,7 +698,8 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
           <div class="label track-label" :class="{ 'pop-open': instSwitch === tl.track.track_id || voiceSwitch === tl.track.track_id }"
                :style="{ width: LABEL_W + 'px' }"
                :title="$t('timeline.dblClickInspector')"
-               @dblclick="studio.openTrackInspector(tl.track.track_id)">
+               @dblclick="studio.openTrackInspector(tl.track.track_id)"
+               @contextmenu="trackMenu($event, tl.track.track_id)">
             <div class="label-top">
               <span class="type-chip" :style="{ background: color(tl.track.track_type) }"
                     :title="$t('timeline.trackType') + ': ' + tl.track.track_type.replace('_', ' ')">
@@ -738,6 +797,7 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
               :title="$t('timeline.clipTip')"
               @pointerdown.stop="clipPointerDown($event, tl.track.track_id, c.clipId)"
               @dblclick.stop="studio.openClipEditor(tl.track.track_id, c.clipId)"
+              @contextmenu="clipMenu($event, tl.track.track_id, c.clipId)"
             >
               <svg v-if="c.wavePath" class="notes-svg"
                    :viewBox="`0 0 200 ${TRACK_H - 6}`" preserveAspectRatio="none">
@@ -760,6 +820,8 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
       </div>
     </div>
     <AddTrackDialog v-if="showAddTrack" @close="showAddTrack = false" />
+    <ContextMenu v-if="ctxMenu" :x="ctxMenu.x" :y="ctxMenu.y" :items="ctxMenu.items"
+                 @close="ctxMenu = null" />
   </div>
 </template>
 

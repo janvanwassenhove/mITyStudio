@@ -43,6 +43,18 @@ def load_project(project_id: str) -> SongProject:
     return SongProject.model_validate_json(path.read_text(encoding="utf-8"))
 
 
+def delete_project(project_id: str) -> None:
+    """Remove a project and its rendered stems. Assets stay untouched."""
+    import shutil
+    path = _project_path(project_id)
+    if not path.exists():
+        raise ProjectNotFound(project_id)
+    shutil.rmtree(path.parent)
+    stems = get_config().stems_dir / project_id
+    if stems.exists():
+        shutil.rmtree(stems, ignore_errors=True)
+
+
 def list_projects() -> list[dict]:
     out = []
     projects_dir = get_config().projects_dir

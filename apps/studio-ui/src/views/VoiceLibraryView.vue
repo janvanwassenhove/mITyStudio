@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Dumbbell, Mic, Play, Trash2, Wand2 } from 'lucide-vue-next'
+import { Download, Dumbbell, Mic, PackageOpen, Play, Trash2, Wand2 } from 'lucide-vue-next'
 import { api } from '../api/client'
 import type { Asset, VoiceProfile } from '../api/types'
 import VoiceWizard from '../components/VoiceWizard.vue'
@@ -180,6 +180,53 @@ async function startTraining(p: VoiceProfile) {
   }
 }
 
+// --- training log, on demand (no console window anymore) --------------------
+const showLog = ref(false)
+const logLines = ref<string[]>([])
+let logTimer: ReturnType<typeof setInterval> | null = null
+
+async function refreshLog() {
+  const r = await api.get<{ lines: string[] }>('/voice/training-log?lines=120')
+  logLines.value = r.lines
+}
+function toggleLog() {
+  showLog.value = !showLog.value
+  if (showLog.value) {
+    void refreshLog()
+    logTimer = setInterval(refreshLog, 5000)
+  } else if (logTimer) {
+    clearInterval(logTimer)
+    logTimer = null
+  }
+}
+onUnmounted(() => { if (logTimer) clearInterval(logTimer) })
+
+// --- portable voice bundles ---------------------------------------------------
+function exportVoice(p: VoiceProfile) {
+  window.open(`/api/voice/profiles/${p.id}/export`, '_blank')
+}
+
+const voiceImportInput = ref<HTMLInputElement | null>(null)
+async function importVoice() {
+  const f = voiceImportInput.value?.files?.[0]
+  if (!f) return
+  error.value = ''
+  trainMsg.value = t('voices.importing')
+  try {
+    const r = await api.upload<{ profile_id: string; name: string; warnings: string[] }>(
+      '/voice/profiles/import', f, f.name)
+    trainMsg.value = r.warnings.length ? r.warnings.join('; ')
+      : t('voices.imported', { name: r.name })
+    await load()
+    await loadRvcStatus()
+  } catch (e) {
+    error.value = String(e)
+    trainMsg.value = ''
+  } finally {
+    if (voiceImportInput.value) voiceImportInput.value.value = ''
+  }
+}
+
 onMounted(() => {
   void loadRvcStatus()
   rvcTimer = setInterval(loadRvcStatus, 30000)
@@ -258,6 +305,14 @@ onMounted(load)
         <button v-if="!showProfileForm" @click="showProfileForm = true"
                 :title="t('voices.fromExistingTip')">
           + {{ t('voices.fromExisting') }}</button>
+        <input ref="voiceImportInput" type="file" accept=".zip" style="display: none" @change="importVoice" />
+        <button :title="t('voices.importTip')" @click="voiceImportInput?.click()">
+          <PackageOpen class="icon" :size="12" /> {{ t('voices.importVoice') }}</button>
+      </div>
+      <div class="log-row">
+        <button class="small-btn" @click="toggleLog">
+          {{ showLog ? '▾' : '▸' }} {{ t('voices.trainingLog') }}</button>
+        <pre v-if="showLog" class="train-log">{{ logLines.join('\n') || t('voices.noLog') }}</pre>
       </div>
       <div v-if="showProfileForm" class="profile-form">
         <label>{{ t('voices.profileName') }} <input v-model="profileName" /></label>
@@ -285,6 +340,8 @@ onMounted(load)
               <template v-if="testingId === p.id">⏳ {{ t('voices.synthesizing') }}</template>
               <template v-else><Play class="icon" :size="11" /> {{ t('voices.testVoice') }}</template>
             </button>
+            <button class="small-btn" :title="t('voices.exportTip')"
+                    @click="exportVoice(p)"><Download class="icon" :size="12" /></button>
             <button class="del-btn" :title="t('voices.deleteTip')"
                     @click="deleteProfile(p)"><Trash2 class="icon" :size="12" /></button>
           </div>
@@ -332,6 +389,8 @@ h3 { margin: 0 0 8px; }
 .profile-head { display: flex; justify-content: space-between; align-items: center; }
 .profile-actions { display: flex; gap: 6px; }
 .create-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+.log-row { margin-bottom: 8px; }
+.train-log { font-size: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 180px; overflow: auto; white-space: pre-wrap; margin: 6px 0 0; }
 .badge-row { display: flex; gap: 8px; align-items: center; margin: 3px 0; }
 .train-btn { border-color: var(--accent); }
 .rvc-badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; display: inline-block; }

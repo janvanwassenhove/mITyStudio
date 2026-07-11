@@ -17,6 +17,16 @@ import ClipEditor from '../components/ClipEditor.vue'
 const { t } = useI18n()
 const studio = useStudioStore()
 const rightTab = ref<'chat' | 'export'>('chat')
+
+// context-aware tab labels: show WHAT the Track/Editor tabs will act on
+const selTrackName = computed(() =>
+  studio.project?.tracks.find((x) => x.id === studio.selectedTrackId)?.name ?? '')
+const selClipTrackName = computed(() => {
+  const sel = studio.selectedClip
+  if (!sel) return ''
+  return studio.project?.tracks.find((x) => x.id === sel.trackId)?.name ?? ''
+})
+const short = (s: string) => (s.length > 12 ? s.slice(0, 11) + '…' : s)
 const bottomTab = ref<'mixer' | 'track' | 'editor' | 'samples' | 'lyrics'>('mixer')
 
 watch(() => studio.editorRequest, () => { bottomTab.value = 'editor' })
@@ -113,8 +123,10 @@ const SHORTCUTS = computed(() => [
           <div class="resize-handle" :title="t('studio.dragResize')" @pointerdown="startResize" />
           <div class="tabs">
             <button :class="{ active: bottomTab === 'mixer' }" @click="bottomTab = 'mixer'">{{ t('studio.mixer') }}</button>
-            <button :class="{ active: bottomTab === 'track' }" @click="bottomTab = 'track'">{{ t('studio.track') }}</button>
-            <button :class="{ active: bottomTab === 'editor' }" @click="bottomTab = 'editor'">{{ t('studio.editor') }}</button>
+            <button :class="{ active: bottomTab === 'track' }" @click="bottomTab = 'track'">
+              {{ t('studio.track') }}<span v-if="selTrackName" class="tab-ctx"> · {{ short(selTrackName) }}</span></button>
+            <button :class="{ active: bottomTab === 'editor' }" @click="bottomTab = 'editor'">
+              {{ t('studio.editor') }}<span v-if="selClipTrackName" class="tab-ctx"> · {{ short(selClipTrackName) }}</span></button>
             <button :class="{ active: bottomTab === 'samples' }" @click="bottomTab = 'samples'">{{ t('studio.samples') }}</button>
             <button :class="{ active: bottomTab === 'lyrics' }" @click="bottomTab = 'lyrics'">{{ t('studio.lyrics') }}</button>
           </div>
@@ -170,4 +182,5 @@ const SHORTCUTS = computed(() => [
 .tabs { display: flex; gap: 4px; padding: 6px; border-bottom: 1px solid var(--border); flex: none; }
 .tabs button { padding: 4px 10px; font-size: 12px; border: none; background: transparent; color: var(--text-dim); }
 .tabs button.active { color: var(--text); background: var(--bg-elevated); border-radius: 4px; }
+.tab-ctx { color: var(--accent); font-weight: 600; }
 </style>

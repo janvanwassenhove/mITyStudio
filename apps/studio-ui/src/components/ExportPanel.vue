@@ -14,6 +14,7 @@ const jobs = ref<ExportJob[]>([])
 const error = ref('')
 
 const pid = computed(() => studio.project?.id)
+const windowOpen = (url: string) => window.open(url, '_blank')
 
 async function refreshJobs() {
   if (!pid.value) return
@@ -92,6 +93,9 @@ refreshJobs()
         {{ busy ? $t('export.exporting') : $t('export.exportSong') }}
       </button>
       <button :disabled="busy" @click="exportPackage">{{ $t('export.exportPackage') }}</button>
+      <button @click="pid && windowOpen(`/api/projects/${pid}/export/bundle`)">
+        {{ $t('export.exportBundle') }}</button>
+      <div class="dim small">{{ $t('export.bundleHint') }}</div>
 
       <div v-if="error" class="err-box">{{ error }}</div>
 

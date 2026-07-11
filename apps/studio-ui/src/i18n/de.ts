@@ -43,6 +43,16 @@ export default {
       body: 'Der Chat schreibt komplette Songs: „erstelle einen Punksong über den Sommer mit Schlagzeug, Bass, Gitarre und Gesang“. Er kennt deine Instrumente, Samples und Stimmen und nutzt sie.',
       action: 'Zum Studio' },
   },
+  ctx: {
+    open: 'Öffnen', rename: 'Umbenennen…', renamePrompt: 'Neuer Name:',
+    duplicate: 'Duplizieren', delete: 'Löschen…',
+    deleteConfirm: 'Projekt "{name}" löschen? Gerenderte Stems verschwinden mit; deine Assets bleiben.',
+    exportBundle: 'Portables Bundle exportieren',
+    importBundle: 'Projekt-Bundle importieren', importing: 'importiere…',
+    imported: '"{name}" importiert — Stems rendern beim ersten Abspielen.',
+    importTip: 'Lade eine .mityproject.zip — Samples, SoundFonts und Stimmen inklusive',
+    rightClickTip: 'Rechtsklick für Umbenennen / Exportieren / Löschen',
+  },
   sidebar: {
     projects: 'Projekte', newProject: 'Titel des neuen Projekts',
     empty: 'Noch keine Projekte. Lege oben eines an oder bitte den Chat um einen Song.',
@@ -64,6 +74,13 @@ export default {
     noProject: 'Öffne oder erstelle zuerst ein Projekt, dann kann ich es bearbeiten.',
     hint: 'Bitte um einen Song: „erstelle einen Punksong mit Schlagzeug, Bass und Gitarre“, „füg einen Refrain hinzu“, „mach es schneller“, „schreib einen Songtext über den Sommer“…',
     planning: 'plane…', placeholder: 'Beschreibe den Song oder eine Änderung…', send: 'Senden',
+    tryOne: 'Probier einen davon — Klick sendet:',
+    ex: {
+      fullSong: 'Erstelle einen fröhlichen Popsong über Sommernächte, mit Schlagzeug, Bass, Gitarre, Keys und Gesang',
+      addChorus: 'Füg einen großen Schlussrefrain hinzu und verdopple die Energie',
+      lyrics: 'Schreib den Songtext um — über das Verlassen der Heimat, Melodie behalten',
+      faster: 'Mach es 10 BPM schneller und füg einen Synth-Arp hinzu',
+    },
     sessionTokens: 'diese Sitzung: {n} Tokens', elapsedS: '{s}s',
     think: {
       reading: 'Lese deine Anfrage…',
@@ -90,6 +107,8 @@ export default {
     stemsRendered: '{n} Stems gerendert', exportMix: 'Mix exportieren',
     exporting: 'exportiere…', exportSong: 'Kompletten Song exportieren',
     exportPackage: 'Projektpaket exportieren (ZIP)', exports: 'Exporte',
+    exportBundle: 'Portables Bundle exportieren (mit Assets & Stimmen)',
+    bundleHint: 'Eine Zip mit dem Projekt, jedem referenzierten Sample/SoundFont und den KI-Stimmen (Aufnahmen + trainiertes Modell) — auf jedem mITyStudio importierbar, um den Song zu reproduzieren.',
     instruments: 'Instrumente…', samples: 'Samples…', vocals: 'Gesang…',
   },
   timeline: {
@@ -266,6 +285,10 @@ export default {
     oneAtATime: 'eine andere Stimme trainiert gerade — eine nach der anderen',
     trainTip: 'ein High-Fidelity-Modell auf dieser Stimme trainieren (Stunden, läuft im Hintergrund)',
     startTraining: 'Training starten', sourceCount: '{n} Quellaufnahme(n)',
+    importVoice: 'Stimme importieren', importTip: 'Lade ein Stimm-Bundle (.mityvoice.zip) — Profil, Aufnahmen und trainiertes Modell inklusive',
+    importing: 'importiere…', imported: 'Stimme "{name}" importiert.',
+    exportTip: 'diese Stimme als portables Bundle exportieren (Aufnahmen + trainiertes Modell)',
+    trainingLog: 'Trainingsprotokoll', noLog: 'Noch keine Trainingsausgabe.',
     restrictions: 'Einschränkungen', noProfiles: 'Noch keine Stimmprofile.',
   },
   wizard: {

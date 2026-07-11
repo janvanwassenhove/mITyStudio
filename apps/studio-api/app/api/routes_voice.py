@@ -237,7 +237,9 @@ def start_training(profile_id: str, tier: str = "full") -> dict:
 
     script = get_config().root / "tools" / "train_rvc.py"
     log_dir = get_config().root / "tools"
-    creationflags = 0x00000008 | 0x00000200  # DETACHED_PROCESS | NEW_PROCESS_GROUP
+    # CREATE_NO_WINDOW: no console window pops up — progress is available in
+    # the app via GET /voice/training-log instead
+    creationflags = 0x08000000 | 0x00000200  # CREATE_NO_WINDOW | NEW_PROCESS_GROUP
     with open(log_dir / "rvc-training-stdout.log", "ab") as out, \
          open(log_dir / "rvc-training-stderr.log", "ab") as err:
         subprocess.Popen([str(_applio_python()), str(script), profile_id,
@@ -249,6 +251,53 @@ def start_training(profile_id: str, tier: str = "full") -> dict:
                        f"({TIER_EPOCHS[tier]} epochs) — it runs in the "
                        "background; the badge shows progress and renders "
                        "improve as checkpoints land"}
+
+
+@router.get("/training-log")
+def training_log(lines: int = 200) -> dict:
+    """Tail of the RVC training logs — shown on demand in the UI instead of
+    a console window."""
+    root = get_config().root / "tools"
+    out: list[str] = []
+    for name in ("rvc-training.log", "rvc-training-stderr.log"):
+        p = root / name
+        if p.exists():
+            tail = p.read_text(encoding="utf-8",
+                               errors="replace").splitlines()[-lines:]
+            if tail:
+                out.append(f"── {name} ──")
+                out.extend(tail)
+    return {"lines": out[-lines * 2:]}
+
+
+@router.get("/profiles/{profile_id}/export")
+def export_voice(profile_id: str):
+    """Portable voice bundle: profile + consent + source recordings + trained
+    RVC weights in one zip — importable on any mITyStudio."""
+    from fastapi.responses import FileResponse
+
+    from ..services import bundles
+    try:
+        path = bundles.export_voice_bundle(profile_id)
+    except KeyError:
+        raise HTTPException(404, "voice profile not found")
+    return FileResponse(path, filename=path.name,
+                        media_type="application/zip")
+
+
+@router.post("/profiles/import")
+async def import_voice(file: UploadFile) -> dict:
+    from ..services import bundles
+    tmp_dir = get_config().analysis_cache_dir / "imports"
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp = tmp_dir / (file.filename or "voice.zip")
+    tmp.write_bytes(await file.read())
+    try:
+        return bundles.import_voice_bundle(tmp)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 @router.get("/rvc-status")

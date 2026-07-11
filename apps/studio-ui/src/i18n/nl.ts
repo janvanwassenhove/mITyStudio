@@ -43,6 +43,16 @@ export default {
       body: 'De chat schrijft volledige nummers: “maak een punknummer over de zomer met drums, bas, gitaar en zang”. Hij kent je instrumenten, samples en stemmen en gebruikt ze.',
       action: 'Naar de Studio' },
   },
+  ctx: {
+    open: 'Openen', rename: 'Hernoemen…', renamePrompt: 'Nieuwe naam:',
+    duplicate: 'Dupliceren', delete: 'Verwijderen…',
+    deleteConfirm: 'Project "{name}" verwijderen? Gerenderde stems verdwijnen mee; je assets blijven staan.',
+    exportBundle: 'Draagbare bundel exporteren',
+    importBundle: 'Projectbundel importeren', importing: 'importeren…',
+    imported: '"{name}" geïmporteerd — stems renderen bij de eerste keer afspelen.',
+    importTip: 'Laad een .mityproject.zip — samples, soundfonts en stemmen inbegrepen',
+    rightClickTip: 'rechtsklik voor hernoemen / exporteren / verwijderen',
+  },
   sidebar: {
     projects: 'Projecten', newProject: 'Titel nieuw project',
     empty: 'Nog geen projecten. Maak er hierboven één of vraag de chat om een nummer.',
@@ -64,6 +74,13 @@ export default {
     noProject: 'Open of maak eerst een project, dan kan ik het bewerken.',
     hint: 'Vraag om een nummer: “maak een punknummer met drums, bas en gitaar”, “voeg een refrein toe”, “maak het sneller”, “schrijf songtekst over de zomer”…',
     planning: 'plannen…', placeholder: 'Beschrijf het nummer of een wijziging…', send: 'Versturen',
+    tryOne: 'Probeer er één — klik om te versturen:',
+    ex: {
+      fullSong: 'Maak een vrolijk popnummer over zomeravonden, met drums, bas, gitaar, keys en gezongen vocalen',
+      addChorus: 'Voeg een groot slotrefrein toe en verdubbel de energie',
+      lyrics: 'Herschrijf de songtekst over het verlaten van thuis, behoud de melodie',
+      faster: 'Maak het 10 BPM sneller en voeg een synth-arp toe',
+    },
     sessionTokens: 'deze sessie: {n} tokens', elapsedS: '{s}s',
     think: {
       reading: 'Je verzoek lezen…',
@@ -90,6 +107,8 @@ export default {
     stemsRendered: '{n} stems gerenderd', exportMix: 'Mix exporteren',
     exporting: 'exporteren…', exportSong: 'Volledig nummer exporteren',
     exportPackage: 'Projectpakket exporteren (ZIP)', exports: 'Exports',
+    exportBundle: 'Draagbare bundel exporteren (met assets & stemmen)',
+    bundleHint: 'Eén zip met het project, elke gebruikte sample/soundfont en de AI-stemmen (opnames + getraind model) — importeer hem op elke mITyStudio om het nummer te reproduceren.',
     instruments: 'instrumenten…', samples: 'samples…', vocals: 'zang…',
   },
   timeline: {
@@ -266,6 +285,10 @@ export default {
     oneAtATime: 'een andere stem traint al — één tegelijk',
     trainTip: 'train een high-fidelity model op deze stem (uren, draait op de achtergrond)',
     startTraining: 'Training starten', sourceCount: '{n} bronopname(s)',
+    importVoice: 'Stem importeren', importTip: 'Laad een stembundel (.mityvoice.zip) — profiel, opnames en getraind model inbegrepen',
+    importing: 'importeren…', imported: 'Stem "{name}" geïmporteerd.',
+    exportTip: 'exporteer deze stem als draagbare bundel (opnames + getraind model)',
+    trainingLog: 'Trainingslog', noLog: 'Nog geen trainingsuitvoer.',
     restrictions: 'beperkingen', noProfiles: 'Nog geen stemprofielen.',
   },
   wizard: {

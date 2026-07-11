@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, UploadFile
+
+from ..config import get_config
 from pydantic import BaseModel, Field
 
 from ..models.song import SongProject
@@ -182,6 +184,45 @@ def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
             "applied": [r.summary for r in results if r.applied],
             "errors": errors,
             "project": project.model_dump()}
+
+
+@router.delete("/{project_id}")
+def delete_project(project_id: str) -> dict:
+    try:
+        project_repo.delete_project(project_id)
+    except ProjectNotFound:
+        raise HTTPException(404, "project not found")
+    return {"deleted": project_id}
+
+
+@router.get("/{project_id}/export/bundle")
+def export_project_bundle(project_id: str):
+    """Portable bundle: project + every referenced sample/soundfont/voice
+    (recordings + trained model) in one zip — reimport reproduces the song."""
+    from fastapi.responses import FileResponse
+
+    from ..services import bundles
+    try:
+        path = bundles.export_project_bundle(project_id)
+    except ProjectNotFound:
+        raise HTTPException(404, "project not found")
+    return FileResponse(path, filename=path.name,
+                        media_type="application/zip")
+
+
+@router.post("/import")
+async def import_project_bundle(file: UploadFile) -> dict:
+    from ..services import bundles
+    cfg_tmp = get_config().analysis_cache_dir / "imports"
+    cfg_tmp.mkdir(parents=True, exist_ok=True)
+    tmp = cfg_tmp / (file.filename or "bundle.zip")
+    tmp.write_bytes(await file.read())
+    try:
+        return bundles.import_project_bundle(tmp)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    finally:
+        tmp.unlink(missing_ok=True)
 
 
 class UpdateLyricLineRequest(BaseModel):

@@ -43,6 +43,16 @@ export default {
       body: 'The chat writes full songs: “create a punk song about summer with drums, bass, guitar and vocals”. It knows your instruments, samples and voices and uses them.',
       action: 'Go to the Studio' },
   },
+  ctx: {
+    open: 'Open', rename: 'Rename…', renamePrompt: 'New name:',
+    duplicate: 'Duplicate', delete: 'Delete…',
+    deleteConfirm: 'Delete project "{name}"? Rendered stems are removed too; your assets stay.',
+    exportBundle: 'Export portable bundle',
+    importBundle: 'Import project bundle', importing: 'importing…',
+    imported: 'Imported "{name}" — stems render on first play.',
+    importTip: 'Load a .mityproject.zip — samples, soundfonts and voices included',
+    rightClickTip: 'right-click for rename / export / delete',
+  },
   sidebar: {
     projects: 'Projects', newProject: 'New project title',
     empty: 'No projects yet. Create one above or ask the chat to make a song.',
@@ -64,6 +74,13 @@ export default {
     noProject: 'Open or create a project first, then I can edit it.',
     hint: 'Ask for a song: “create a punk song with drums, bass and guitar”, “add a chorus”, “make it faster”, “add lyrics about summer”…',
     planning: 'planning…', placeholder: 'Describe the song or a change…', send: 'Send',
+    tryOne: 'Try one of these — click to send:',
+    ex: {
+      fullSong: 'Create an upbeat pop song about summer nights, with drums, bass, guitar, keys and sung vocals',
+      addChorus: 'Add a big final chorus and double the energy',
+      lyrics: 'Rewrite the lyrics to be about leaving home, keep the melody',
+      faster: 'Make it 10 BPM faster and add a synth arp',
+    },
     sessionTokens: 'this session: {n} tokens', elapsedS: '{s}s',
     think: {
       reading: 'Reading your request…',
@@ -90,6 +107,8 @@ export default {
     stemsRendered: '{n} stems rendered', exportMix: 'Export mix',
     exporting: 'exporting…', exportSong: 'Export combined song',
     exportPackage: 'Export project package (ZIP)', exports: 'Exports',
+    exportBundle: 'Export portable bundle (with assets & voices)',
+    bundleHint: 'One zip with the project, every referenced sample/soundfont and the AI voices (recordings + trained model) — import it on any mITyStudio to reproduce the song.',
     instruments: 'instruments…', samples: 'samples…', vocals: 'vocals…',
   },
   timeline: {
@@ -266,6 +285,10 @@ export default {
     oneAtATime: 'another voice is training — one at a time',
     trainTip: 'train a high-fidelity model on this voice (hours, runs in background)',
     startTraining: 'Start training', sourceCount: '{n} source recording(s)',
+    importVoice: 'Import voice', importTip: 'Load a voice bundle (.mityvoice.zip) — profile, recordings and trained model included',
+    importing: 'importing…', imported: 'Imported voice "{name}".',
+    exportTip: 'export this voice as a portable bundle (recordings + trained model)',
+    trainingLog: 'Training log', noLog: 'No training output yet.',
     restrictions: 'restrictions', noProfiles: 'No voice profiles yet.',
   },
   wizard: {

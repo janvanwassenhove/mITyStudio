@@ -43,6 +43,16 @@ export default {
       body: 'Le chat écrit des chansons complètes : « crée une chanson punk sur l’été avec batterie, basse, guitare et chant ». Il connaît vos instruments, samples et voix et les utilise.',
       action: 'Aller au Studio' },
   },
+  ctx: {
+    open: 'Ouvrir', rename: 'Renommer…', renamePrompt: 'Nouveau nom :',
+    duplicate: 'Dupliquer', delete: 'Supprimer…',
+    deleteConfirm: 'Supprimer le projet « {name} » ? Les stems rendus disparaissent aussi ; vos assets restent.',
+    exportBundle: 'Exporter le bundle portable',
+    importBundle: 'Importer un bundle projet', importing: 'import…',
+    imported: '« {name} » importé — les stems se rendent à la première lecture.',
+    importTip: 'Chargez un .mityproject.zip — samples, soundfonts et voix inclus',
+    rightClickTip: 'clic droit pour renommer / exporter / supprimer',
+  },
   sidebar: {
     projects: 'Projets', newProject: 'Titre du nouveau projet',
     empty: 'Aucun projet. Créez-en un ci-dessus ou demandez une chanson au chat.',
@@ -64,6 +74,13 @@ export default {
     noProject: 'Ouvrez ou créez d’abord un projet, puis je pourrai le modifier.',
     hint: 'Demandez une chanson : « crée une chanson punk avec batterie, basse et guitare », « ajoute un refrain », « accélère », « écris des paroles sur l’été »…',
     planning: 'planification…', placeholder: 'Décrivez la chanson ou une modification…', send: 'Envoyer',
+    tryOne: 'Essayez-en un — cliquez pour envoyer :',
+    ex: {
+      fullSong: 'Crée une chanson pop entraînante sur les nuits d’été, avec batterie, basse, guitare, claviers et chant',
+      addChorus: 'Ajoute un grand refrain final et double l’énergie',
+      lyrics: 'Réécris les paroles sur le départ de la maison, garde la mélodie',
+      faster: 'Accélère de 10 BPM et ajoute un arpège de synthé',
+    },
     sessionTokens: 'cette session : {n} tokens', elapsedS: '{s}s',
     think: {
       reading: 'Lecture de votre demande…',
@@ -90,6 +107,8 @@ export default {
     stemsRendered: '{n} stems rendus', exportMix: 'Exporter le mix',
     exporting: 'export…', exportSong: 'Exporter la chanson complète',
     exportPackage: 'Exporter le paquet projet (ZIP)', exports: 'Exports',
+    exportBundle: 'Exporter le bundle portable (avec assets & voix)',
+    bundleHint: 'Un seul zip avec le projet, chaque sample/soundfont référencé et les voix IA (enregistrements + modèle entraîné) — importez-le sur n’importe quel mITyStudio pour reproduire la chanson.',
     instruments: 'instruments…', samples: 'samples…', vocals: 'voix…',
   },
   timeline: {
@@ -266,6 +285,10 @@ export default {
     oneAtATime: 'une autre voix s’entraîne déjà — une à la fois',
     trainTip: 'entraîner un modèle haute fidélité sur cette voix (des heures, en arrière-plan)',
     startTraining: 'Lancer l’entraînement', sourceCount: '{n} enregistrement(s) source',
+    importVoice: 'Importer une voix', importTip: 'Chargez un bundle voix (.mityvoice.zip) — profil, enregistrements et modèle entraîné inclus',
+    importing: 'import…', imported: 'Voix « {name} » importée.',
+    exportTip: 'exporter cette voix en bundle portable (enregistrements + modèle entraîné)',
+    trainingLog: 'Journal d’entraînement', noLog: 'Pas encore de sortie d’entraînement.',
     restrictions: 'restrictions', noProfiles: 'Pas encore de profils vocaux.',
   },
   wizard: {

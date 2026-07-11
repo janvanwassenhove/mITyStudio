@@ -54,6 +54,14 @@ function stopThinking() {
 }
 onUnmounted(stopThinking)
 
+// launchable example prompts shown while the chat is empty
+const EXAMPLE_KEYS = ['fullSong', 'addChorus', 'lyrics', 'faster'] as const
+
+function sendExample(key: string) {
+  input.value = t('chat.ex.' + key)
+  void send()
+}
+
 async function send() {
   const text = input.value.trim()
   if (!text || busy.value) return
@@ -89,8 +97,12 @@ async function send() {
 <template>
   <div class="chat">
     <div ref="scrollEl" class="messages">
-      <div v-if="!messages.length" class="dim hint">
-        {{ t('chat.hint') }}
+      <div v-if="!messages.length" class="hint-block">
+        <div class="dim hint">{{ t('chat.tryOne') }}</div>
+        <button v-for="k in EXAMPLE_KEYS" :key="k" class="example"
+                :disabled="busy" @click="sendExample(k)">
+          {{ t('chat.ex.' + k) }}
+        </button>
       </div>
       <div v-for="(m, i) in messages" :key="i" class="msg" :class="m.role">
         <div class="bubble" :class="{ 'err-bubble': m.usage?.error_kind }">{{ m.text }}</div>
@@ -130,6 +142,12 @@ async function send() {
 .chat { display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .messages { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .hint { font-size: 12px; }
+.hint-block { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.example {
+  text-align: left; font-size: 12px; padding: 6px 10px; border-radius: 8px;
+  background: var(--bg-elevated); border: 1px dashed var(--border); color: var(--text-dim);
+}
+.example:hover { border-color: var(--accent); color: var(--text); }
 .msg.user { align-self: flex-end; max-width: 90%; }
 .msg.assistant { align-self: flex-start; max-width: 95%; }
 .bubble { padding: 8px 10px; border-radius: 8px; font-size: 13px; white-space: pre-wrap; }
