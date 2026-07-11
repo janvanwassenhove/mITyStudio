@@ -139,4 +139,16 @@ def convert_stem(in_wav: Path, out_wav: Path, profile) -> list[str]:
         tail = (proc.stderr or proc.stdout or "").strip()[-400:]
         log.warning("RVC conversion failed: %s", tail)
         return [f"RVC conversion failed ({tail[:120]}…) — stem kept unconverted"]
+    # defensive: RVC can "succeed" yet emit silence (e.g. on long, sparse
+    # input). Treat a silent result as a failure so the caller keeps the
+    # audible cloned voice instead of writing a dead stem.
+    try:
+        import numpy as np
+        import soundfile as sf
+        data, _ = sf.read(str(out_wav), dtype="float32")
+        if data.size and float(np.abs(data).max()) < 0.005:
+            log.warning("RVC produced silence for %s", profile.name)
+            return ["RVC produced a silent result — keeping the cloned voice"]
+    except Exception:  # noqa: BLE001
+        pass
     return []

@@ -23,6 +23,18 @@ from .render.soundfont_renderer import SAMPLE_RATE, _register_stem_asset, track_
 
 log = logging.getLogger(__name__)
 
+# Bump when the vocal rendering pipeline changes so cached vocal stems
+# re-render (separate from the instrument ENGINE_VERSION so a vocal-engine
+# change doesn't force every instrument stem to re-render).
+#   2 → RVC runs on the dense concatenation of sung lines, not the sparse
+#       timeline stem (which made RVC collapse to silence)
+VOCAL_ENGINE_VERSION = "2"
+
+
+def vocal_fingerprint(project: SongProject, track: Track) -> str:
+    """Fingerprint for a vocal stem — track state + vocal engine version."""
+    return f"{track_fingerprint(project, track)}:v{VOCAL_ENGINE_VERSION}"
+
 
 @dataclass
 class VocalRenderResult:
@@ -590,7 +602,7 @@ def render_vocal_stems(project: SongProject) -> dict:
                     f"{track.name}: no voice selected — singing with your "
                     f"voice profile {profile.name!r} (change it in the Track tab)")
         engine = get_engine("mock", profile)
-        fp = track_fingerprint(project, track)
+        fp = vocal_fingerprint(project, track)
         out_path = cfg.stems_dir / project.id / f"vocal_{_safe_name(track.name)}_{track.id[:8]}.wav"
         try:
             r = engine.render(project, track, out_path)

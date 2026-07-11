@@ -94,6 +94,8 @@ def _lines_with_notes(project: SongProject, track: Track):
     out = []
     i = 0
     for line in project.lyrics.lines:
+        if not line.text.strip():
+            continue   # blank lyric line — nothing to sing
         take = _syllable_count(line.text)
         pool = notes[i:]
         if line.section_id:
@@ -468,9 +470,11 @@ class CloneSingingEngine(SingingVoiceEngine):
 
         pairs = _lines_with_notes(project, track)
         total = max(int(project.duration_seconds() * SAMPLE_RATE), SAMPLE_RATE)
-        out = np.zeros(total, dtype=np.float32)
-        sung = 0
         rap = getattr(track, "vocal_style", "sing") == "rap"
+
+        # sing each line, keep (timeline start, audio) — placed onto the
+        # timeline only AFTER the (optional) RVC stage
+        segments: list[tuple[int, np.ndarray]] = []
         for text, line_notes in pairs:
             try:
                 spoken, rate = _tts_line(text, speakers, language)
@@ -484,12 +488,30 @@ class CloneSingingEngine(SingingVoiceEngine):
             i0 = int(line_start * SAMPLE_RATE)
             seglen = min(len(sung_line), total - i0)
             if seglen > 0:
+                sl = np.array(sung_line[:seglen], dtype=np.float32)
                 edge = min(int(0.02 * SAMPLE_RATE), seglen)
-                sung_line[:edge] *= np.linspace(0, 1, edge)
-                sung_line[seglen - edge:seglen] *= np.linspace(1, 0, edge)
-                out[i0:i0 + seglen] += sung_line[:seglen]
-                sung += 1
+                sl[:edge] *= np.linspace(0, 1, edge)
+                sl[seglen - edge:seglen] *= np.linspace(1, 0, edge)
+                segments.append((i0, sl))
+        sung = len(segments)
 
+        # final fidelity stage: trained RVC model of this exact voice. RVC is
+        # run on the DENSE concatenation of sung lines — feeding it the sparse
+        # timeline-length mix makes it collapse to silence.
+        from .rvc_convert import rvc_model_ready
+        placed = segments
+        if sung and rvc_model_ready(self.profile):
+            converted = self._rvc_convert_segments(segments, result)
+            if converted is not None:
+                placed = converted
+                result.render_log.append(
+                    f"RVC conversion applied (trained {self.profile.name!r} model)")
+
+        out = np.zeros(total, dtype=np.float32)
+        for i0, sl in placed:
+            n = min(len(sl), total - i0)
+            if n > 0:
+                out[i0:i0 + n] += sl[:n]
         peak = float(np.max(np.abs(out))) if out.size else 0.0
         if peak > 0.005:
             out *= 0.85 / peak
@@ -498,21 +520,55 @@ class CloneSingingEngine(SingingVoiceEngine):
         result.render_log.append(
             f"clone-singing engine (XTTS, voice {self.profile.name!r}) sang "
             f"{sung}/{len(pairs)} lyric lines")
-
-        # final fidelity stage: trained RVC model of this exact voice
-        from .rvc_convert import convert_stem, rvc_model_ready
-        if rvc_model_ready(self.profile):
-            rvc_out = out_path.with_name(out_path.stem + "_rvc.wav")
-            warnings = convert_stem(out_path, rvc_out, self.profile)
-            if not warnings and rvc_out.exists():
-                rvc_out.replace(out_path)
-                result.render_log.append(
-                    f"RVC conversion applied (trained {self.profile.name!r} model)")
-            else:
-                result.warnings.extend(warnings)
         if sung == 0:
             result.warnings.append(
                 "no lines could be sung — check lyrics + melody exist "
                 "(Lyrics tab → 'Sing these lyrics')")
         result.alignment = build_lyrics_alignment(project, track)
         return result
+
+    def _rvc_convert_segments(self, segments: list[tuple[int, np.ndarray]],
+                              result: VocalRenderResult):
+        """RVC-convert the dense concatenation of sung lines in ONE pass, then
+        slice the converted audio back per line. Returns [(start, audio)] or
+        None on failure (caller keeps the un-converted cloned singing).
+
+        Dense input is essential: RVC collapses long, mostly-silent stems to
+        silence, but converts continuous audio faithfully."""
+        from .rvc_convert import convert_stem
+        cfg = get_config()
+        gap = int(0.2 * SAMPLE_RATE)
+        parts: list[np.ndarray] = []
+        offsets: list[tuple[int, int]] = []   # (start in dense, length)
+        pos = 0
+        for _, sl in segments:
+            offsets.append((pos, len(sl)))
+            parts.append(sl)
+            parts.append(np.zeros(gap, dtype=np.float32))
+            pos += len(sl) + gap
+        dense = np.concatenate(parts).astype(np.float32)
+        pk = float(np.abs(dense).max())
+        if pk > 0.005:
+            dense = dense * (0.9 / pk)
+
+        tmp = cfg.analysis_cache_dir / "tts"
+        tmp.mkdir(parents=True, exist_ok=True)
+        tin = tmp / f"_rvc_in_{self.profile.id[:8]}.wav"
+        tout = tmp / f"_rvc_out_{self.profile.id[:8]}.wav"
+        write_wav(tin, np.repeat(dense[:, None], 2, axis=1), SAMPLE_RATE)
+        warnings = convert_stem(tin, tout, self.profile)
+        if warnings or not tout.exists():
+            result.warnings.extend(warnings)
+            return None
+        conv, rate = read_audio(tout)
+        conv = conv[:, 0]
+        if rate != SAMPLE_RATE:
+            conv = resample_linear(conv[:, None], rate, SAMPLE_RATE)[:, 0]
+        out_segs: list[tuple[int, np.ndarray]] = []
+        for (i0, _sl), (dstart, dlen) in zip(segments, offsets):
+            seg = conv[dstart:dstart + dlen]
+            if len(seg) < dlen:
+                seg = np.concatenate(
+                    [seg, np.zeros(dlen - len(seg), dtype=np.float32)])
+            out_segs.append((i0, seg.astype(np.float32)))
+        return out_segs

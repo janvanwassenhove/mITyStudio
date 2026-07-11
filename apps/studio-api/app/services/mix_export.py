@@ -69,7 +69,10 @@ def ensure_stems(project: SongProject, job: ExportJob) -> None:
             return True
         if not (cfg.root / stem.path).exists():
             return True
-        return stem.source_fingerprint != track_fingerprint(project, track)
+        fp = (vocal_engine.vocal_fingerprint(project, track)
+              if stem_type == "vocal"
+              else track_fingerprint(project, track))
+        return stem.source_fingerprint != fp
 
     from .midi_export import exportable_tracks
     needs_instruments = any(
