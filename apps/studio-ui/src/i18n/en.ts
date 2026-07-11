@@ -115,6 +115,11 @@ export default {
     empty: 'No lyrics yet — ask the chat: “add lyrics about … for the whole song”, or add a Voice track (＋ Add Track).',
     noMelodyYet: 'These lyrics have no melody yet — click “Sing these lyrics” above, then press ▶.',
     noTimingYet: 'No lyric timing yet — press ▶ (vocals render automatically) to enable karaoke.',
+    edit: 'Edit', editTip: 'Edit lyric lines in place — the melody re-syncs to the new words',
+    history: 'History', historyTip: 'Earlier lyric versions — restore any of them',
+    needsRender: 'lyrics changed — vocals re-render on ▶',
+    noHistory: 'No earlier versions yet.', restore: 'Restore',
+    v: { edit: 'edit', chat: 'chat', restore: 'restore', import: 'import' },
   },
   settings: {
     noKey: 'no key found', keyStored: 'key stored in local_settings.json',

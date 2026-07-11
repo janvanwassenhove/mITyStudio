@@ -334,9 +334,12 @@ def op_generate_melody(project: SongProject, p: dict) -> str:
 
 
 def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
+    from . import lyrics_editing
+
     lines = p.get("lines")
     if not isinstance(lines, list) or not lines:
         raise OperationError("rewrite_lyrics requires a non-empty 'lines' list")
+    lyrics_editing.snapshot(project, "chat")
     if str(p.get("section", "")).lower() in ("all", "*") and project.sections:
         # distribute lines across sections in even chunks (full-song lyrics)
         sections = project.sections
@@ -354,6 +357,8 @@ def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
             total += len(part)
         if "language" in p:
             project.lyrics.language = str(p["language"])
+        for s in sections:   # existing melodies must follow the new words
+            lyrics_editing.resync_section(project, s.id)
         return f"distributed {total} lyric lines across {len(sections)} sections"
     section = _find_section(project, p.get("section")) if project.sections else None
     section_id = section.id if section else ""
@@ -364,6 +369,8 @@ def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
                                                text=str(text)))
     if "language" in p:
         project.lyrics.language = str(p["language"])
+    if section_id:
+        lyrics_editing.resync_section(project, section_id)
     where = f" for section {section.name!r}" if section else ""
     return f"set {len(lines)} lyric line(s){where}"
 

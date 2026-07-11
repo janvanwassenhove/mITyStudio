@@ -184,6 +184,60 @@ def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
             "project": project.model_dump()}
 
 
+class UpdateLyricLineRequest(BaseModel):
+    text: str
+
+
+@router.put("/{project_id}/lyrics/lines/{line_id}")
+def update_lyric_line(project_id: str, line_id: str,
+                      req: UpdateLyricLineRequest) -> dict:
+    """Edit one lyric line. The section's vocal melody is re-synced to the
+    new syllables and its stems re-render on the next play."""
+    from ..services import lyrics_editing
+
+    try:
+        project = project_repo.load_project(project_id)
+    except ProjectNotFound:
+        raise HTTPException(404, "project not found")
+    try:
+        result = lyrics_editing.update_line(project, line_id, req.text)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    if result["changed"]:
+        project_repo.save_project(project)
+    result["project"] = project.model_dump()
+    return result
+
+
+@router.get("/{project_id}/lyrics/history")
+def lyrics_history(project_id: str) -> list[dict]:
+    try:
+        project = project_repo.load_project(project_id)
+    except ProjectNotFound:
+        raise HTTPException(404, "project not found")
+    return [{"id": v.id, "timestamp": v.timestamp, "label": v.label,
+             "line_count": len(v.lines),
+             "preview": (v.lines[0].text[:60] if v.lines else "")}
+            for v in reversed(project.lyrics.history)]
+
+
+@router.post("/{project_id}/lyrics/restore/{version_id}")
+def restore_lyrics(project_id: str, version_id: str) -> dict:
+    from ..services import lyrics_editing
+
+    try:
+        project = project_repo.load_project(project_id)
+    except ProjectNotFound:
+        raise HTTPException(404, "project not found")
+    try:
+        result = lyrics_editing.restore_version(project, version_id)
+    except KeyError as e:
+        raise HTTPException(404, str(e))
+    project_repo.save_project(project)
+    result["project"] = project.model_dump()
+    return result
+
+
 @router.post("/{project_id}/validate")
 def validate_project(project_id: str) -> dict:
     try:

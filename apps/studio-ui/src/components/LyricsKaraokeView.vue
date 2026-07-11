@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Mic } from 'lucide-vue-next'
+import { History, Mic, Pencil } from 'lucide-vue-next'
 import { api } from '../api/client'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
@@ -45,6 +45,56 @@ async function singLyrics() {
 
 const mode = ref<'full' | 'karaoke'>('full')
 const lines = computed(() => studio.manifest?.lyrics_alignment ?? [])
+
+// --- inline editing + version history --------------------------------------
+const editMode = ref(false)
+const needsRender = ref(false)
+const savingLine = ref('')
+
+async function saveLine(lineId: string, ev: Event) {
+  const p = studio.project
+  if (!p) return
+  const text = (ev.target as HTMLInputElement).value.trim()
+  savingLine.value = lineId
+  try {
+    const r = await api.put<{ changed: boolean; needs_render?: boolean }>(
+      `/projects/${p.id}/lyrics/lines/${lineId}`, { text })
+    if (r.changed) {
+      if (r.needs_render) needsRender.value = true
+      await studio.reloadCurrent()
+    }
+  } catch (e) {
+    singMsg.value = String(e)
+  } finally {
+    savingLine.value = ''
+  }
+}
+
+interface LyricsVersion { id: string; timestamp: string; label: string; line_count: number; preview: string }
+const showHistory = ref(false)
+const history = ref<LyricsVersion[]>([])
+
+async function toggleHistory() {
+  showHistory.value = !showHistory.value
+  if (showHistory.value && studio.project) {
+    history.value = await api.get<LyricsVersion[]>(
+      `/projects/${studio.project.id}/lyrics/history`)
+  }
+}
+
+async function restoreVersion(v: LyricsVersion) {
+  const p = studio.project
+  if (!p) return
+  try {
+    const r = await api.post<{ needs_render?: boolean }>(
+      `/projects/${p.id}/lyrics/restore/${v.id}`)
+    if (r.needs_render) needsRender.value = true
+    showHistory.value = false
+    await studio.reloadCurrent()
+  } catch (e) {
+    singMsg.value = String(e)
+  }
+}
 
 const currentIndex = computed(() => {
   const t = playback.playhead
@@ -103,6 +153,15 @@ function seekToLine(start: number | null) {
         <template v-if="singing">{{ t('lyrics.writingMelody') }}</template>
         <template v-else><Mic class="icon" :size="12" /> {{ t('lyrics.singThese', { n: unsungSections }) }}</template>
       </button>
+      <button v-if="hasLyrics" class="mode-bar-btn" :class="{ active: editMode }"
+              :title="t('lyrics.editTip')" @click="editMode = !editMode">
+        <Pencil class="icon" :size="12" /> {{ t('lyrics.edit') }}
+      </button>
+      <button v-if="hasLyrics" class="mode-bar-btn" :class="{ active: showHistory }"
+              :title="t('lyrics.historyTip')" @click="toggleHistory">
+        <History class="icon" :size="12" /> {{ t('lyrics.history') }}
+      </button>
+      <span v-if="needsRender" class="render-chip">{{ t('lyrics.needsRender') }}</span>
       <span class="dim small sing-msg">{{ singMsg }}</span>
       <span class="dim small" style="margin-left: auto">
         {{ lines.length ? t('lyrics.timingHint')
@@ -111,18 +170,38 @@ function seekToLine(start: number | null) {
       </span>
     </div>
 
+    <!-- version history -->
+    <div v-if="showHistory" class="history panel">
+      <div v-if="!history.length" class="dim small" style="padding: 8px">{{ t('lyrics.noHistory') }}</div>
+      <div v-for="v in history" :key="v.id" class="hist-row">
+        <span class="dim small">{{ v.timestamp.replace('T', ' ').replace('+00:00', '') }} · {{ t('lyrics.v.' + v.label) }} · {{ v.line_count }}</span>
+        <span class="hist-preview dim small">“{{ v.preview }}…”</span>
+        <button class="tiny-btn" @click="restoreVersion(v)">{{ t('lyrics.restore') }}</button>
+      </div>
+    </div>
+
     <!-- full-song sheet -->
-    <div v-if="mode === 'full'" class="sheet">
+    <div v-if="mode === 'full'" class="sheet" :class="{ editing: editMode }">
       <div v-if="!sheet.length" class="dim center-msg">
         {{ t('lyrics.empty') }}
       </div>
       <div v-for="sec in sheet" :key="sec.name" class="sheet-section">
         <div class="sec-name">{{ sec.name }}</div>
-        <div
-          v-for="l in sec.lines" :key="l.id" class="sheet-line"
-          :class="{ active: l.id === activeLineId, clickable: l.start != null }"
-          @click="seekToLine(l.start)"
-        >{{ l.text }}</div>
+        <template v-if="editMode">
+          <input
+            v-for="l in sec.lines" :key="l.id" class="sheet-edit"
+            :value="l.text" :disabled="savingLine === l.id"
+            @keyup.enter="($event.target as HTMLInputElement).blur()"
+            @blur="saveLine(l.id, $event)"
+          />
+        </template>
+        <template v-else>
+          <div
+            v-for="l in sec.lines" :key="l.id" class="sheet-line"
+            :class="{ active: l.id === activeLineId, clickable: l.start != null }"
+            @click="seekToLine(l.start)"
+          >{{ l.text }}</div>
+        </template>
       </div>
     </div>
 
@@ -154,6 +233,14 @@ function seekToLine(start: number | null) {
 .mode-bar button.active { color: var(--text); background: var(--bg-elevated); border-radius: 4px; }
 .sing-btn { background: var(--accent) !important; color: #fff !important; border-radius: 5px !important; margin-left: 10px; padding: 3px 12px !important; }
 .sing-msg { max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mode-bar-btn { display: inline-flex; align-items: center; gap: 4px; }
+.mode-bar-btn.active { color: var(--accent) !important; }
+.render-chip { font-size: 11px; color: var(--warn); border: 1px solid var(--warn); border-radius: 10px; padding: 1px 8px; }
+.history { margin: 6px 10px 0; max-height: 160px; overflow-y: auto; }
+.hist-row { display: flex; gap: 10px; align-items: center; padding: 4px 10px; border-bottom: 1px solid var(--border); }
+.hist-preview { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tiny-btn { font-size: 11px; padding: 1px 8px; }
+.sheet-edit { display: block; width: 100%; margin: 2px 0; font-size: 13px; padding: 3px 6px; }
 .small { font-size: 11px; }
 .center-msg { display: flex; align-items: center; justify-content: center; height: 100%; font-size: 13px; padding: 20px; text-align: center; }
 .sheet { flex: 1; overflow-y: auto; padding: 12px 20px; columns: 2; column-gap: 40px; }

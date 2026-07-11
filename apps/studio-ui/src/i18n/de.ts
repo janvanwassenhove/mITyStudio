@@ -115,6 +115,11 @@ export default {
     empty: 'Noch kein Songtext — frag den Chat: „schreib einen Songtext über … für den ganzen Song“, oder füge eine Gesangsspur hinzu (＋ Spur hinzufügen).',
     noMelodyYet: 'Dieser Songtext hat noch keine Melodie — klicke oben auf „Diesen Songtext singen“ und drücke dann ▶.',
     noTimingYet: 'Noch kein Text-Timing — drücke ▶ (Gesang wird automatisch gerendert), um Karaoke zu aktivieren.',
+    edit: 'Bearbeiten', editTip: 'Bearbeite Textzeilen direkt — die Melodie synchronisiert sich mit den neuen Worten',
+    history: 'Verlauf', historyTip: 'Frühere Textversionen — stelle jederzeit eine wieder her',
+    needsRender: 'Songtext geändert — Gesang wird bei ▶ neu gerendert',
+    noHistory: 'Noch keine früheren Versionen.', restore: 'Wiederherstellen',
+    v: { edit: 'Bearbeitung', chat: 'Chat', restore: 'Wiederherstellung', import: 'Import' },
   },
   settings: {
     noKey: 'kein Schlüssel gefunden', keyStored: 'Schlüssel in local_settings.json gespeichert',

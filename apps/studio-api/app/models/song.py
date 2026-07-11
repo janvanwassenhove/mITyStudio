@@ -128,10 +128,19 @@ class LyricsLine(BaseModel):
     text: str
 
 
+class LyricsVersion(BaseModel):
+    """A saved snapshot of the lyric lines — taken before every mutation."""
+    id: str = Field(default_factory=new_id)
+    timestamp: str = ""
+    label: str = ""          # "edit" | "chat" | "restore" | "import"
+    lines: list[LyricsLine] = Field(default_factory=list)
+
+
 class LyricsDocument(BaseModel):
     id: str = Field(default_factory=new_id)
     language: str = "en"
     lines: list[LyricsLine] = Field(default_factory=list)
+    history: list[LyricsVersion] = Field(default_factory=list)
 
     def sections(self) -> list[str]:
         return sorted({l.section_id for l in self.lines if l.section_id})

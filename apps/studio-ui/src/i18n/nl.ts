@@ -115,6 +115,11 @@ export default {
     empty: 'Nog geen songtekst — vraag de chat: “schrijf songtekst over … voor het hele nummer”, of voeg een zangspoor toe (＋ Spoor toevoegen).',
     noMelodyYet: 'Deze songtekst heeft nog geen melodie — klik hierboven op “Zing deze songtekst” en druk dan op ▶.',
     noTimingYet: 'Nog geen teksttiming — druk op ▶ (zang rendert automatisch) om karaoke te activeren.',
+    edit: 'Bewerken', editTip: 'Bewerk tekstregels ter plekke — de melodie synchroniseert mee met de nieuwe woorden',
+    history: 'Geschiedenis', historyTip: 'Eerdere tekstversies — herstel er één wanneer je wilt',
+    needsRender: 'songtekst gewijzigd — zang rendert opnieuw bij ▶',
+    noHistory: 'Nog geen eerdere versies.', restore: 'Herstellen',
+    v: { edit: 'bewerking', chat: 'chat', restore: 'herstel', import: 'import' },
   },
   settings: {
     noKey: 'geen sleutel gevonden', keyStored: 'sleutel opgeslagen in local_settings.json',

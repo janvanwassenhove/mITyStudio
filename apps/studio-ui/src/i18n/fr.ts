@@ -115,6 +115,11 @@ export default {
     empty: 'Pas encore de paroles — demandez au chat : « écris des paroles sur … pour toute la chanson », ou ajoutez une piste Voix (＋ Ajouter une piste).',
     noMelodyYet: 'Ces paroles n’ont pas encore de mélodie — cliquez sur « Chanter ces paroles » ci-dessus, puis appuyez sur ▶.',
     noTimingYet: 'Pas encore de timing — appuyez sur ▶ (les voix sont rendues automatiquement) pour activer le karaoké.',
+    edit: 'Éditer', editTip: 'Modifiez les vers sur place — la mélodie se resynchronise sur les nouveaux mots',
+    history: 'Historique', historyTip: 'Versions précédentes des paroles — restaurez celle que vous voulez',
+    needsRender: 'paroles modifiées — les voix seront re-rendues sur ▶',
+    noHistory: 'Pas encore de versions précédentes.', restore: 'Restaurer',
+    v: { edit: 'édition', chat: 'chat', restore: 'restauration', import: 'import' },
   },
   settings: {
     noKey: 'aucune clé trouvée', keyStored: 'clé stockée dans local_settings.json',
