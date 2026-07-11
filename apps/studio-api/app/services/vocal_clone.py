@@ -91,20 +91,45 @@ def _lines_with_notes(project: SongProject, track: Track):
                           "syl": n.lyric_syllable,
                           "section_id": clip.section_id})
     notes.sort(key=lambda x: x["start"])
-    out = []
-    i = 0
-    for line in project.lyrics.lines:
-        if not line.text.strip():
-            continue   # blank lyric line — nothing to sing
-        take = _syllable_count(line.text)
-        pool = notes[i:]
-        if line.section_id:
-            pool = [x for x in pool if x["section_id"] in (line.section_id, "")]
-        chunk = pool[:take]
-        if chunk:
-            out.append((line.text, chunk))
-            i += len(chunk)
-    return out
+
+    def consume(use_sections: bool):
+        out = []
+        full = 0
+        used = [False] * len(notes)
+        for line in project.lyrics.lines:
+            if not line.text.strip():
+                continue   # blank lyric line — nothing to sing
+            take = _syllable_count(line.text)
+            chunk = []
+            for j, nd in enumerate(notes):
+                if len(chunk) >= take:
+                    break
+                if used[j]:
+                    continue
+                if use_sections and line.section_id \
+                        and nd["section_id"] not in (line.section_id, ""):
+                    continue
+                chunk.append(nd)
+                used[j] = True
+            if chunk:
+                out.append((line.text, chunk))
+                if len(chunk) >= take * 0.6:
+                    full += 1
+        return out, full
+
+    strict, full_strict = consume(True)
+    # section-aware matching first; when lyric section ids don't line up with
+    # the melody clips (e.g. a whole sheet assigned to one section) most of
+    # the song would fall silent or cram — fall back to sequential matching
+    total = sum(1 for l in project.lyrics.lines if l.text.strip())
+    if total and full_strict < total * 0.75:
+        loose, full_loose = consume(False)
+        if full_loose > full_strict:
+            log.warning("lyric sections don't match melody sections "
+                        "(%d/%d lines well-matched) — singing sequentially",
+                        full_strict, total)
+            return loose
+    return strict
 
 
 def _tts_line(text: str, speaker_wavs: list[Path],
@@ -249,9 +274,41 @@ def _stretch_pitch_segment(seg: np.ndarray, n_out: int, tgt_freq: float | None,
     return (buf[:n_out] / norm[:n_out]).astype(np.float32)
 
 
+def _map_syllable_frames(a: int, b: int, span: int, rng) -> np.ndarray:
+    """Frame indices warping one syllable onto its note. Short notes compress
+    linearly; SUSTAINED notes keep onset/coda at natural speech rate and
+    ping-pong-loop the vowel core with jitter — removing the slow-motion
+    vowel artifact of stretching speech."""
+    span_in = max(b - a, 1)
+    if span <= span_in + 2:
+        return np.clip(np.linspace(a, b - 1, span).astype(np.int64), a, b - 1)
+    onset = min(span_in // 3 + 1, span // 4)
+    coda = min(max(span_in // 4, 1), span // 4)
+    core0 = a + onset
+    core1 = max(b - coda, core0 + 2)
+    core_len = core1 - core0
+    mid = span - onset - coda
+    period = max(2 * (core_len - 1), 1)
+    k = np.arange(mid)
+    tri = period / 2 - np.abs((k % period) - period / 2)
+    jit = rng.integers(-1, 2, size=mid)
+    core = np.clip(core0 + tri.astype(np.int64) + jit, core0, core1 - 1)
+    return np.concatenate([np.arange(a, a + onset), core,
+                           np.arange(b - coda, b)]).astype(np.int64)
+
+
+# vocal delivery styles: vibrato depth, breathiness (aperiodicity boost),
+# gain, portamento overshoot — selected via Track.vocal_style
+_STYLES = {
+    "sing": {"vib": 0.018, "breath": 0.0, "gain": 1.0, "overshoot": 0.06},
+    "soft": {"vib": 0.010, "breath": 0.22, "gain": 0.85, "overshoot": 0.04},
+    "powerful": {"vib": 0.028, "breath": 0.0, "gain": 1.12, "overshoot": 0.09},
+}
+
+
 def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
                      line_dur: float, line_start: float,
-                     rap: bool = False) -> np.ndarray:
+                     rap: bool = False, style: str = "sing") -> np.ndarray:
     """WORLD-vocoder singing resynthesis (the speech-to-singing technique):
     the whole line is decomposed into pitch / spectral envelope /
     aperiodicity, time-warped so each syllable spans exactly its note, and
@@ -266,6 +323,7 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
     if len(spoken) < 512 or not line_notes:
         return np.zeros(n_out_samples, dtype=np.float32)
 
+    st = _STYLES.get(style, _STYLES["sing"])
     fp_ms = 5.0
     x = spoken.astype(np.float64)
     f0_in, sp, ap = pyworld.wav2world(x, rate, frame_period=fp_ms)
@@ -298,10 +356,10 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
         t0 = max(min(t0, n_out - 1), 0)
         t1 = max(min(t1, n_out), t0 + 1)
         span = t1 - t0
-        # time-warp: this syllable's input frames stretched over the note
+        # time-warp: onset/coda natural, vowel core looped on sustains
         a, b = in_bounds[i], max(in_bounds[i + 1], in_bounds[i] + 1)
         frame_map[t0:t1] = np.clip(
-            np.linspace(a, b - 1, span).astype(np.int64), 0, n_in - 1)
+            _map_syllable_frames(a, b, span, rng), 0, n_in - 1)
         audible[t0:t1] = True
 
         target = nd["freq"]
@@ -312,13 +370,14 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
             # portamento from the previous note over ~70 ms, slight overshoot
             gl = np.exp(-tt / 0.05)
             curve = target + (prev_freq - target) * gl
-            curve += (target - prev_freq) * 0.06 * np.exp(-((tt - 0.09) / 0.03) ** 2)
+            curve += (target - prev_freq) * st["overshoot"] \
+                * np.exp(-((tt - 0.09) / 0.03) ** 2)
         else:
             curve = target * (1 - 0.05 * np.exp(-tt / 0.05))  # scoop in
         note_dur = span * fp_s
         if note_dur > 0.3:
             vib_on = np.clip((tt - 0.4 * note_dur) / (0.25 * note_dur), 0, 1)
-            curve *= 1 + 0.018 * vib_on * np.sin(2 * np.pi * 5.3 * tt)
+            curve *= 1 + st["vib"] * vib_on * np.sin(2 * np.pi * 5.3 * tt)
         if is_last and span > 8:
             tail = max(int(span * 0.25), 2)
             curve[-tail:] *= np.linspace(1.0, 0.975, tail)  # phrase-end fall
@@ -345,8 +404,11 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
 
     sp_out = np.ascontiguousarray(sp[frame_map])
     ap_out = np.ascontiguousarray(ap[frame_map])
+    if st["breath"] > 0:   # airy delivery: raise aperiodicity on voiced frames
+        ap_out = np.ascontiguousarray(np.minimum(ap_out + st["breath"], 1.0))
     y = pyworld.synthesize(np.ascontiguousarray(f0_final), sp_out, ap_out,
                            rate, fp_ms).astype(np.float32)
+    y *= st["gain"]
 
     # silence the inter-note gaps with short fades (bre. pauses)
     env = np.ones(len(y), dtype=np.float32)
@@ -378,16 +440,27 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
 
 def _sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
                line_dur: float, line_start: float,
-               rap: bool = False) -> np.ndarray:
+               rap: bool = False, style: str = "sing") -> np.ndarray:
     """Sing one spoken line onto its notes. WORLD resynthesis when available
     (smooth, human), granular fallback otherwise."""
     try:
         return _world_sing_line(spoken, rate, line_notes, line_dur,
-                                line_start, rap)
+                                line_start, rap, style)
     except Exception as e:  # noqa: BLE001
         log.warning("WORLD resynthesis failed (%s) — granular fallback", e)
         return _granular_sing_line(spoken, rate, line_notes, line_dur,
                                    line_start, rap)
+
+
+def _breath(rate: int, seed: int) -> np.ndarray:
+    """A soft inhale: shaped noise, ~180 ms."""
+    n = int(0.18 * rate)
+    rng = np.random.default_rng(seed)
+    noise = rng.standard_normal(n).astype(np.float32)
+    # gentle band emphasis via first-order smoothing (removes harsh hiss)
+    smooth = np.convolve(noise, np.ones(8, np.float32) / 8, mode="same")
+    env = np.hanning(n).astype(np.float32) ** 1.5
+    return 0.02 * smooth * env
 
 
 def _granular_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
@@ -470,11 +543,13 @@ class CloneSingingEngine(SingingVoiceEngine):
 
         pairs = _lines_with_notes(project, track)
         total = max(int(project.duration_seconds() * SAMPLE_RATE), SAMPLE_RATE)
-        rap = getattr(track, "vocal_style", "sing") == "rap"
+        style = getattr(track, "vocal_style", "sing") or "sing"
+        rap = style == "rap"
 
         # sing each line, keep (timeline start, audio) — placed onto the
         # timeline only AFTER the (optional) RVC stage
         segments: list[tuple[int, np.ndarray]] = []
+        prev_end = -10.0
         for text, line_notes in pairs:
             try:
                 spoken, rate = _tts_line(text, speakers, language)
@@ -484,7 +559,7 @@ class CloneSingingEngine(SingingVoiceEngine):
             line_start = line_notes[0]["start"]
             line_dur = max(line_notes[-1]["end"] - line_start, 0.3)
             sung_line = _sing_line(spoken, rate, line_notes, line_dur,
-                                   line_start, rap=rap)
+                                   line_start, rap=rap, style=style)
             i0 = int(line_start * SAMPLE_RATE)
             seglen = min(len(sung_line), total - i0)
             if seglen > 0:
@@ -493,7 +568,14 @@ class CloneSingingEngine(SingingVoiceEngine):
                 sl[:edge] *= np.linspace(0, 1, edge)
                 sl[seglen - edge:seglen] *= np.linspace(1, 0, edge)
                 segments.append((i0, sl))
-        sung = len(segments)
+                # a soft inhale before the phrase when there is room for one
+                if not rap and line_start - prev_end > 0.45:
+                    b = _breath(SAMPLE_RATE, i0)
+                    bp = i0 - int(0.24 * SAMPLE_RATE)
+                    if bp >= 0:
+                        segments.append((bp, b))
+                prev_end = line_notes[-1]["end"]
+        sung = sum(1 for _, s in segments if len(s) > int(0.2 * SAMPLE_RATE))
 
         # final fidelity stage: trained RVC model of this exact voice. RVC is
         # run on the DENSE concatenation of sung lines — feeding it the sparse

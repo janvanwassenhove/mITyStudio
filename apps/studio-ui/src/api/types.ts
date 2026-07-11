@@ -61,7 +61,7 @@ export interface Track {
   mute: boolean
   solo: boolean
   voice_profile_id: string | null
-  vocal_style: 'sing' | 'rap'
+  vocal_style: 'sing' | 'rap' | 'soft' | 'powerful'
 }
 
 export interface Section {

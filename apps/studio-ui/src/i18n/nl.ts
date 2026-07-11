@@ -92,6 +92,7 @@ export default {
     switchVoice: 'zangstem wijzigen', syntheticVoice: 'Synthetische stem',
     noVoices: 'Nog geen stemprofielen — maak er één op de pagina Stemmen.',
     resizeTip: 'sleep om deze clip langer / korter te maken',
+    laneTip: 'dubbelklik op een lege plek om daar een clip te maken',
   },
   addTrack: {
     title: 'Spoor toevoegen',
@@ -110,6 +111,8 @@ export default {
     genVocalBlurb: 'Songtekst en melodie worden gemaakt — geen muziektheorie nodig.',
     genInstBlurb: 'Een {name}-partij wordt voor het hele nummer gegenereerd, passend bij toonsoort, tempo en stijl. Je hoeft nooit akkoorden of tabs in te voeren.',
     style: 'Stijl', styleSing: 'Zingen — melodie met vibrato',
+    styleSoft: 'Zacht — luchtig, ademend, licht vibrato',
+    stylePowerful: 'Krachtig — vol aangezet, diep vibrato',
     styleRap: 'Rap — strak op het ritme, natuurlijke toonhoogte',
     singingVoice: 'Zangstem', syntheticNone: 'Synthetische stem (nog geen profiel)',
     yourVoice: '{name} — jouw stem', syntheticInstead: 'Toch synthetische stem',

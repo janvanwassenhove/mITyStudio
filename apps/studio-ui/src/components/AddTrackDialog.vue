@@ -76,7 +76,7 @@ async function auditionPreset() {
 }
 const lyricsText = ref('')
 const voiceProfileId = ref('')
-const vocalStyle = ref<'sing' | 'rap'>('sing')
+const vocalStyle = ref<'sing' | 'rap' | 'soft' | 'powerful'>('sing')
 
 // duet support: which lyric sections does this voice sing?
 const lyricSections = computed(() => {
@@ -192,6 +192,8 @@ async function add() {
             {{ t('addTrack.style') }}
             <select v-model="vocalStyle">
               <option value="sing">{{ t('addTrack.styleSing') }}</option>
+              <option value="soft">{{ t('addTrack.styleSoft') }}</option>
+              <option value="powerful">{{ t('addTrack.stylePowerful') }}</option>
               <option value="rap">{{ t('addTrack.styleRap') }}</option>
             </select>
           </label>

@@ -118,7 +118,9 @@ COMPOSE LIKE A PRODUCER (use the asset data):
 - SAMPLES: when a sample fits the vibe, place it with select_sample — but
   ONLY if its bpm is within ±3 of the song bpm (or it's a one-shot) and its
   key is compatible (same key, relative major/minor, or unpitched type like
-  kick/snare/fx). Never place a mismatched-bpm loop.
+  kick/snare/fx). Never place a mismatched-bpm loop. sample_asset_id MUST be
+  copied EXACTLY from the samples list — if no listed sample fits, simply
+  OMIT select_sample (use generate_* instead); never invent or alter an id.
 - VOICE: give vocal tracks a voice profile (assign_voice_profile). Prefer
   profiles with high_fidelity_model_trained=true. Use vocal_style "rap" when
   the user wants rap/hip-hop flow.

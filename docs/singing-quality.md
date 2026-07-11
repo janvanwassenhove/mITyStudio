@@ -37,17 +37,26 @@ that runs locally. Practical recipe:
 3. Press ▶ — the take renders through the trained model of the selected
    profile.
 
-### T2 — synthetic singing naturalness (NEXT, incremental)
-For the fully-automatic path (no user singing), in impact order:
-1. **Sustain looping**: loop the vowel's steady-state frames with micro
-   pitch/amplitude jitter instead of slow-motion stretching the whole
-   syllable (removes the strongest artifact).
-2. **Consonant-anchored alignment**: keep onset/coda consonants at natural
-   speed; only the vowel carries the note length.
-3. **Breaths + phrase dynamics**: insert breath noises between phrases,
-   shape per-phrase energy arcs, map note velocity to loudness.
-4. **Backing-vocal harmony**: generate 3rds/6ths instead of unison doubling
-   (two voices singing identical lines sounds like a phasey crowd).
+### T2 — synthetic singing naturalness (LARGELY DONE)
+For the fully-automatic path (no user singing):
+1. **Sustain looping** (DONE): sustained notes keep onset/coda at natural
+   speech rate and ping-pong-loop the vowel core with jitter — no more
+   slow-motion vowels. Measured: clone pitch error 81.6 → 48.8 cents,
+   frames-on-pitch 43% → 50%.
+2. **Consonant-anchored alignment** (DONE, part of 1).
+3. **Breaths** (DONE): soft inhale before each phrase with room for one.
+   Phrase-level dynamics/velocity mapping still open.
+4. **Backing-vocal harmony** (DONE): backing vocals sing a diatonic third
+   above the lead at lower velocity instead of a unison double.
+5. **Delivery styles** (DONE): sing / soft (airy, breathy) / powerful
+   (belted, deep vibrato) / rap — per track, in Add Track and the Track tab.
+6. **NEXT — RVC pitch fidelity**: validation shows the RVC stage now adds
+   pitch noise (clone 48.8 cents → clone+rvc ~115). Tune f0 handling
+   (f0_method/protect, or post-RVC pitch correction toward the melody).
+7. Also open: robustness fixes shipped alongside — LLM lyric sheets split
+   across sections automatically, singing falls back to sequential matching
+   when lyric sections don't line up with melodies, chat auto-sings any
+   vocal track whose lyric sections lack a melody.
 
 ### T3 — true singing synthesis as source (the real jump)
 Integrate a dedicated SVS engine (e.g. **DiffSinger via OpenUtau**) as an

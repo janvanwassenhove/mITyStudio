@@ -92,6 +92,7 @@ export default {
     switchVoice: 'Gesangsstimme wechseln', syntheticVoice: 'Synthetische Stimme',
     noVoices: 'Noch keine Stimmprofile — erstelle eines auf der Seite Stimmen.',
     resizeTip: 'ziehen, um diesen Clip zu verlängern / verkürzen',
+    laneTip: 'doppelklicke auf eine leere Stelle, um dort einen Clip zu erstellen',
   },
   addTrack: {
     title: 'Spur hinzufügen',
@@ -110,6 +111,8 @@ export default {
     genVocalBlurb: 'Songtext und Melodie werden erstellt — keine Musiktheorie nötig.',
     genInstBlurb: 'Ein {name}-Part wird für den ganzen Song generiert, passend zu Tonart, Tempo und Stil. Du musst nie Akkorde oder Tabs eingeben.',
     style: 'Stil', styleSing: 'Gesang — Melodie mit Vibrato',
+    styleSoft: 'Sanft — luftig, hauchig, leichtes Vibrato',
+    stylePowerful: 'Kraftvoll — voll gesungen, tiefes Vibrato',
     styleRap: 'Rap — rhythmusfester Flow, natürliche Tonhöhe',
     singingVoice: 'Gesangsstimme', syntheticNone: 'Synthetische Stimme (noch kein Profil)',
     yourVoice: '{name} — deine Stimme', syntheticInstead: 'Doch synthetische Stimme',

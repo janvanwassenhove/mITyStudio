@@ -92,6 +92,7 @@ export default {
     switchVoice: 'change the singing voice', syntheticVoice: 'Synthetic voice',
     noVoices: 'No voice profiles yet — create one on the Voices page.',
     resizeTip: 'drag to lengthen / shorten this clip',
+    laneTip: 'double-click an empty spot to create a clip there',
   },
   addTrack: {
     title: 'Add a track',
@@ -110,6 +111,8 @@ export default {
     genVocalBlurb: 'Lyrics and a melody are created — no music theory needed.',
     genInstBlurb: 'A {name} part is generated for the whole song, matching key, tempo and style. You never have to enter chords or tabs.',
     style: 'Style', styleSing: 'Singing — melody with vibrato',
+    styleSoft: 'Soft — airy, breathy, light vibrato',
+    stylePowerful: 'Powerful — belted, deep vibrato',
     styleRap: 'Rap — rhythm-locked flow, natural pitch',
     singingVoice: 'Singing voice', syntheticNone: 'Synthetic voice (no profile yet)',
     yourVoice: '{name} — your voice', syntheticInstead: 'Synthetic voice instead',

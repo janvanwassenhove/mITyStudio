@@ -2,7 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
-import type { Asset, Effect, VoiceProfile } from '../api/types'
+import type { Asset, Effect, Track, VoiceProfile } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 
@@ -279,8 +279,10 @@ loadLibraries()
         </label>
         <label class="field">{{ t('inspector.vocalStyle') }}
           <select :value="track.vocal_style ?? 'sing'"
-                  @change="track.vocal_style = ($event.target as HTMLSelectElement).value as 'sing' | 'rap'; save()">
+                  @change="track.vocal_style = ($event.target as HTMLSelectElement).value as Track['vocal_style']; save()">
             <option value="sing">{{ t('addTrack.styleSing') }}</option>
+            <option value="soft">{{ t('addTrack.styleSoft') }}</option>
+            <option value="powerful">{{ t('addTrack.stylePowerful') }}</option>
             <option value="rap">{{ t('addTrack.styleRap') }}</option>
           </select>
         </label>

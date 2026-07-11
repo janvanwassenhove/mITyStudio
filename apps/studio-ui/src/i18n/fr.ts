@@ -92,6 +92,7 @@ export default {
     switchVoice: 'changer la voix chantée', syntheticVoice: 'Voix synthétique',
     noVoices: 'Pas encore de profils vocaux — créez-en un sur la page Voix.',
     resizeTip: 'glisser pour allonger / raccourcir ce clip',
+    laneTip: 'double-cliquez sur un espace vide pour y créer un clip',
   },
   addTrack: {
     title: 'Ajouter une piste',
@@ -110,6 +111,8 @@ export default {
     genVocalBlurb: 'Les paroles et une mélodie sont créées — aucune théorie musicale requise.',
     genInstBlurb: 'Une partie de {name} est générée pour toute la chanson, en accord avec la tonalité, le tempo et le style. Vous n’avez jamais à saisir d’accords ni de tablatures.',
     style: 'Style', styleSing: 'Chant — mélodie avec vibrato',
+    styleSoft: 'Doux — aérien, soufflé, vibrato léger',
+    stylePowerful: 'Puissant — voix pleine, vibrato profond',
     styleRap: 'Rap — flow calé sur le rythme, hauteur naturelle',
     singingVoice: 'Voix chantée', syntheticNone: 'Voix synthétique (pas encore de profil)',
     yourVoice: '{name} — votre voix', syntheticInstead: 'Plutôt une voix synthétique',

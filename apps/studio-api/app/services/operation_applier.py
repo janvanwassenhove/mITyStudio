@@ -8,6 +8,7 @@ Referential rules enforced here:
 from __future__ import annotations
 
 import logging
+import re
 from typing import Callable
 
 from ..models.operations import ChatOperation, OperationResult
@@ -224,11 +225,15 @@ def op_assign_soundfont(project: SongProject, p: dict) -> str:
 def op_select_sample(project: SongProject, p: dict) -> str:
     asset = _require_asset(p.get("sample_asset_id", ""), "sample")
     track_ref = p.get("track")
+    track = None
     if track_ref:
         track = _find_track(project, track_ref)
         if track.track_type != "sample":
-            raise OperationError(f"track {track.name!r} is not a sample track")
-    else:
+            # LLMs often aim a sample at an instrument/vocal track — put it
+            # on a sample lane instead of failing the whole placement
+            track = next((t for t in project.tracks
+                          if t.track_type == "sample"), None)
+    if track is None:
         track = Track(name=p.get("track_name") or asset.filename.rsplit(".", 1)[0],
                       track_type="sample")
         project.tracks.append(track)
@@ -323,14 +328,40 @@ def op_generate_melody(project: SongProject, p: dict) -> str:
                              or t.name.lower() == str(track_ref).lower()), None)
             rap = existing is not None and existing.vocal_style == "rap"
 
+        harmony = track_type == "backing_vocal"
+
         def gen(proj, sec):
-            return music_gen.generate_vocal_melody(proj, sec, lines, rap=rap)
+            return music_gen.generate_vocal_melody(proj, sec, lines, rap=rap,
+                                                   harmony=harmony)
         return _generate(project, p, "rap flow" if rap else "vocal melody",
                          track_type, gen)
 
     def gen(proj, sec):
         return music_gen.generate_melody(proj, sec, lines)
     return _generate(project, p, "melody", track_type, gen)
+
+
+_SECTION_PREFIX = re.compile(
+    r"^\s*((?:pre-?)?(?:verse|chorus|bridge|intro|outro|drop|hook|refrain|"
+    r"final\s+chorus)(?:\s*\d+)?)\s*:\s*", re.IGNORECASE)
+
+
+def _split_prefixed_sheet(lines: list) -> list[tuple[str, str]] | None:
+    """LLMs often dump a full lyric sheet as one op, prefixing lines with
+    'Chorus:', 'Verse 2:' …  Detect that and return [(section_hint, text)];
+    None when the lines aren't a prefixed sheet."""
+    hits = 0
+    parsed: list[tuple[str, str]] = []
+    current = ""
+    for raw in lines:
+        text = str(raw)
+        m = _SECTION_PREFIX.match(text)
+        if m:
+            hits += 1
+            current = m.group(1).strip().lower()
+            text = text[m.end():].strip()
+        parsed.append((current, text))
+    return parsed if hits >= max(2, len(lines) // 3) else None
 
 
 def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
@@ -340,6 +371,36 @@ def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
     if not isinstance(lines, list) or not lines:
         raise OperationError("rewrite_lyrics requires a non-empty 'lines' list")
     lyrics_editing.snapshot(project, "chat")
+
+    # a prefixed full-sheet targets the WHOLE song, whatever section the op
+    # names — putting 30 lines in one section silences most of the singing
+    sheet = _split_prefixed_sheet(lines) if project.sections else None
+    if sheet is not None:
+        by_name = {s.name.lower(): s for s in project.sections}
+        placed = 0
+        project.lyrics.lines = []
+        fallback = project.sections[0]
+        for hint, text in sheet:
+            if not text.strip():
+                continue
+            section = by_name.get(hint)
+            if section is None and hint:   # 'verse 2' → any section containing 'verse 2', then 'verse'
+                section = next((s for n, s in by_name.items() if hint in n or n in hint), None)
+            if section is None and hint:
+                base = hint.split()[0]
+                section = next((s for n, s in by_name.items() if base in n), None)
+            section = section or fallback
+            fallback = section
+            project.lyrics.lines.append(LyricsLine(section_id=section.id,
+                                                   text=text))
+            placed += 1
+        if "language" in p:
+            project.lyrics.language = str(p["language"])
+        for s in project.sections:
+            lyrics_editing.resync_section(project, s.id)
+        return (f"detected a full lyric sheet — placed {placed} lines across "
+                f"their sections")
+
     if str(p.get("section", "")).lower() in ("all", "*") and project.sections:
         # distribute lines across sections in even chunks (full-song lyrics)
         sections = project.sections
@@ -473,7 +534,10 @@ def op_create_vocal_track(project: SongProject, p: dict) -> str:
     name = p.get("name") or ("Lead Vocal" if track_type == "lead_vocal"
                              else "Backing Vocal")
     track = Track(name=name, track_type=track_type)
-    if str(p.get("vocal_style", "")).lower() == "rap" or "rap" in name.lower():
+    style = str(p.get("vocal_style", "")).lower()
+    if style in ("rap", "soft", "powerful"):
+        track.vocal_style = style  # type: ignore[assignment]
+    elif "rap" in name.lower():
         track.vocal_style = "rap"
     if p.get("voice_profile_id"):
         from . import voice_profiles

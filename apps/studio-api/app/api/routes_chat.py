@@ -19,6 +19,13 @@ def chat(project_id: str, req: ChatRequest) -> ChatResponse:
     reply, operations, warnings, usage = operation_planner.plan(
         project, req.message, language=req.language)
     results = operation_applier.apply_operations(project, operations)
+    if any(r.applied for r in results):
+        # a generated song with voice + lyrics must SING — fill any vocal
+        # track whose lyric sections still lack a melody
+        from ..services.vocal_autofill import ensure_vocal_melodies
+        for line in ensure_vocal_melodies(project):
+            results.append(OperationResult(op_type="auto_sing", summary=line,
+                                           applied=True))
     for w in warnings:
         results.append(OperationResult(op_type="(planner)", summary="",
                                        applied=False, error=w))

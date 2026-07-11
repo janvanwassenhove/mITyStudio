@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { AudioWaveform, Cloud, Copy, Drum, Guitar, KeyboardMusic, Megaphone,
          MessageSquare, Mic, Music, Music4, Pencil, Piano, Plus, Scissors,
          SlidersHorizontal, Sparkles, Trash2, Wind } from 'lucide-vue-next'
@@ -10,6 +11,7 @@ import { usePlaybackStore } from '../stores/playback'
 import AddTrackDialog from './AddTrackDialog.vue'
 import type { Clip, Track, VoiceProfile } from '../api/types'
 
+const { t } = useI18n()
 const studio = useStudioStore()
 const playback = usePlaybackStore()
 
@@ -142,6 +144,9 @@ onMounted(() => window.addEventListener('pointerdown', onDocPointerDown))
 onBeforeUnmount(() => window.removeEventListener('pointerdown', onDocPointerDown))
 
 const color = (t: string) => TRACK_COLORS[t] ?? TRACK_COLORS.fx
+
+const mtrackLaneTip = (type: string) =>
+  type === 'sample' ? '' : t('timeline.laneTip')
 
 // ------- precomputed layout (rebuilt only when manifest/zoom change) -------
 interface NoteRect { x: number; y: number; w: number; o: number }
@@ -496,6 +501,29 @@ async function deleteClip() {
   selectedClip.value = null
   await save()
 }
+
+// ------- double-click an empty lane: create a clip there --------------------
+async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_type: string }) {
+  const p = studio.project
+  const m = manifest.value
+  if (!p || !m || mtrack.track_type === 'sample') return   // samples come from the browser
+  const track = p.tracks.find((t) => t.id === mtrack.track_id)
+  if (!track) return
+  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+  const bpb = m.beats_per_bar
+  const beat = Math.max(0, Math.floor(((e.clientX - rect.left) / pxPerBeat.value) / bpb) * bpb)
+  const clip: Clip = {
+    id: uid(), section_id: '', clip_type: 'midi',
+    start_beat: beat, duration_beats: bpb * 4, note_events: [],
+    source_asset_id: null, gain_db: 0, loop: false,
+    fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
+  }
+  track.clips.push(clip)
+  studio.selectedTrackId = track.id
+  selectedClip.value = { trackId: track.id, clipId: clip.id }
+  await save()
+  studio.openClipEditor(track.id, clip.id)   // straight into the editor
+}
 </script>
 
 <template>
@@ -635,7 +663,9 @@ async function deleteClip() {
               </div>
             </div>
           </div>
-          <div class="lane track-lane" :style="{ width: contentWidth + 'px', height: TRACK_H + 'px' }">
+          <div class="lane track-lane" :style="{ width: contentWidth + 'px', height: TRACK_H + 'px' }"
+               :title="mtrackLaneTip(tl.track.track_type)"
+               @dblclick.self="laneDblClick($event, tl.track)">
             <div
               v-for="c in tl.clips" :key="c.clipId" class="clip"
               :class="{ selected: selectedClip?.clipId === c.clipId }"

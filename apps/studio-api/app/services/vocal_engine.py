@@ -28,7 +28,10 @@ log = logging.getLogger(__name__)
 # change doesn't force every instrument stem to re-render).
 #   2 → RVC runs on the dense concatenation of sung lines, not the sparse
 #       timeline stem (which made RVC collapse to silence)
-VOCAL_ENGINE_VERSION = "2"
+#   3 → sustain looping (no slow-motion vowels), delivery styles
+#       (sing/soft/powerful/rap), breaths between phrases, section-mismatch
+#       fallback, backing-vocal harmonies
+VOCAL_ENGINE_VERSION = "3"
 
 
 def vocal_fingerprint(project: SongProject, track: Track) -> str:

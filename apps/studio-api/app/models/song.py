@@ -110,7 +110,9 @@ class Track(BaseModel):
     solo: bool = False
     # vocal tracks
     voice_profile_id: str | None = None
-    vocal_style: Literal["sing", "rap"] = "sing"
+    # delivery style: sing (default), rap (rhythm-locked natural pitch),
+    # soft (airy/breathy, light vibrato), powerful (belted, deep vibrato)
+    vocal_style: Literal["sing", "rap", "soft", "powerful"] = "sing"
 
 
 class Section(BaseModel):

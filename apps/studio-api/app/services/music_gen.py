@@ -380,7 +380,8 @@ def _make_motif(rng: random.Random, bpb: float) -> list[tuple[float, float, int]
 
 def generate_vocal_melody(project: SongProject, section: Section,
                           lyrics_lines: list[str],
-                          rap: bool = False) -> Clip:
+                          rap: bool = False,
+                          harmony: bool = False) -> Clip:
     """Singable vocal melody: exactly ONE note per syllable, phrased per
     lyric line with breaths between lines, contour arcs that resolve to
     chord tones. Rap mode keeps a tight monotone-ish rhythm instead.
@@ -461,6 +462,17 @@ def generate_vocal_melody(project: SongProject, section: Section,
                   92 + int(20 * section.energy) + (6 if i == 0 else 0),
                   rng, length, 0.012, syllable=syl)
             beat += durs[i]
+
+    if harmony and not rap:
+        # backing vocals sing a diatonic third above the lead instead of a
+        # unison double (identical lines from two voices sound phasey)
+        for n in notes:
+            pc = n.midi_note % 12
+            k = (scale.index(pc) if pc in scale
+                 else min(range(7), key=lambda j: min((scale[j] - pc) % 12,
+                                                      (pc - scale[j]) % 12)))
+            n.midi_note = min(127, n.midi_note + (scale[(k + 2) % 7] - pc) % 12)
+            n.velocity = max(20, n.velocity - 14)   # sit behind the lead
 
     return Clip(section_id=section.id, clip_type="midi",
                 start_beat=section.start_bar * bpb,

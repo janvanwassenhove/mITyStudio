@@ -46,8 +46,10 @@ def resync_section(project: SongProject, section_id: str) -> int:
         for clip in track.clips:
             if (clip.section_id == section_id and clip.clip_type == "midi"
                     and clip.note_events):
-                new = generate_vocal_melody(project, section, lines,
-                                            rap=track.vocal_style == "rap")
+                new = generate_vocal_melody(
+                    project, section, lines,
+                    rap=track.vocal_style == "rap",
+                    harmony=track.track_type == "backing_vocal")
                 clip.note_events = new.note_events
                 clip.start_beat = new.start_beat
                 clip.duration_beats = new.duration_beats
