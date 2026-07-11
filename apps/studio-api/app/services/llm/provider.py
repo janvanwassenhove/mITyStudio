@@ -148,19 +148,26 @@ class OpenAIProvider(LlmProvider):
     def _create(self, client, messages: list, max_tokens: int,
                 want_json: bool):
         """chat.completions.create with parameter negotiation: newer OpenAI
-        models want max_completion_tokens and reject custom temperature;
-        older/compatible servers want max_tokens and may lack
-        response_format. Try the strictest form first, degrade gracefully."""
+        models want max_completion_tokens and reject custom temperature
+        (reasoning models only allow the default); older/compatible servers
+        want max_tokens and may lack response_format.
+
+        response_format (JSON mode) and temperature are negotiated
+        INDEPENDENTLY: when a model rejects a custom temperature we must keep
+        forcing JSON, or the model returns prose and planning fails. So the
+        variant order preserves response_format as long as possible."""
         base = {"model": self._model(), "messages": messages}
-        variants: list[dict] = []
-        for tokens_kw in ("max_completion_tokens", "max_tokens"):
-            for extra in ((
-                {"response_format": {"type": "json_object"},
-                 "temperature": self.settings.temperature},
-                {"temperature": self.settings.temperature},
-                {},
-            ) if want_json else ({"temperature": self.settings.temperature}, {})):
-                variants.append({tokens_kw: max_tokens, **extra})
+        temp = self.settings.temperature
+        json_rf = {"response_format": {"type": "json_object"}}
+        # extras tried in order; JSON-forcing kept before it is dropped
+        if want_json:
+            extras = ({**json_rf, "temperature": temp}, {**json_rf},
+                      {"temperature": temp}, {})
+        else:
+            extras = ({"temperature": temp}, {})
+        variants = [{tokens_kw: max_tokens, **extra}
+                    for tokens_kw in ("max_completion_tokens", "max_tokens")
+                    for extra in extras]
         last: Exception | None = None
         for extra in variants:
             try:
@@ -178,19 +185,51 @@ class OpenAIProvider(LlmProvider):
 
     def plan(self, system_prompt: str, user_message: str) -> dict:
         client = self._client()
-        resp = self._create(
-            client,
-            [{"role": "system", "content": system_prompt},
-             {"role": "user", "content": user_message}],
-            self.settings.max_tokens, want_json=True)
-        usage = getattr(resp, "usage", None)
-        self.last_usage = {
-            "model": self.settings.model,
-            "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-            "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
-        }
-        text = resp.choices[0].message.content or ""
-        return _extract_json(text)
+        messages = [{"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_message}]
+        in_tok = out_tok = 0
+
+        def call(msgs, budget: int) -> tuple[str, str]:
+            nonlocal in_tok, out_tok
+            resp = self._create(client, msgs, budget, want_json=True)
+            usage = getattr(resp, "usage", None)
+            in_tok += getattr(usage, "prompt_tokens", 0) or 0
+            out_tok += getattr(usage, "completion_tokens", 0) or 0
+            choice = resp.choices[0]
+            return (choice.message.content or "",
+                    getattr(choice, "finish_reason", "") or "")
+
+        budget = self.settings.max_tokens
+        text, finish = call(messages, budget)
+        # reasoning models (gpt-5*, o-series) can burn the whole budget on
+        # hidden reasoning and return EMPTY output (finish_reason 'length').
+        # Escalate the completion budget so real output fits.
+        if not text.strip() and finish == "length" and budget < 16000:
+            budget = max(budget * 4, 16000)
+            text, finish = call(messages, budget)
+
+        try:
+            data = _extract_json(text)
+        except LlmProviderError:
+            # endpoint ignored JSON mode, or the model answered in prose;
+            # retry once with an explicit instruction
+            retry = messages + [
+                {"role": "assistant", "content": text[:1500]},
+                {"role": "user", "content":
+                    "Reply with ONLY the JSON object described earlier "
+                    "(a 'reply' string and an 'operations' array). No prose."}]
+            text2, _ = call(retry, budget)
+            try:
+                data = _extract_json(text2)
+            except LlmProviderError:
+                # give the user the model's own words instead of a raw error
+                prose = (text2 or text).strip()
+                if not prose:
+                    raise
+                data = {"reply": prose[:800], "operations": []}
+        self.last_usage = {"model": self.settings.model,
+                           "input_tokens": in_tok, "output_tokens": out_tok}
+        return data
 
     def test_connection(self) -> tuple[bool, str]:
         try:

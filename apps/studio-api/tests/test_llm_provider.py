@@ -204,6 +204,56 @@ def test_openai_provider_plan_parses_response(workspace, monkeypatch):
     assert out["operations"][0]["op_type"] == "change_tempo"
 
 
+def test_openai_reasoning_model_negotiation_and_escalation(workspace, monkeypatch):
+    """Reproduces the gpt-5-mini failure: custom temperature is rejected and
+    a small budget starves the output (reasoning eats it all). The provider
+    must (a) keep response_format when temperature is dropped, and
+    (b) escalate the budget when it gets empty output on finish 'length'."""
+    from app.services.llm.provider import OpenAIProvider
+    from app.services.llm.settings import LlmSettings
+
+    calls: list[dict] = []
+
+    def _resp(content, finish):
+        class U:
+            prompt_tokens, completion_tokens = 30000, 5000
+        return type("R", (), {
+            "choices": [type("C", (), {
+                "message": type("M", (), {"content": content})(),
+                "finish_reason": finish})()],
+            "usage": U()})()
+
+    class FakeCompletions:
+        def create(self, **kw):
+            calls.append(kw)
+            # reasoning models reject a non-default temperature
+            if "temperature" in kw:
+                raise Exception("400 Unsupported value: 'temperature' does not support 0.4")
+            budget = kw.get("max_completion_tokens") or kw.get("max_tokens") or 0
+            # small budget → reasoning consumes it all → empty output
+            if budget < 16000:
+                return _resp("", "length")
+            return _resp('{"reply": "made a song", "operations": '
+                         '[{"op_type": "create_song", "params": {"title": "x"}}]}',
+                         "stop")
+
+    class FakeClient:
+        chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    provider = OpenAIProvider(
+        LlmSettings(provider="openai", model="gpt-5-mini", max_tokens=4096))
+    monkeypatch.setattr(provider, "_client", lambda: FakeClient())
+
+    out = provider.plan("system", "create a pop song")
+    assert out["operations"][0]["op_type"] == "create_song"
+    # response_format kept on the winning call even though temperature was dropped
+    ok_calls = [c for c in calls if "temperature" not in c]
+    assert all("response_format" in c for c in ok_calls)
+    # the budget was escalated past 16000 to fit real output
+    assert any((c.get("max_completion_tokens") or 0) >= 16000 for c in ok_calls)
+    assert provider.last_usage["output_tokens"] > 0
+
+
 def test_system_prompt_contains_only_real_assets(client, workspace):
     from tests.test_sample_analysis import write_tone
     write_tone(workspace.samples_dir / "groove - 120 BPM.wav")
