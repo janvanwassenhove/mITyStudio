@@ -88,7 +88,10 @@ export default {
     soloTip: 'Solo — play only soloed tracks', volume: 'volume',
     switchInstrument: 'switch instrument sound', instrumentFx: 'instrument & effects',
     searchInstruments: 'Search all instruments…', noMatches: 'no matches',
-    loadingInstruments: 'loading instruments…', clipTip: 'drag to move · double-click to edit',
+    loadingInstruments: 'loading instruments…', clipTip: 'drag to move · edges to resize · double-click to edit',
+    switchVoice: 'change the singing voice', syntheticVoice: 'Synthetic voice',
+    noVoices: 'No voice profiles yet — create one on the Voices page.',
+    resizeTip: 'drag to lengthen / shorten this clip',
   },
   addTrack: {
     title: 'Add a track',

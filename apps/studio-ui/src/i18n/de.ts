@@ -88,7 +88,10 @@ export default {
     soloTip: 'Solo — nur Solo-Spuren abspielen', volume: 'Lautstärke',
     switchInstrument: 'anderen Instrumentklang wählen', instrumentFx: 'Instrument & Effekte',
     searchInstruments: 'Alle Instrumente durchsuchen…', noMatches: 'keine Treffer',
-    loadingInstruments: 'Instrumente laden…', clipTip: 'ziehen zum Verschieben · Doppelklick zum Bearbeiten',
+    loadingInstruments: 'Instrumente laden…', clipTip: 'ziehen zum Verschieben · Ränder zum Ändern · Doppelklick zum Bearbeiten',
+    switchVoice: 'Gesangsstimme wechseln', syntheticVoice: 'Synthetische Stimme',
+    noVoices: 'Noch keine Stimmprofile — erstelle eines auf der Seite Stimmen.',
+    resizeTip: 'ziehen, um diesen Clip zu verlängern / verkürzen',
   },
   addTrack: {
     title: 'Spur hinzufügen',

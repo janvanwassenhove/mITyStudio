@@ -88,7 +88,10 @@ export default {
     soloTip: 'Solo — ne jouer que les pistes en solo', volume: 'volume',
     switchInstrument: 'changer le son de l’instrument', instrumentFx: 'instrument & effets',
     searchInstruments: 'Rechercher tous les instruments…', noMatches: 'aucun résultat',
-    loadingInstruments: 'chargement des instruments…', clipTip: 'glisser pour déplacer · double-clic pour éditer',
+    loadingInstruments: 'chargement des instruments…', clipTip: 'glisser pour déplacer · bords pour redimensionner · double-clic pour éditer',
+    switchVoice: 'changer la voix chantée', syntheticVoice: 'Voix synthétique',
+    noVoices: 'Pas encore de profils vocaux — créez-en un sur la page Voix.',
+    resizeTip: 'glisser pour allonger / raccourcir ce clip',
   },
   addTrack: {
     title: 'Ajouter une piste',

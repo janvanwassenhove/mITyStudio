@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { AudioWaveform, Cloud, Copy, Drum, Guitar, KeyboardMusic, Megaphone,
          MessageSquare, Mic, Music, Music4, Pencil, Piano, Plus, Scissors,
          SlidersHorizontal, Sparkles, Trash2, Wind } from 'lucide-vue-next'
@@ -8,7 +8,7 @@ import { TRACK_COLORS, TYPE_ABBR } from '../lib/trackColors'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 import AddTrackDialog from './AddTrackDialog.vue'
-import type { Clip, Track } from '../api/types'
+import type { Clip, Track, VoiceProfile } from '../api/types'
 
 const studio = useStudioStore()
 const playback = usePlaybackStore()
@@ -83,13 +83,16 @@ async function openInstSwitch(trackId: string) {
   }
 }
 
-const instHits = computed<CatalogPreset[]>(() => {
+type CatalogHit = CatalogPreset & { category: string }
+const instHits = computed<CatalogHit[]>(() => {
   const q = instQuery.value.trim().toLowerCase()
   if (q.length >= 2) {
-    return catalog.value.flatMap((c) => c.presets)
+    return catalog.value
+      .flatMap((c) => c.presets.map((p) => ({ ...p, category: c.category })))
       .filter((p) => p.label.toLowerCase().includes(q)).slice(0, 30)
   }
-  return catalog.value.find((c) => c.category === instCategory.value)?.presets.slice(0, 100) ?? []
+  const cat = catalog.value.find((c) => c.category === instCategory.value)
+  return (cat?.presets ?? []).slice(0, 100).map((p) => ({ ...p, category: cat!.category }))
 })
 
 async function pickInstrument(hit: CatalogPreset) {
@@ -103,6 +106,40 @@ async function pickInstrument(hit: CatalogPreset) {
 }
 const canSwitchInstrument = (type: string) =>
   !['sample', 'lead_vocal', 'backing_vocal'].includes(type)
+const isVocal = (type: string) => ['lead_vocal', 'backing_vocal'].includes(type)
+
+// --- quick voice-profile switch for vocal tracks (mirrors instrument switch) -
+const voiceProfiles = ref<VoiceProfile[]>([])
+const voiceSwitch = ref<string | null>(null)
+
+async function openVoiceSwitch(trackId: string) {
+  voiceSwitch.value = voiceSwitch.value === trackId ? null : trackId
+  instSwitch.value = null
+  if (voiceSwitch.value && !voiceProfiles.value.length) {
+    voiceProfiles.value = await api.get<VoiceProfile[]>('/voice/profiles')
+  }
+}
+async function pickVoice(trackId: string, profileId: string) {
+  const t = projTrack(trackId)
+  if (!t) return
+  t.voice_profile_id = profileId || null
+  voiceSwitch.value = null
+  await save()
+}
+
+// --- click-outside closes the instrument / voice popovers -------------------
+function onDocPointerDown(e: PointerEvent) {
+  const el = e.target as HTMLElement | null
+  if (!el) return
+  if (instSwitch.value && !el.closest('.inst-pop') && !el.closest('.inst-toggle')) {
+    instSwitch.value = null
+  }
+  if (voiceSwitch.value && !el.closest('.voice-pop') && !el.closest('.voice-toggle')) {
+    voiceSwitch.value = null
+  }
+}
+onMounted(() => window.addEventListener('pointerdown', onDocPointerDown))
+onBeforeUnmount(() => window.removeEventListener('pointerdown', onDocPointerDown))
 
 const color = (t: string) => TRACK_COLORS[t] ?? TRACK_COLORS.fx
 
@@ -279,6 +316,79 @@ async function clipDragEnd() {
   await save()
 }
 
+// ------- clip resizing (drag either edge to lengthen / shorten) ------------
+const MIN_BEATS = 0.25
+interface ClipResize {
+  trackId: string; clipId: string; el: HTMLElement; side: 'l' | 'r'
+  startX: number; startLeft: number; startW: number; deltaBeats: number
+}
+let clipResize: ClipResize | null = null
+
+function clipResizeDown(e: PointerEvent, trackId: string, clipId: string, side: 'l' | 'r') {
+  if (e.button !== 0) return
+  e.stopPropagation()
+  studio.selectedTrackId = trackId
+  selectedClip.value = { trackId, clipId }
+  const el = (e.currentTarget as HTMLElement).parentElement as HTMLElement
+  clipResize = { trackId, clipId, el, side, startX: e.clientX,
+                 startLeft: el.offsetLeft, startW: el.offsetWidth, deltaBeats: 0 }
+  window.addEventListener('pointermove', clipResizeMove)
+  window.addEventListener('pointerup', clipResizeEnd, { once: true })
+}
+function clipResizeMove(e: PointerEvent) {
+  const r = clipResize
+  if (!r) return
+  const snap = 0.25
+  let db = Math.round((e.clientX - r.startX) / pxPerBeat.value / snap) * snap
+  const dpx = db * pxPerBeat.value
+  r.el.style.zIndex = '3'
+  if (r.side === 'r') {
+    if (r.startW + dpx < MIN_BEATS * pxPerBeat.value) db = MIN_BEATS - r.startW / pxPerBeat.value
+    r.el.style.width = Math.max(r.startW + db * pxPerBeat.value, MIN_BEATS * pxPerBeat.value) + 'px'
+  } else {
+    const maxDpx = r.startW - MIN_BEATS * pxPerBeat.value
+    const minDpx = -r.startLeft
+    const clamped = Math.max(Math.min(dpx, maxDpx), minDpx)
+    db = clamped / pxPerBeat.value
+    r.el.style.left = r.startLeft + clamped + 'px'
+    r.el.style.width = r.startW - clamped + 'px'
+  }
+  r.deltaBeats = db
+}
+async function clipResizeEnd() {
+  window.removeEventListener('pointermove', clipResizeMove)
+  const r = clipResize
+  clipResize = null
+  if (!r) return
+  r.el.style.zIndex = ''
+  r.el.style.left = ''
+  r.el.style.width = ''
+  const m = manifest.value
+  const p = studio.project
+  const track = p?.tracks.find((t) => t.id === r.trackId)
+  const clip = track?.clips.find((c) => c.id === r.clipId)
+  if (!m || !p || !clip || Math.abs(r.deltaBeats) < 0.01) return
+  if (r.side === 'r') {
+    clip.duration_beats = Math.max(MIN_BEATS, clip.duration_beats + r.deltaBeats)
+  } else {
+    const db = Math.max(Math.min(r.deltaBeats, clip.duration_beats - MIN_BEATS),
+                        -clip.start_beat)
+    clip.start_beat = clip.start_beat + db
+    clip.duration_beats = clip.duration_beats - db
+    if (clip.clip_type === 'sample') {
+      clip.source_offset_seconds = Math.max(0,
+        (clip.source_offset_seconds ?? 0) + (db * 60) / m.bpm)
+    } else {
+      // keep notes at their absolute timeline position; drop trimmed-off ones
+      clip.note_events = clip.note_events
+        .map((n) => ({ ...n, start_beat: n.start_beat - db }))
+        .filter((n) => n.start_beat >= -0.001 && n.start_beat < clip.duration_beats)
+    }
+  }
+  clip.section_id = ''
+  await save()
+}
+
 // ------- editing: add track, select clip, split / duplicate / delete -------
 const showAddTrack = ref(false)
 const selectedClip = computed({
@@ -435,7 +545,7 @@ async function deleteClip() {
         <div v-for="tl in layout" :key="tl.track.track_id" class="row track-row"
              :class="{ selected: studio.selectedTrackId === tl.track.track_id }"
              @click="studio.selectedTrackId = tl.track.track_id">
-          <div class="label track-label" :class="{ 'pop-open': instSwitch === tl.track.track_id }"
+          <div class="label track-label" :class="{ 'pop-open': instSwitch === tl.track.track_id || voiceSwitch === tl.track.track_id }"
                :style="{ width: LABEL_W + 'px' }"
                :title="$t('timeline.dblClickInspector')"
                @dblclick="studio.openTrackInspector(tl.track.track_id)">
@@ -456,9 +566,12 @@ async function deleteClip() {
                      :value="projTrack(tl.track.track_id)?.volume ?? 1"
                      @click.stop
                      @input="setVolume(tl.track.track_id, Number(($event.target as HTMLInputElement).value))" />
-              <button v-if="canSwitchInstrument(tl.track.track_type)" class="mini"
+              <button v-if="canSwitchInstrument(tl.track.track_type)" class="mini inst-toggle"
                       :title="$t('timeline.switchInstrument')"
                       @click.stop="openInstSwitch(tl.track.track_id)"><SlidersHorizontal class="icon" :size="11" /></button>
+              <button v-if="isVocal(tl.track.track_type)" class="mini voice-toggle"
+                      :title="$t('timeline.switchVoice')"
+                      @click.stop="openVoiceSwitch(tl.track.track_id)"><Mic class="icon" :size="11" /></button>
               <button class="mini" :title="$t('timeline.instrumentFx')"
                       @click.stop="studio.openTrackInspector(tl.track.track_id)"><Pencil class="icon" :size="11" /></button>
             </div>
@@ -478,10 +591,30 @@ async function deleteClip() {
               </div>
               <div class="inst-hits">
                 <div v-for="(h, i) in instHits" :key="i" class="inst-hit" @click="pickInstrument(h)">
+                  <component :is="catIcon(h.category)" class="icon hit-icon" :size="14"
+                             :style="{ color: color(tl.track.track_type) }" />
                   <strong>{{ h.label }}</strong>
                 </div>
                 <div v-if="!instHits.length" class="dim small" style="padding: 6px">
                   {{ catalog.length ? $t('timeline.noMatches') : $t('timeline.loadingInstruments') }}
+                </div>
+              </div>
+            </div>
+            <!-- voice-profile picker for vocal tracks -->
+            <div v-if="voiceSwitch === tl.track.track_id" class="inst-pop voice-pop" @click.stop @dblclick.stop>
+              <div class="inst-hits">
+                <div class="inst-hit" :class="{ on: !projTrack(tl.track.track_id)?.voice_profile_id }"
+                     @click="pickVoice(tl.track.track_id, '')">
+                  <Sparkles class="icon hit-icon" :size="14" /><strong>{{ $t('timeline.syntheticVoice') }}</strong>
+                </div>
+                <div v-for="vp in voiceProfiles" :key="vp.id" class="inst-hit"
+                     :class="{ on: projTrack(tl.track.track_id)?.voice_profile_id === vp.id }"
+                     @click="pickVoice(tl.track.track_id, vp.id)">
+                  <Mic class="icon hit-icon" :size="14" :style="{ color: color(tl.track.track_type) }" />
+                  <strong>{{ vp.name }}</strong>
+                </div>
+                <div v-if="!voiceProfiles.length" class="dim small" style="padding: 6px">
+                  {{ $t('timeline.noVoices') }}
                 </div>
               </div>
             </div>
@@ -506,6 +639,10 @@ async function deleteClip() {
                 <path :d="c.wavePath" :fill="color(tl.track.track_type)" opacity="0.55" />
               </svg>
               <div v-else class="wave-placeholder" :style="{ background: color(tl.track.track_type) }" />
+              <div class="clip-grip l" :title="$t('timeline.resizeTip')"
+                   @pointerdown="clipResizeDown($event, tl.track.track_id, c.clipId, 'l')" />
+              <div class="clip-grip r" :title="$t('timeline.resizeTip')"
+                   @pointerdown="clipResizeDown($event, tl.track.track_id, c.clipId, 'r')" />
             </div>
           </div>
         </div>
@@ -555,9 +692,12 @@ async function deleteClip() {
 .cat-name { padding: 3px 4px 0; }
 .tiny { font-size: 10px; }
 .inst-hits { max-height: 170px; overflow-y: auto; margin-top: 4px; }
-.inst-hit { padding: 3px 6px; border-radius: 4px; cursor: pointer; }
+.inst-hit { padding: 3px 6px; border-radius: 4px; cursor: pointer; display: flex; align-items: center; gap: 7px; }
 .inst-hit:hover { background: var(--bg-panel); }
+.inst-hit.on { background: var(--bg-panel); outline: 1px solid var(--accent); }
 .inst-hit strong { font-size: 12px; font-weight: 500; }
+.hit-icon { flex: none; opacity: 0.9; }
+.voice-pop { width: 220px; }
 .small { font-size: 10px; }
 .lane { position: relative; flex: none; }
 .ruler { height: 24px; cursor: pointer; }
@@ -567,8 +707,15 @@ async function deleteClip() {
 .section-block { position: absolute; top: 3px; bottom: 3px; background: var(--bg-elevated); border: 1px solid var(--accent-2); border-radius: 4px; font-size: 11px; padding: 1px 6px; overflow: hidden; white-space: nowrap; pointer-events: none; }
 .track-row.selected .label { outline: 1px solid var(--accent); outline-offset: -1px; }
 .track-lane { background: rgba(0,0,0,0.1); }
-.clip { position: absolute; top: 3px; bottom: 3px; border: 1px solid; border-radius: 4px; background: rgba(255,255,255,0.05); overflow: hidden; cursor: pointer; }
+.clip { position: absolute; top: 3px; bottom: 3px; border: 1px solid; border-radius: 4px; background: rgba(255,255,255,0.05); overflow: hidden; cursor: grab; }
 .clip.selected { outline: 2px solid var(--accent); outline-offset: -1px; background: rgba(79,156,249,0.12); }
 .notes-svg { width: 100%; height: 100%; display: block; pointer-events: none; }
 .wave-placeholder { position: absolute; left: 2px; right: 2px; top: 40%; bottom: 40%; opacity: 0.35; border-radius: 2px; pointer-events: none; }
+.clip-grip { position: absolute; top: 0; bottom: 0; width: 7px; cursor: ew-resize; z-index: 2; }
+.clip-grip.l { left: 0; }
+.clip-grip.r { right: 0; }
+.clip-grip::after { content: ''; position: absolute; top: 25%; bottom: 25%; width: 2px; background: var(--text); opacity: 0; border-radius: 1px; }
+.clip-grip.l::after { left: 2px; }
+.clip-grip.r::after { right: 2px; }
+.clip:hover .clip-grip::after { opacity: 0.5; }
 </style>

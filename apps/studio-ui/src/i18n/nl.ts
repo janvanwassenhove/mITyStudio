@@ -88,7 +88,10 @@ export default {
     soloTip: 'Solo — alleen solo-sporen afspelen', volume: 'volume',
     switchInstrument: 'ander instrumentgeluid kiezen', instrumentFx: 'instrument & effecten',
     searchInstruments: 'Zoek in alle instrumenten…', noMatches: 'geen resultaten',
-    loadingInstruments: 'instrumenten laden…', clipTip: 'sleep om te verplaatsen · dubbelklik om te bewerken',
+    loadingInstruments: 'instrumenten laden…', clipTip: 'sleep om te verplaatsen · randen om te verlengen · dubbelklik om te bewerken',
+    switchVoice: 'zangstem wijzigen', syntheticVoice: 'Synthetische stem',
+    noVoices: 'Nog geen stemprofielen — maak er één op de pagina Stemmen.',
+    resizeTip: 'sleep om deze clip langer / korter te maken',
   },
   addTrack: {
     title: 'Spoor toevoegen',
