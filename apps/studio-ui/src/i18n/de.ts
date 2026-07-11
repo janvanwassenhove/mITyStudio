@@ -4,6 +4,7 @@ export default {
     stop: 'Stopp', add: 'Hinzufügen', cancel: 'Abbrechen', continue: 'Weiter',
     done: 'Fertig', clear: 'Leeren',
   },
+  rec: { go: 'Los!', getReady: 'Mach dich bereit zum Singen…' },
   nav: {
     studio: 'Studio', assets: 'Bibliothek', voices: 'Stimmen', settings: 'Einstellungen',
     language: 'Sprache', backendConnected: 'Backend verbunden',

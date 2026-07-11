@@ -4,6 +4,7 @@ import { getHealth, type HealthResponse } from './api/client'
 import { LOCALES, currentLocale, setLocale, type LocaleCode } from './i18n'
 import { useStudioStore } from './stores/studio'
 import OnboardingGuide from './components/OnboardingGuide.vue'
+import CountdownOverlay from './components/CountdownOverlay.vue'
 
 const health = ref<HealthResponse | null>(null)
 const healthError = ref('')
@@ -86,6 +87,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
       <RouterView />
     </main>
     <OnboardingGuide v-if="showOnboarding" @close="showOnboarding = false" />
+    <CountdownOverlay />
   </div>
 </template>
 

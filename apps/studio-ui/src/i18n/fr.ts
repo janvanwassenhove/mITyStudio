@@ -4,6 +4,7 @@ export default {
     stop: 'Stop', add: 'Ajouter', cancel: 'Annuler', continue: 'Continuer',
     done: 'Terminé', clear: 'Effacer',
   },
+  rec: { go: 'Partez !', getReady: 'Préparez-vous à chanter…' },
   nav: {
     studio: 'Studio', assets: 'Bibliothèque', voices: 'Voix', settings: 'Réglages',
     language: 'Langue', backendConnected: 'backend connecté',

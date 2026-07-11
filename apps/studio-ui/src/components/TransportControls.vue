@@ -3,6 +3,7 @@ import { computed, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Loader, Mic, Pause, Play, Redo2, Square, Timer, Undo2 } from 'lucide-vue-next'
 import { api } from '../api/client'
+import { runCountdown } from '../composables/countdown'
 import type { Asset, SongProject } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
@@ -60,6 +61,7 @@ async function toggleRecord() {
   studio.selectedTrackId = track.id
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    await runCountdown()   // GarageBand-style count-in before we capture
     chunks = []
     takeStart = playback.playhead
     mediaRecorder = new MediaRecorder(stream)

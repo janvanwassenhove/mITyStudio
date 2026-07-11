@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import type { Asset, Effect, Track, VoiceProfile } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
+import { runCountdown } from '../composables/countdown'
 
 const { t } = useI18n()
 const studio = useStudioStore()
@@ -159,6 +160,7 @@ async function startTake() {
   takeStatus.value = ''
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    await runCountdown()
     chunks = []
     takeStartSeconds = playback.playhead
     mediaRecorder = new MediaRecorder(stream)

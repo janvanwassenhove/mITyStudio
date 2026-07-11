@@ -5,6 +5,7 @@ import { Download, Dumbbell, Mic, PackageOpen, Play, Trash2, Wand2 } from 'lucid
 import { api } from '../api/client'
 import type { Asset, VoiceProfile } from '../api/types'
 import VoiceWizard from '../components/VoiceWizard.vue'
+import { runCountdown } from '../composables/countdown'
 
 const { t } = useI18n()
 
@@ -47,6 +48,7 @@ async function startRecording() {
   error.value = ''
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    await runCountdown()
     chunks = []
     mediaRecorder = new MediaRecorder(stream)
     mediaRecorder.ondataavailable = (e) => chunks.push(e.data)

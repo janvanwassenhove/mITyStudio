@@ -4,6 +4,7 @@ export default {
     stop: 'Stop', add: 'Toevoegen', cancel: 'Annuleren', continue: 'Verder',
     done: 'Klaar', clear: 'Wissen',
   },
+  rec: { go: 'Start!', getReady: 'Maak je klaar om te zingen…' },
   nav: {
     studio: 'Studio', assets: 'Bibliotheek', voices: 'Stemmen', settings: 'Instellingen',
     language: 'Taal', backendConnected: 'backend verbonden',

@@ -5,6 +5,7 @@ import { Dumbbell, Ear, Play, Wand2 } from 'lucide-vue-next'
 import { api } from '../api/client'
 import type { Asset } from '../api/types'
 import { currentLocale } from '../i18n'
+import { runCountdown } from '../composables/countdown'
 
 const { t, te } = useI18n()
 const emit = defineEmits<{ close: [created: boolean] }>()
@@ -92,9 +93,10 @@ function pitchLoop() {
   pitchRaf = requestAnimationFrame(pitchLoop)
 }
 
-async function startRecording() {
+async function startRecording(countIn = false) {
   error.value = ''
   mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true })
+  if (countIn) await runCountdown()   // sung exercises get a GarageBand count-in
   chunks = []
   mediaRecorder = new MediaRecorder(mediaStream)
   mediaRecorder.ondataavailable = (e) => chunks.push(e.data)
@@ -184,7 +186,7 @@ async function recordRange() {
     }
     rangeBusy.value = false
   } else {
-    await startRecording()
+    await startRecording(true)
   }
 }
 
@@ -253,7 +255,7 @@ async function doTake() {
     takeBusy.value = false
   } else {
     practiceUrl.value = ''
-    await startRecording()
+    await startRecording(true)   // count-in for the actual take
   }
 }
 
