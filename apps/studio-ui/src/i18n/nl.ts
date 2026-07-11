@@ -23,6 +23,7 @@ export default {
     stemsTip: 'Stems zijn de gerenderde audiobestanden, één per spoor. Ze renderen automatisch als je op afspelen drukt.',
     stemsLoaded: '{n}/{total} stems geladen', noProject: 'geen project open',
     bpmTip: 'klik om het tempo van het nummer te wijzigen — alle sporen (ook zang) renderen bij ▶ opnieuw op het nieuwe BPM',
+    renameTip: 'klik om het project te hernoemen',
   },
   onboard: {
     title: 'Welkom bij mITyStudio', skip: 'Overslaan',
@@ -52,6 +53,7 @@ export default {
     imported: '"{name}" geïmporteerd — stems renderen bij de eerste keer afspelen.',
     importTip: 'Laad een .mityproject.zip — samples, soundfonts en stemmen inbegrepen',
     rightClickTip: 'rechtsklik voor hernoemen / exporteren / verwijderen',
+    addClipHere: 'Clip hier toevoegen',
   },
   sidebar: {
     projects: 'Projecten', newProject: 'Titel nieuw project',
@@ -82,6 +84,7 @@ export default {
       faster: 'Maak het 10 BPM sneller en voeg een synth-arp toe',
     },
     sessionTokens: 'deze sessie: {n} tokens', elapsedS: '{s}s',
+    sttStart: 'dicteer je verzoek (spraak naar tekst)', sttStop: 'stop met dicteren',
     think: {
       reading: 'Je verzoek lezen…',
       composing: 'Ideeën componeren…',

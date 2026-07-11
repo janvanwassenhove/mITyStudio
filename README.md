@@ -4,7 +4,7 @@
 
 **Your local AI music studio — describe a song, hear it sung in your own voice.**
 
-Chat-driven composition · GarageBand-style editing · AI voice cloning with consent
+Chat-driven composition · hands-on DAW editing · AI voice cloning with consent
 · 4 languages (EN/NL/FR/DE) · 100% local-first
 
 ![mITyStudio — the studio](docs/screenshots/studio.png)
@@ -38,7 +38,7 @@ money go in, an MP3 comes out. mITyStudio is the opposite:
 |---|---|
 | 💬 **Chat a song into existence** | *"create a punk song about summer with drums, bass, guitar and vocals"* → full arrangement with sections, instruments picked from **your** SoundFont library, lyrics, and a sung vocal — in the language you're chatting in. |
 | 🎤 **AI singing in your voice** | A guided wizard records your voice (consent → range test → 10 coached exercises with live pitch feedback and quality checks), then trains a personal model on your GPU. Vocal tracks sing your lyrics with that voice — or record a take yourself and hear it converted to any of your voices. |
-| 🥁 **GarageBand-style surfaces** | Smart Drums board (drag pieces, the groove writes itself), step sequencer with genre patterns, playable drum pads, chord strips and keyboard — everything auditions with the real instrument sound and drops into the song as clips. |
+| 🥁 **Playable instrument surfaces** | Smart Drums board (drag pieces, the groove writes itself), step sequencer with genre patterns, playable drum pads, chord strips and keyboard — everything auditions with the real instrument sound and drops into the song as clips. |
 | 📸 **Score & chord-sheet import** | Upload MIDI, MusicXML, Guitar Pro — or a **photo/PDF of a chord sheet**. Vision AI reads it; one click makes a full editable song. |
 | 🎚️ **Real editing** | Split/duplicate/resize/drag clips, per-clip fades, piano roll & beat grid, per-track effects (reverb, delay, autotune, robot…), undo/redo, keyboard shortcuts, mixer with master bus. |
 | 🌍 **4 languages, end to end** | UI, chat replies, singing pronunciation and karaoke timing in English, Nederlands, Français and Deutsch. |

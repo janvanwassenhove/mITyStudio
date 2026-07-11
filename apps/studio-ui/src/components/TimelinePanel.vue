@@ -5,7 +5,7 @@ import { AudioWaveform, Cloud, Copy, Drum, Guitar, KeyboardMusic, Megaphone,
          MessageSquare, Mic, Music, Music4, Pencil, Piano, Plus, Repeat,
          Scissors, SlidersHorizontal, Sparkles, Trash2, Wind } from 'lucide-vue-next'
 import { api } from '../api/client'
-import { TRACK_COLORS, TYPE_ABBR } from '../lib/trackColors'
+import { categoryColor, TRACK_COLORS, TYPE_ABBR } from '../lib/trackColors'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 import AddTrackDialog from './AddTrackDialog.vue'
@@ -18,7 +18,8 @@ const playback = usePlaybackStore()
 
 const pxPerBeat = ref(14)
 const TRACK_H = 56
-const LABEL_W = 200
+const LABEL_W = 236   // wide enough for the full control row — never overflow
+                      // onto the clip lane
 
 const manifest = computed(() => studio.manifest)
 
@@ -608,19 +609,24 @@ async function deleteClip() {
   await save()
 }
 
-// ------- double-click an empty lane: create a clip there --------------------
-async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_type: string }) {
+// ------- create a clip on an empty lane spot (dblclick or right-click) -----
+function laneBeat(e: MouseEvent, laneEl: HTMLElement): number {
+  const m = manifest.value
+  if (!m) return 0
+  const rect = laneEl.getBoundingClientRect()
+  const bpb = m.beats_per_bar
+  return Math.max(0, Math.floor(((e.clientX - rect.left) / pxPerBeat.value) / bpb) * bpb)
+}
+
+async function createClipAt(trackId: string, beat: number) {
   const p = studio.project
   const m = manifest.value
-  if (!p || !m || mtrack.track_type === 'sample') return   // samples come from the browser
-  const track = p.tracks.find((t) => t.id === mtrack.track_id)
-  if (!track) return
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  const bpb = m.beats_per_bar
-  const beat = Math.max(0, Math.floor(((e.clientX - rect.left) / pxPerBeat.value) / bpb) * bpb)
+  if (!p || !m) return
+  const track = p.tracks.find((x) => x.id === trackId)
+  if (!track || track.track_type === 'sample') return   // samples come from the browser
   const clip: Clip = {
     id: uid(), section_id: '', clip_type: 'midi',
-    start_beat: beat, duration_beats: bpb * 4, note_events: [],
+    start_beat: beat, duration_beats: m.beats_per_bar * 4, note_events: [],
     source_asset_id: null, gain_db: 0, loop: false,
     fade_in_seconds: 0, fade_out_seconds: 0, source_offset_seconds: 0,
   }
@@ -629,6 +635,26 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
   selectedClip.value = { trackId: track.id, clipId: clip.id }
   await save()
   studio.openClipEditor(track.id, clip.id)   // straight into the editor
+}
+
+function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_type: string }) {
+  if (mtrack.track_type === 'sample') return
+  void createClipAt(mtrack.track_id, laneBeat(e, e.currentTarget as HTMLElement))
+}
+
+function laneMenu(e: MouseEvent, mtrack: { track_id: string; track_type: string }) {
+  if ((e.target as HTMLElement).closest('.clip')) return   // clips have their own
+  e.preventDefault()
+  if (mtrack.track_type === 'sample') return
+  const beat = laneBeat(e, e.currentTarget as HTMLElement)
+  ctxMenu.value = {
+    x: e.clientX, y: e.clientY,
+    items: [
+      { label: t('ctx.addClipHere'),
+        action: () => void createClipAt(mtrack.track_id, beat) },
+      { label: t('timeline.addTrack'), action: () => { showAddTrack.value = true } },
+    ],
+  }
 }
 </script>
 
@@ -738,17 +764,21 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
                 <button v-for="c in catalog" :key="c.category" class="cat-chip"
                         :class="{ on: instCategory === c.category }"
                         :title="c.category"
+                        :style="{ background: `linear-gradient(135deg, ${categoryColor(c.category)}33, ${categoryColor(c.category)}18)`,
+                                  color: categoryColor(c.category) }"
                         @click="instCategory = c.category">
                   <component :is="catIcon(c.category)" class="icon" :size="14" />
                 </button>
               </div>
               <div v-if="instQuery.trim().length < 2" class="dim tiny cat-name">
-                <component :is="catIcon(instCategory)" class="icon" :size="11" /> {{ instCategory }}
+                <component :is="catIcon(instCategory)" class="icon" :size="11"
+                           :style="{ color: categoryColor(instCategory) }" /> {{ instCategory }}
               </div>
               <div class="inst-hits">
                 <div v-for="(h, i) in instHits" :key="i" class="inst-hit" @click="pickInstrument(h)">
-                  <component :is="catIcon(h.category)" class="icon hit-icon" :size="14"
-                             :style="{ color: color(tl.track.track_type) }" />
+                  <span class="hit-badge" :style="{ background: `linear-gradient(135deg, ${categoryColor(h.category)}, ${categoryColor(h.category)}88)` }">
+                    <component :is="catIcon(h.category)" class="icon" :size="12" />
+                  </span>
                   <strong>{{ h.label }}</strong>
                 </div>
                 <div v-if="!instHits.length" class="dim small" style="padding: 6px">
@@ -789,7 +819,8 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
           </div>
           <div class="lane track-lane" :style="{ width: contentWidth + 'px', height: TRACK_H + 'px' }"
                :title="mtrackLaneTip(tl.track.track_type)"
-               @dblclick.self="laneDblClick($event, tl.track)">
+               @dblclick.self="laneDblClick($event, tl.track)"
+               @contextmenu="laneMenu($event, tl.track)">
             <div
               v-for="c in tl.clips" :key="c.clipId" class="clip"
               :class="{ selected: selectedClip?.clipId === c.clipId }"
@@ -849,15 +880,15 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
 .track-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .type-chip { flex: none; font-size: 8px; font-weight: 800; color: #101216; border-radius: 4px; padding: 1px 4px; letter-spacing: 0.04em; }
-.track-label { flex-direction: column; align-items: stretch !important; gap: 3px !important; justify-content: center; cursor: default; }
+.track-label { flex-direction: column; align-items: stretch !important; gap: 3px !important; justify-content: center; cursor: default; overflow: hidden; }
 .track-label.pop-open { z-index: 30; }
 .label-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.label-controls { display: flex; align-items: center; gap: 4px; }
+.label-controls { display: flex; align-items: center; gap: 3px; flex-wrap: nowrap; min-width: 0; }
 .mini { padding: 0 6px; font-size: 10px; height: 18px; line-height: 1; }
 .mini.danger:hover { border-color: var(--err); color: var(--err); }
 .mini.mute { background: var(--warn); color: #000; border-color: var(--warn); }
 .mini.solo { background: var(--ok); color: #000; border-color: var(--ok); }
-.mini-vol { width: 70px; height: 14px; }
+.mini-vol { width: 48px; min-width: 28px; flex: 1 1 auto; height: 14px; }
 .inst-pop { position: absolute; top: 100%; left: 4px; width: 280px; background: var(--bg-elevated); border: 1px solid var(--accent); border-radius: 8px; padding: 6px; z-index: 20; box-shadow: 0 6px 18px rgba(0,0,0,0.6); }
 .inst-pop input { width: 100%; }
 .cat-row { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 5px; }
@@ -871,6 +902,8 @@ async function laneDblClick(e: MouseEvent, mtrack: { track_id: string; track_typ
 .inst-hit.on { background: var(--bg-panel); outline: 1px solid var(--accent); }
 .inst-hit strong { font-size: 12px; font-weight: 500; }
 .hit-icon { flex: none; opacity: 0.9; }
+.hit-badge { flex: none; width: 20px; height: 20px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; color: #101216; }
+.cat-chip.on { outline: 2px solid currentColor; outline-offset: -1px; }
 .voice-pop { width: 220px; }
 .small { font-size: 10px; }
 .lane { position: relative; flex: none; }

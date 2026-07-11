@@ -45,9 +45,14 @@ def _asset_context() -> dict:
         analysis = sample_analysis.get_analysis(a.id) or {}
         for k_src, k_dst in (("estimated_bpm", "bpm"), ("estimated_key", "key"),
                              ("sound_type_guess", "type"),
-                             ("loopability_estimate", "loopable")):
+                             ("loopability_estimate", "loopable"),
+                             ("has_vocals", "vocals"),
+                             ("is_acapella", "acapella")):
             if analysis.get(k_src) is not None:
                 entry[k_dst] = analysis[k_src]
+        vibes = analysis.get("vibe_tags") or []
+        if vibes:
+            entry["tags"] = list(dict.fromkeys([*entry["tags"], *vibes]))[:8]
         samples.append(entry)
 
     def brief(assets, limit=40):

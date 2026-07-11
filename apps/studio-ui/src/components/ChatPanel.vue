@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Mic } from 'lucide-vue-next'
 import { api } from '../api/client'
 import type { ChatResponse } from '../api/types'
 import { currentLocale } from '../i18n'
@@ -8,6 +9,68 @@ import { useStudioStore } from '../stores/studio'
 
 const { t } = useI18n()
 const studio = useStudioStore()
+
+// --- inline provider/model selection (mirrors Settings, saved on change) ----
+interface LlmSettings { provider: string; model: string; base_url: string; providers: string[]; temperature: number; max_tokens: number }
+const llm = ref<LlmSettings | null>(null)
+const models = ref<string[]>([])
+
+async function loadLlm() {
+  llm.value = await api.get<LlmSettings>('/settings/llm')
+  await loadModels()
+}
+async function loadModels() {
+  const s = llm.value
+  if (!s || s.provider === 'mock') { models.value = []; return }
+  try {
+    const r = await api.get<{ models: string[] }>(
+      `/settings/llm/models?provider=${s.provider}&base_url=${encodeURIComponent(s.base_url)}`)
+    models.value = r.models
+  } catch { models.value = [] }
+}
+async function saveLlm() {
+  const s = llm.value
+  if (!s) return
+  if (!models.value.includes(s.model) && models.value.length) s.model = models.value[0]
+  llm.value = await api.put<LlmSettings>('/settings/llm', {
+    provider: s.provider, model: s.model, base_url: s.base_url,
+    temperature: s.temperature, max_tokens: s.max_tokens,
+  })
+}
+async function onProviderChange() {
+  if (!llm.value) return
+  llm.value.model = ''
+  await loadModels()
+  await saveLlm()
+}
+onMounted(loadLlm)
+
+// --- speech-to-text via the Web Speech API ----------------------------------
+const STT_LANGS: Record<string, string> = { en: 'en-US', nl: 'nl-NL', fr: 'fr-FR', de: 'de-DE' }
+const listening = ref(false)
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let recognizer: any = null
+
+function toggleDictation() {
+  if (!SR) return
+  if (listening.value) { recognizer?.stop(); return }
+  recognizer = new SR()
+  recognizer.lang = STT_LANGS[currentLocale()] ?? 'en-US'
+  recognizer.interimResults = true
+  recognizer.continuous = true
+  const base = input.value
+  recognizer.onresult = (ev: { results: ArrayLike<{ 0: { transcript: string } }> }) => {
+    input.value = (base + ' ' + [...Array(ev.results.length).keys()]
+      .map((i) => ev.results[i][0].transcript).join('')).trimStart()
+  }
+  recognizer.onend = () => { listening.value = false }
+  recognizer.onerror = () => { listening.value = false }
+  recognizer.start()
+  listening.value = true
+}
+onUnmounted(() => recognizer?.stop())
 
 interface LlmUsage { model: string; input_tokens: number; output_tokens: number; error_kind?: string }
 interface ChatMsg {
@@ -96,6 +159,15 @@ async function send() {
 
 <template>
   <div class="chat">
+    <div v-if="llm" class="llm-bar">
+      <select v-model="llm.provider" class="llm-sel" :title="t('settings.provider')" @change="onProviderChange">
+        <option v-for="p in llm.providers" :key="p" :value="p">{{ p }}</option>
+      </select>
+      <select v-if="models.length" v-model="llm.model" class="llm-sel model" :title="t('settings.model')" @change="saveLlm">
+        <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+      </select>
+      <span v-else-if="llm.provider !== 'mock'" class="dim tiny">{{ llm.model }}</span>
+    </div>
     <div ref="scrollEl" class="messages">
       <div v-if="!messages.length" class="hint-block">
         <div class="dim hint">{{ t('chat.tryOne') }}</div>
@@ -133,6 +205,9 @@ async function send() {
         v-model="input" rows="2" :placeholder="t('chat.placeholder')"
         @keydown.enter.exact.prevent="send"
       />
+      <button v-if="SR" class="mic" :class="{ live: listening }"
+              :title="listening ? t('chat.sttStop') : t('chat.sttStart')"
+              @click="toggleDictation"><Mic class="icon" :size="14" /></button>
       <button class="primary" :disabled="busy || !input.trim()" @click="send">{{ t('chat.send') }}</button>
     </div>
   </div>
@@ -163,6 +238,13 @@ async function send() {
 .session-usage { font-size: 10px; padding: 2px 10px; text-align: right; flex: none; }
 .input-row { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); flex: none; }
 textarea { flex: 1; resize: none; }
+.llm-bar { display: flex; gap: 6px; align-items: center; padding: 6px 8px 0; flex: none; }
+.llm-sel { font-size: 11px; padding: 2px 4px; max-width: 96px; }
+.llm-sel.model { max-width: 170px; flex: 1; }
+.tiny { font-size: 10px; }
+.mic { padding: 4px 9px; }
+.mic.live { background: var(--err); border-color: var(--err); color: #fff; animation: mic-pulse 1.2s ease-in-out infinite; }
+@keyframes mic-pulse { 50% { opacity: 0.6; } }
 
 /* animated "thinking" indicator */
 .thinking {

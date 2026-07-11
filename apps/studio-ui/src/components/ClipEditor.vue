@@ -371,7 +371,8 @@ onBeforeUnmount(stopPh)
             :title="`${n.pitch} · vel ${n.velocity}${n.lyric_syllable ? ' · “' + n.lyric_syllable + '”' : ''}`"
             @pointerdown="notePointerDown($event, n)"
             @click.stop
-          ><span class="resize-grip" /></div>
+          ><span v-if="n.lyric_syllable && n.duration_beats * pxPerBeatEd > 20"
+                 class="syl">{{ n.lyric_syllable }}</span><span class="resize-grip" /></div>
           <div ref="edPlayheadEl" class="ed-playhead" />
         </div>
       </div>
@@ -425,6 +426,7 @@ onBeforeUnmount(stopPh)
 .beat-line.bar { width: 2px; background: var(--text-dim); opacity: 0.5; }
 .row-stripe { position: absolute; left: 0; right: 0; background: rgba(0,0,0,0.22); pointer-events: none; }
 .pnote { position: absolute; border-radius: 3px; cursor: grab; box-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.syl { display: block; font-size: 9px; font-weight: 700; color: #101216; padding-left: 3px; line-height: 12px; white-space: nowrap; overflow: hidden; pointer-events: none; }
 .pnote.sel { outline: 2px solid #fff; z-index: 2; }
 .pnote:hover { filter: brightness(1.25); }
 .resize-grip { position: absolute; right: 0; top: 0; bottom: 0; width: 7px; cursor: ew-resize; border-right: 2px solid rgba(255,255,255,0.45); border-radius: 0 3px 3px 0; }

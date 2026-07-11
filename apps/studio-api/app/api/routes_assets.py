@@ -38,7 +38,12 @@ def list_voice_recordings() -> list[Asset]:
 
 @router.post("/rescan")
 def rescan() -> dict:
-    return asset_scanner.rescan()
+    result = asset_scanner.rescan()
+    # new soundfonts get category tags from their preset inventory so both
+    # the user and the AI planner can search them meaningfully
+    from ..services.sf2_parser import tag_soundfonts
+    result["soundfonts_tagged"] = tag_soundfonts()
+    return result
 
 
 @router.get("/search")

@@ -18,7 +18,7 @@ from .audio_io import AudioReadError, read_audio
 
 log = logging.getLogger(__name__)
 
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2   # 2: vocals/acapella/energy classification
 
 _BPM_RE = re.compile(r"(\d{2,3})\s*bpm", re.IGNORECASE)
 _KEY_RE = re.compile(
@@ -172,8 +172,28 @@ def analyse_asset(asset: Asset) -> dict:
 
     sound_type = next((v for k, v in _SOUND_TYPE_KEYWORDS.items()
                        if k in asset.filename.lower()), None)
-    vibe_tags = [t for t in (sound_type, "loop" if (loopability or 0) > 0.85 and duration > 1.5 else None,
-                             "one-shot" if duration < 1.5 else None) if t]
+
+    # content classification for the AI planner: vocals vs instrumental,
+    # acapella, energy — pitched-voice ratio in the singing band + onsets
+    from .singing_metrics import frame_f0
+    f0 = frame_f0(mono, rate, lo_hz=85, hi_hz=500)
+    voiced = float(np.mean(f0 > 0)) if len(f0) else 0.0
+    fname = asset.filename.lower()
+    has_vocals = (voiced > 0.35 and (transient_density or 0) < 6) \
+        or any(k in fname for k in ("vocal", "acapella", "voice", "vox"))
+    is_acapella = has_vocals and ((transient_density or 0) < 1.5
+                                  or "acapella" in fname)
+    energy = ("high-energy" if rms > 0.18 or (transient_density or 0) > 5
+              else "mellow" if rms < 0.06 else None)
+
+    vibe_tags = [t for t in (
+        sound_type,
+        "loop" if (loopability or 0) > 0.85 and duration > 1.5 else None,
+        "one-shot" if duration < 1.5 else None,
+        "vocals" if has_vocals else "instrumental",
+        "acapella" if is_acapella else None,
+        energy,
+    ) if t]
 
     desc_parts = [f"{duration:.2f}s", f"{data.shape[1]}ch @ {rate}Hz"]
     if bpm:
@@ -200,6 +220,9 @@ def analyse_asset(asset: Asset) -> dict:
         "silence_end": round(silence_end, 4),
         "loopability_estimate": loopability,
         "sound_type_guess": sound_type,
+        "has_vocals": has_vocals,
+        "is_acapella": is_acapella,
+        "voiced_ratio": round(voiced, 3),
         "vibe_tags": vibe_tags,
         "generated_description": generated_description,
     })

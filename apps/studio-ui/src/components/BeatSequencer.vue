@@ -222,6 +222,29 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
 
 <template>
   <div class="seq">
+    <div class="seq-bar">
+      <select class="pattern-pick" :value="patternName"
+              @change="applyPattern(($event.target as HTMLSelectElement).value)">
+        <option value="" disabled>{{ t('seq.choosePattern') }}</option>
+        <option v-for="(_, name) in PATTERNS" :key="name" :value="name">{{ name }}</option>
+      </select>
+      <div class="tools">
+        <button :class="{ on: tool === 'toggle' }" @click="tool = 'toggle'">{{ t('seq.stepOnOff') }}</button>
+        <button :class="{ on: tool === 'velocity' }" @click="tool = 'velocity'">{{ t('seq.velocity') }}</button>
+      </div>
+      <div class="tools">
+        <button :class="{ on: bars === 1 }" @click="bars = 1">{{ t('seq.oneBar') }}</button>
+        <button :class="{ on: bars === 2 }" @click="bars = 2">{{ t('seq.twoBars') }}</button>
+      </div>
+      <span class="spacer" />
+      <button class="tb" @click="clearGrid">✕ {{ t('common.clear') }}</button>
+      <button class="power" :class="{ on: playing }" :disabled="loading"
+              :title="t('seq.previewTip')"
+              @click="togglePower">
+        {{ loading ? '⏳ ' + t('seq.rendering') : playing ? '■ ' + t('common.stop') : '▶ ' + t('seq.previewLoop') }}
+      </button>
+      <button class="tb add" :title="t('seq.addTip')" @click="addAsClip">＋ {{ t('seq.addAsClip') }}</button>
+    </div>
     <div class="seq-grid">
       <div v-for="lane in LANES" :key="lane.midi" class="seq-row">
         <div class="seq-icon" :style="{ color: lane.color }"
@@ -237,28 +260,6 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
           </div>
         </div>
       </div>
-    </div>
-    <div class="seq-bar">
-      <select class="pattern-pick" :value="patternName"
-              @change="applyPattern(($event.target as HTMLSelectElement).value)">
-        <option value="" disabled>{{ t('seq.choosePattern') }}</option>
-        <option v-for="(_, name) in PATTERNS" :key="name" :value="name">{{ name }}</option>
-      </select>
-      <button class="power" :class="{ on: playing }" :disabled="loading"
-              :title="t('seq.previewTip')"
-              @click="togglePower">
-        {{ loading ? '⏳ ' + t('seq.rendering') : playing ? '■ ' + t('common.stop') : '▶ ' + t('seq.previewLoop') }}
-      </button>
-      <div class="tools">
-        <button :class="{ on: tool === 'toggle' }" @click="tool = 'toggle'">{{ t('seq.stepOnOff') }}</button>
-        <button :class="{ on: tool === 'velocity' }" @click="tool = 'velocity'">{{ t('seq.velocity') }}</button>
-      </div>
-      <div class="tools">
-        <button :class="{ on: bars === 1 }" @click="bars = 1">{{ t('seq.oneBar') }}</button>
-        <button :class="{ on: bars === 2 }" @click="bars = 2">{{ t('seq.twoBars') }}</button>
-      </div>
-      <button class="tb add" :title="t('seq.addTip')" @click="addAsClip">＋ {{ t('seq.addAsClip') }}</button>
-      <button class="tb" @click="clearGrid">✕ {{ t('common.clear') }}</button>
     </div>
     <div v-if="msg" class="dim seq-msg">{{ msg }}</div>
   </div>
@@ -276,7 +277,8 @@ onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
 .seq-cell:hover { filter: brightness(1.5); }
 .seq-cell.playhead { outline: 2px solid #fff; outline-offset: -1px; }
 .vel-dot { position: absolute; inset: 25%; border-radius: 50%; background: #fff; }
-.seq-bar { display: flex; align-items: center; gap: 10px; padding-top: 8px; flex: none; flex-wrap: wrap; }
+.seq-bar { display: flex; align-items: center; gap: 8px; padding: 4px 0 8px; flex: none; flex-wrap: wrap; }
+.spacer { flex: 1; }
 .pattern-pick { font-size: 12px; background: rgba(0,0,0,0.5); }
 .power { font-size: 13px; font-weight: 600; padding: 4px 14px; border-radius: 16px; color: var(--text); border-color: #3ecf6e; }
 .power.on { color: #3ecf6e; box-shadow: 0 0 12px rgba(62,207,110,0.4); }

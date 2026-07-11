@@ -107,6 +107,25 @@ function stopRecord() {
 
 onUnmounted(() => { if (recording.value) stopRecord() })
 
+// --- editable project title --------------------------------------------------
+const editingTitle = ref(false)
+const titleDraft = ref('')
+
+function startTitleEdit() {
+  if (!studio.project) return
+  titleDraft.value = studio.project.title
+  editingTitle.value = true
+}
+async function commitTitle() {
+  editingTitle.value = false
+  const p = studio.project
+  const v = titleDraft.value.trim()
+  if (!p || !v || v === p.title) return
+  p.title = v
+  await studio.saveProject()
+  await studio.refreshProjects()
+}
+
 // --- editable BPM: the whole song (stems re-render at the new tempo) -------
 const editingBpm = ref(false)
 const bpmDraft = ref(120)
@@ -155,7 +174,10 @@ async function commitBpm() {
     <span v-if="recStatus" class="dim small">{{ recStatus }}</span>
     <span class="spacer" />
     <template v-if="studio.project">
-      <span class="title">{{ studio.project.title }}</span>
+      <input v-if="editingTitle" v-model="titleDraft" class="title-input" autofocus
+             @blur="commitTitle" @keyup.enter="($event.target as HTMLInputElement).blur()" />
+      <button v-else class="title-btn" :title="t('transport.renameTip')" @click="startTitleEdit">
+        <span class="title">{{ studio.project.title }}</span></button>
       <input v-if="editingBpm" v-model.number="bpmDraft" type="number" min="30" max="300"
              class="bpm-input" autofocus
              @blur="commitBpm" @keyup.enter="($event.target as HTMLInputElement).blur()" />
@@ -181,6 +203,9 @@ async function commitBpm() {
 .spacer { flex: 1; }
 .preparing { font-size: 12px; color: var(--warn); }
 .rec-on { background: var(--err); border-color: var(--err); color: #fff; }
+.title-btn { border: none; background: transparent; padding: 2px 4px; }
+.title-btn:hover .title { color: var(--accent); }
+.title-input { width: 180px; padding: 2px 6px; font-size: 13px; font-weight: 600; }
 .bpm-btn { border: none; background: transparent; padding: 2px 4px; font-size: 13px; }
 .bpm-btn:hover { color: var(--accent); border: none; }
 .bpm-input { width: 64px; padding: 2px 6px; font-size: 13px; }

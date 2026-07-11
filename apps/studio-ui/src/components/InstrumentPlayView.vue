@@ -525,8 +525,9 @@ const bgImage = computed(() => {
           : drumMode === 'seq' ? t('play.seqDesc')
           : t('play.padsDesc') }}</span>
         <template v-if="drumMode === 'smart'">
+          <!-- same order & names as the Beat Sequencer bar: 🎲 · Clear · Preview loop · Add as clip -->
           <button class="dice" :title="t('play.diceTip')" @click="diceSmart">🎲</button>
-          <button class="reset" :title="t('play.resetTip')" @click="resetBoard">{{ t('play.reset') }}</button>
+          <button class="reset" :title="t('play.resetTip')" @click="resetBoard">✕ {{ t('common.clear') }}</button>
           <button class="audition" :class="{ on: looping }" :disabled="loopLoading"
                   :title="t('seq.previewTip')"
                   @click="toggleLoop">

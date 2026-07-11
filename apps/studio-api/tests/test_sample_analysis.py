@@ -27,7 +27,8 @@ def test_analyse_sample(client, workspace):
     assert a["bpm_source"] == "filename"
     assert a["estimated_key"] == "A minor"
     assert a["silence_start"] < 0.01
-    assert a["analysis_version"] == 1
+    from app.services.sample_analysis import ANALYSIS_VERSION
+    assert a["analysis_version"] == ANALYSIS_VERSION
 
     after = client.get(f"/api/assets/{asset['id']}").json()
     assert after["analysis_status"] == "analysed"

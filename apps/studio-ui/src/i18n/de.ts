@@ -23,6 +23,7 @@ export default {
     stemsTip: 'Stems sind die gerenderten Audiodateien, eine pro Spur. Sie werden automatisch gerendert, wenn du auf Wiedergabe drückst.',
     stemsLoaded: '{n}/{total} Stems geladen', noProject: 'kein Projekt geöffnet',
     bpmTip: 'klicke, um das Tempo des Songs zu ändern — alle Spuren (auch Gesang) werden bei ▶ mit dem neuen BPM neu gerendert',
+    renameTip: 'klicke, um das Projekt umzubenennen',
   },
   onboard: {
     title: 'Willkommen bei mITyStudio', skip: 'Überspringen',
@@ -52,6 +53,7 @@ export default {
     imported: '"{name}" importiert — Stems rendern beim ersten Abspielen.',
     importTip: 'Lade eine .mityproject.zip — Samples, SoundFonts und Stimmen inklusive',
     rightClickTip: 'Rechtsklick für Umbenennen / Exportieren / Löschen',
+    addClipHere: 'Clip hier hinzufügen',
   },
   sidebar: {
     projects: 'Projekte', newProject: 'Titel des neuen Projekts',
@@ -82,6 +84,7 @@ export default {
       faster: 'Mach es 10 BPM schneller und füg einen Synth-Arp hinzu',
     },
     sessionTokens: 'diese Sitzung: {n} Tokens', elapsedS: '{s}s',
+    sttStart: 'diktiere deine Anfrage (Sprache zu Text)', sttStop: 'Diktat beenden',
     think: {
       reading: 'Lese deine Anfrage…',
       composing: 'Komponiere Ideen…',

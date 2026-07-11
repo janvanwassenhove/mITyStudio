@@ -23,6 +23,7 @@ export default {
     stemsTip: 'Stems are the rendered audio files, one per track. They render automatically when you press play and load here for playback.',
     stemsLoaded: '{n}/{total} stems loaded', noProject: 'no project open',
     bpmTip: 'click to change the song tempo — all tracks (including vocals) re-render at the new BPM on ▶',
+    renameTip: 'click to rename the project',
   },
   onboard: {
     title: 'Welcome to mITyStudio', skip: 'Skip',
@@ -52,6 +53,7 @@ export default {
     imported: 'Imported "{name}" — stems render on first play.',
     importTip: 'Load a .mityproject.zip — samples, soundfonts and voices included',
     rightClickTip: 'right-click for rename / export / delete',
+    addClipHere: 'Add clip here',
   },
   sidebar: {
     projects: 'Projects', newProject: 'New project title',
@@ -82,6 +84,7 @@ export default {
       faster: 'Make it 10 BPM faster and add a synth arp',
     },
     sessionTokens: 'this session: {n} tokens', elapsedS: '{s}s',
+    sttStart: 'dictate your request (speech to text)', sttStop: 'stop dictating',
     think: {
       reading: 'Reading your request…',
       composing: 'Composing ideas…',

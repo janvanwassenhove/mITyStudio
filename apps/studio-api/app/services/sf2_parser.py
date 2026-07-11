@@ -251,6 +251,35 @@ def instrument_catalog() -> list[dict]:
             for cat in ordered if cat in by_cat and by_cat[cat]]
 
 
+def tag_soundfonts() -> int:
+    """Derive searchable tags for every untagged soundfont from its preset
+    inventory: category tags ('drum kits', 'piano & keys', …), 'gm-bank' for
+    broad General-MIDI banks. Returns how many fonts were tagged."""
+    from . import asset_repo
+    tagged = 0
+    for asset in asset_repo.list_assets("soundfont", include_missing=False):
+        if asset.tags or asset.extension not in (".sf2", ".sf3"):
+            continue
+        inv = get_preset_inventory(asset.id, Path(asset.original_path))
+        presets = (inv or {}).get("presets", [])
+        if not presets:
+            continue
+        cats: dict[str, int] = {}
+        for p in presets:
+            cat = _categorize_preset(p.get("name", ""), p["bank"], p["program"])
+            cats[cat] = cats.get(cat, 0) + 1
+        ranked = sorted(cats.items(), key=lambda x: -x[1])
+        tags = [c.lower() for c, _ in ranked[:4]]
+        if len(cats) >= 6 and len(presets) >= 60:
+            tags.insert(0, "gm-bank")
+        asset_repo.update_metadata(
+            asset.id, tags=tags,
+            generated_description=f"{len(presets)} presets: "
+            + ", ".join(f"{c} ({n})" for c, n in ranked[:5]))
+        tagged += 1
+    return tagged
+
+
 def find_best_soundfont(track_type: str) -> tuple[object, dict] | None:
     """Search the whole registry for the best (asset, preset) for a track
     type. Returns None if nothing suitable exists."""
