@@ -44,7 +44,16 @@ export default {
     noProject: 'Open or create a project first, then I can edit it.',
     hint: 'Ask for a song: “create a punk song with drums, bass and guitar”, “add a chorus”, “make it faster”, “add lyrics about summer”…',
     planning: 'planning…', placeholder: 'Describe the song or a change…', send: 'Send',
-    sessionTokens: 'this session: {n} tokens',
+    sessionTokens: 'this session: {n} tokens', elapsedS: '{s}s',
+    think: {
+      reading: 'Reading your request…',
+      composing: 'Composing ideas…',
+      harmony: 'Working out the chords…',
+      instruments: 'Picking instruments…',
+      melody: 'Writing the melody…',
+      mixing: 'Balancing the mix…',
+      almost: 'Almost there…',
+    },
     err: {
       rate_limit: 'The provider is rate-limiting requests — wait a moment and try again.',
       quota: 'The API key has no credit/quota left — top up or switch provider in Settings.',

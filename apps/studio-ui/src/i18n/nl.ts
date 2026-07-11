@@ -44,7 +44,16 @@ export default {
     noProject: 'Open of maak eerst een project, dan kan ik het bewerken.',
     hint: 'Vraag om een nummer: “maak een punknummer met drums, bas en gitaar”, “voeg een refrein toe”, “maak het sneller”, “schrijf songtekst over de zomer”…',
     planning: 'plannen…', placeholder: 'Beschrijf het nummer of een wijziging…', send: 'Versturen',
-    sessionTokens: 'deze sessie: {n} tokens',
+    sessionTokens: 'deze sessie: {n} tokens', elapsedS: '{s}s',
+    think: {
+      reading: 'Je verzoek lezen…',
+      composing: 'Ideeën componeren…',
+      harmony: 'Akkoorden uitwerken…',
+      instruments: 'Instrumenten kiezen…',
+      melody: 'De melodie schrijven…',
+      mixing: 'De mix balanceren…',
+      almost: 'Bijna klaar…',
+    },
     err: {
       rate_limit: 'De provider beperkt het aantal verzoeken — wacht even en probeer opnieuw.',
       quota: 'De API-sleutel heeft geen tegoed/quotum meer — vul aan of wissel van provider in Instellingen.',

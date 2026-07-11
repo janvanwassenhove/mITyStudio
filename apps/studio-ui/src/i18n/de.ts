@@ -44,7 +44,16 @@ export default {
     noProject: 'Öffne oder erstelle zuerst ein Projekt, dann kann ich es bearbeiten.',
     hint: 'Bitte um einen Song: „erstelle einen Punksong mit Schlagzeug, Bass und Gitarre“, „füg einen Refrain hinzu“, „mach es schneller“, „schreib einen Songtext über den Sommer“…',
     planning: 'plane…', placeholder: 'Beschreibe den Song oder eine Änderung…', send: 'Senden',
-    sessionTokens: 'diese Sitzung: {n} Tokens',
+    sessionTokens: 'diese Sitzung: {n} Tokens', elapsedS: '{s}s',
+    think: {
+      reading: 'Lese deine Anfrage…',
+      composing: 'Komponiere Ideen…',
+      harmony: 'Arbeite die Akkorde aus…',
+      instruments: 'Wähle Instrumente…',
+      melody: 'Schreibe die Melodie…',
+      mixing: 'Balanciere den Mix…',
+      almost: 'Fast fertig…',
+    },
     err: {
       rate_limit: 'Der Anbieter drosselt die Anfragen — warte kurz und versuch es erneut.',
       quota: 'Der API-Schlüssel hat kein Guthaben/Kontingent mehr — auffüllen oder in den Einstellungen den Anbieter wechseln.',

@@ -44,7 +44,16 @@ export default {
     noProject: 'Ouvrez ou créez d’abord un projet, puis je pourrai le modifier.',
     hint: 'Demandez une chanson : « crée une chanson punk avec batterie, basse et guitare », « ajoute un refrain », « accélère », « écris des paroles sur l’été »…',
     planning: 'planification…', placeholder: 'Décrivez la chanson ou une modification…', send: 'Envoyer',
-    sessionTokens: 'cette session : {n} tokens',
+    sessionTokens: 'cette session : {n} tokens', elapsedS: '{s}s',
+    think: {
+      reading: 'Lecture de votre demande…',
+      composing: 'Composition des idées…',
+      harmony: 'Recherche des accords…',
+      instruments: 'Choix des instruments…',
+      melody: 'Écriture de la mélodie…',
+      mixing: 'Équilibrage du mix…',
+      almost: 'Presque terminé…',
+    },
     err: {
       rate_limit: 'Le fournisseur limite le débit des requêtes — attendez un instant et réessayez.',
       quota: 'La clé API n’a plus de crédit/quota — rechargez ou changez de fournisseur dans les Réglages.',

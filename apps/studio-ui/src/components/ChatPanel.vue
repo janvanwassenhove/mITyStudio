@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
+import { computed, nextTick, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { ChatResponse } from '../api/types'
@@ -25,6 +25,35 @@ const sessionTokens = ref(0)
 
 const fmtTok = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n))
 
+// --- playful "thinking" indicator while the LLM works -----------------------
+// Cycling music-themed status phrases so long reasoning waits feel alive.
+const THINK_PHASES = ['reading', 'composing', 'harmony', 'instruments',
+                      'melody', 'mixing', 'almost'] as const
+const thinkTick = ref(0)
+const elapsed = ref(0)
+let phaseTimer: ReturnType<typeof setInterval> | null = null
+let elapsedTimer: ReturnType<typeof setInterval> | null = null
+
+const thinkingText = computed(() => {
+  const n = THINK_PHASES.length
+  const i = thinkTick.value < n
+    ? thinkTick.value
+    : 1 + ((thinkTick.value - n) % (n - 1))   // loop the "working" phases
+  return t('chat.think.' + THINK_PHASES[i])
+})
+
+function startThinking() {
+  thinkTick.value = 0
+  elapsed.value = 0
+  phaseTimer = setInterval(() => { thinkTick.value++ }, 2600)
+  elapsedTimer = setInterval(() => { elapsed.value++ }, 1000)
+}
+function stopThinking() {
+  if (phaseTimer) { clearInterval(phaseTimer); phaseTimer = null }
+  if (elapsedTimer) { clearInterval(elapsedTimer); elapsedTimer = null }
+}
+onUnmounted(stopThinking)
+
 async function send() {
   const text = input.value.trim()
   if (!text || busy.value) return
@@ -35,6 +64,9 @@ async function send() {
   input.value = ''
   messages.value.push({ role: 'user', text })
   busy.value = true
+  startThinking()
+  await nextTick()
+  scrollEl.value?.scrollTo({ top: scrollEl.value.scrollHeight })
   try {
     const res = await api.post<ChatResponse>(`/projects/${studio.project.id}/chat`,
       { message: text, language: currentLocale() })
@@ -47,6 +79,7 @@ async function send() {
     messages.value.push({ role: 'assistant', text: `Error: ${String(e)}` })
   } finally {
     busy.value = false
+    stopThinking()
     await nextTick()
     scrollEl.value?.scrollTo({ top: scrollEl.value.scrollHeight })
   }
@@ -74,7 +107,11 @@ async function send() {
           </li>
         </ul>
       </div>
-      <div v-if="busy" class="dim hint">{{ t('chat.planning') }}</div>
+      <div v-if="busy" class="thinking">
+        <span class="eq" aria-hidden="true"><i /><i /><i /><i /><i /></span>
+        <span class="think-text">{{ thinkingText }}</span>
+        <span v-if="elapsed >= 3" class="think-time dim">· {{ t('chat.elapsedS', { s: elapsed }) }}</span>
+      </div>
     </div>
     <div v-if="sessionTokens" class="session-usage dim">
       {{ t('chat.sessionTokens', { n: fmtTok(sessionTokens) }) }}
@@ -108,4 +145,35 @@ async function send() {
 .session-usage { font-size: 10px; padding: 2px 10px; text-align: right; flex: none; }
 .input-row { display: flex; gap: 6px; padding: 8px; border-top: 1px solid var(--border); flex: none; }
 textarea { flex: 1; resize: none; }
+
+/* animated "thinking" indicator */
+.thinking {
+  align-self: flex-start; display: flex; align-items: center; gap: 8px;
+  background: var(--bg-elevated); border-radius: 8px; padding: 7px 12px;
+  font-size: 13px; max-width: 95%;
+}
+.think-text {
+  background: linear-gradient(90deg, var(--text-dim) 0%, var(--text) 50%, var(--text-dim) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  animation: think-shimmer 2s linear infinite;
+}
+.think-time { font-size: 11px; }
+@keyframes think-shimmer { to { background-position: -200% 0; } }
+.eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 15px; }
+.eq i {
+  width: 3px; height: 4px; border-radius: 1px;
+  background: linear-gradient(var(--accent), var(--accent-2));
+  animation: eq-bounce 0.9s ease-in-out infinite;
+}
+.eq i:nth-child(1) { animation-delay: 0s; }
+.eq i:nth-child(2) { animation-delay: 0.15s; }
+.eq i:nth-child(3) { animation-delay: 0.3s; }
+.eq i:nth-child(4) { animation-delay: 0.45s; }
+.eq i:nth-child(5) { animation-delay: 0.6s; }
+@keyframes eq-bounce { 0%, 100% { height: 4px; } 50% { height: 15px; } }
+@media (prefers-reduced-motion: reduce) {
+  .think-text, .eq i { animation: none; }
+  .think-text { color: var(--text-dim); }
+}
 </style>
