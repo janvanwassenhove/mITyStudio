@@ -31,6 +31,8 @@ def test_llm_output_validated_and_assets_checked(client, monkeypatch):
     from app.services.llm import provider as provider_mod
 
     class FakeRealProvider:
+        last_usage = {"model": "fake", "input_tokens": 100, "output_tokens": 20}
+
         def plan(self, system_prompt, user_message):
             # provider tries to use assets that do not exist
             return {"reply": "using a great soundfont",
@@ -56,6 +58,8 @@ def test_llm_output_validated_and_assets_checked(client, monkeypatch):
     assert r.status_code == 200
     body = r.json()
     ops = {o["op_type"]: o for o in body["operations"]}
+    # token usage surfaces for cost visibility
+    assert body["usage"]["input_tokens"] == 100
     # invented asset rejected
     assert ops["add_track"]["applied"] is False
     assert "does not exist" in ops["add_track"]["error"]

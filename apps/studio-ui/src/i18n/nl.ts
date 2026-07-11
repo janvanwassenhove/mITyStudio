@@ -8,6 +8,8 @@ export default {
     studio: 'Studio', assets: 'Bibliotheek', voices: 'Stemmen', settings: 'Instellingen',
     language: 'Taal', backendConnected: 'backend verbonden',
     backendOffline: 'backend offline', connecting: 'verbinden…',
+    offlineBanner: 'De backend is onbereikbaar — er wordt automatisch opnieuw verbonden. Afspelen en opslaan zijn gepauzeerd.',
+    retryNow: 'Nu proberen', reconnected: 'Backend opnieuw verbonden — projecten ververst.',
   },
   transport: {
     stop: 'Stop', play: 'Afspelen', pause: 'Pauze', stopRecording: 'Opname stoppen',
@@ -42,6 +44,12 @@ export default {
     noProject: 'Open of maak eerst een project, dan kan ik het bewerken.',
     hint: 'Vraag om een nummer: “maak een punknummer met drums, bas en gitaar”, “voeg een refrein toe”, “maak het sneller”, “schrijf songtekst over de zomer”…',
     planning: 'plannen…', placeholder: 'Beschrijf het nummer of een wijziging…', send: 'Versturen',
+    sessionTokens: 'deze sessie: {n} tokens',
+    err: {
+      rate_limit: 'De provider beperkt het aantal verzoeken — wacht even en probeer opnieuw.',
+      quota: 'De API-sleutel heeft geen tegoed/quotum meer — vul aan of wissel van provider in Instellingen.',
+      auth: 'De API-sleutel is geweigerd — controleer hem in Instellingen.',
+    },
   },
   mixer: {
     empty: 'Nog geen sporen om te mixen — klik op ＋ Spoor toevoegen boven de tijdlijn, of vraag de chat: “maak een popnummer met drums, bas en keys”.',

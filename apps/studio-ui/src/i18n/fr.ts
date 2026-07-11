@@ -8,6 +8,8 @@ export default {
     studio: 'Studio', assets: 'Bibliothèque', voices: 'Voix', settings: 'Réglages',
     language: 'Langue', backendConnected: 'backend connecté',
     backendOffline: 'backend hors ligne', connecting: 'connexion…',
+    offlineBanner: 'Le backend est injoignable — reconnexion automatique en cours. Lecture et sauvegarde sont en pause.',
+    retryNow: 'Réessayer', reconnected: 'Backend reconnecté — projets actualisés.',
   },
   transport: {
     stop: 'Stop', play: 'Lecture', pause: 'Pause', stopRecording: 'Arrêter l’enregistrement',
@@ -42,6 +44,12 @@ export default {
     noProject: 'Ouvrez ou créez d’abord un projet, puis je pourrai le modifier.',
     hint: 'Demandez une chanson : « crée une chanson punk avec batterie, basse et guitare », « ajoute un refrain », « accélère », « écris des paroles sur l’été »…',
     planning: 'planification…', placeholder: 'Décrivez la chanson ou une modification…', send: 'Envoyer',
+    sessionTokens: 'cette session : {n} tokens',
+    err: {
+      rate_limit: 'Le fournisseur limite le débit des requêtes — attendez un instant et réessayez.',
+      quota: 'La clé API n’a plus de crédit/quota — rechargez ou changez de fournisseur dans les Réglages.',
+      auth: 'La clé API a été refusée — vérifiez-la dans les Réglages.',
+    },
   },
   mixer: {
     empty: 'Aucune piste à mixer — cliquez sur ＋ Ajouter une piste au-dessus de la timeline, ou demandez au chat : « crée une chanson pop avec batterie, basse et claviers ».',

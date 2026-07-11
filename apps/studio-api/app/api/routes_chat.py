@@ -16,8 +16,8 @@ def chat(project_id: str, req: ChatRequest) -> ChatResponse:
     except ProjectNotFound:
         raise HTTPException(404, "project not found")
 
-    reply, operations, warnings = operation_planner.plan(project, req.message,
-                                                         language=req.language)
+    reply, operations, warnings, usage = operation_planner.plan(
+        project, req.message, language=req.language)
     results = operation_applier.apply_operations(project, operations)
     for w in warnings:
         results.append(OperationResult(op_type="(planner)", summary="",
@@ -36,4 +36,5 @@ def chat(project_id: str, req: ChatRequest) -> ChatResponse:
 
     return ChatResponse(reply=reply,
                         operations=results,
-                        project=project.model_dump())
+                        project=project.model_dump(),
+                        usage=usage)

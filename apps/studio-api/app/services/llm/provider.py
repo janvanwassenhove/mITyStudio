@@ -20,7 +20,22 @@ class LlmProviderError(Exception):
     pass
 
 
+def classify_llm_error(message: str) -> str:
+    """'rate_limit' | 'quota' | 'auth' | 'error' — the UI explains each."""
+    m = message.lower()
+    if "429" in m or "rate limit" in m or "rate_limit" in m:
+        return "rate_limit"
+    if "quota" in m or "insufficient" in m or "billing" in m or "credit" in m:
+        return "quota"
+    if "401" in m or "403" in m or "api key" in m or "auth" in m:
+        return "auth"
+    return "error"
+
+
 class LlmProvider(ABC):
+    # token usage of the most recent plan() call, for cost visibility
+    last_usage: dict | None = None
+
     @abstractmethod
     def plan(self, system_prompt: str, user_message: str) -> dict:
         """Returns {"reply": str, "operations": [dict, ...]}."""
@@ -36,6 +51,8 @@ class MockLlmProvider(LlmProvider):
 
     def plan(self, system_prompt: str, user_message: str) -> dict:
         from .mock_planner import plan_from_message
+        self.last_usage = {"model": "mock", "input_tokens": 0,
+                           "output_tokens": 0}
         return plan_from_message(system_prompt, user_message)
 
     def test_connection(self) -> tuple[bool, str]:
@@ -71,6 +88,12 @@ class AnthropicProvider(LlmProvider):
             )
         except Exception as e:
             raise LlmProviderError(f"LLM request failed: {e}") from e
+        usage = getattr(resp, "usage", None)
+        self.last_usage = {
+            "model": self.settings.model,
+            "input_tokens": getattr(usage, "input_tokens", 0) or 0,
+            "output_tokens": getattr(usage, "output_tokens", 0) or 0,
+        }
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         return _extract_json(text)
 
@@ -160,6 +183,12 @@ class OpenAIProvider(LlmProvider):
             [{"role": "system", "content": system_prompt},
              {"role": "user", "content": user_message}],
             self.settings.max_tokens, want_json=True)
+        usage = getattr(resp, "usage", None)
+        self.last_usage = {
+            "model": self.settings.model,
+            "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+            "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
+        }
         text = resp.choices[0].message.content or ""
         return _extract_json(text)
 

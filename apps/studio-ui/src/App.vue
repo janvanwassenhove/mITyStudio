@@ -1,23 +1,51 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { getHealth, type HealthResponse } from './api/client'
 import { LOCALES, currentLocale, setLocale, type LocaleCode } from './i18n'
+import { useStudioStore } from './stores/studio'
 
 const health = ref<HealthResponse | null>(null)
 const healthError = ref('')
 const locale = ref<LocaleCode>(currentLocale())
+const studio = useStudioStore()
 
 function changeLocale() {
   setLocale(locale.value)
 }
 
-onMounted(async () => {
+// --- reconnect flow: poll health, banner while offline, refresh on return --
+const POLL_MS = 8000
+const reconnected = ref(false)
+const checking = ref(false)
+let pollTimer: ReturnType<typeof setInterval> | null = null
+
+async function checkHealth() {
+  if (checking.value) return
+  checking.value = true
+  const wasOffline = !!healthError.value
   try {
     health.value = await getHealth()
+    healthError.value = ''
+    if (wasOffline) {
+      // backend came back: reload everything the views depend on
+      reconnected.value = true
+      await studio.refreshProjects()
+      if (studio.project) await studio.reloadCurrent()
+      setTimeout(() => { reconnected.value = false }, 4000)
+    }
   } catch (e) {
+    health.value = null
     healthError.value = String(e)
+  } finally {
+    checking.value = false
   }
+}
+
+onMounted(() => {
+  void checkHealth()
+  pollTimer = setInterval(checkHealth, POLL_MS)
 })
+onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 </script>
 
 <template>
@@ -36,6 +64,15 @@ onMounted(async () => {
       <span v-else-if="healthError" class="health err" :title="healthError">● {{ $t('nav.backendOffline') }}</span>
       <span v-else class="health dim">● {{ $t('nav.connecting') }}</span>
     </nav>
+    <div v-if="healthError" class="offline-banner">
+      {{ $t('nav.offlineBanner') }}
+      <button class="retry" :disabled="checking" @click="checkHealth">
+        {{ checking ? '…' : $t('nav.retryNow') }}
+      </button>
+    </div>
+    <div v-else-if="reconnected" class="reconnected-banner">
+      ✓ {{ $t('nav.reconnected') }}
+    </div>
     <main class="main">
       <RouterView />
     </main>
@@ -61,4 +98,14 @@ onMounted(async () => {
 .health.ok { color: var(--ok); }
 .health.err { color: var(--err); }
 .main { flex: 1; min-height: 0; overflow: hidden; }
+.offline-banner {
+  flex: none; display: flex; align-items: center; justify-content: center; gap: 12px;
+  background: rgba(242, 85, 90, 0.14); border-bottom: 1px solid var(--err);
+  color: var(--err); font-size: 13px; padding: 6px 12px;
+}
+.offline-banner .retry { padding: 2px 12px; font-size: 12px; border-color: var(--err); color: var(--err); }
+.reconnected-banner {
+  flex: none; text-align: center; background: rgba(62, 207, 142, 0.12);
+  border-bottom: 1px solid var(--ok); color: var(--ok); font-size: 12px; padding: 4px;
+}
 </style>

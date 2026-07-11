@@ -8,6 +8,8 @@ export default {
     studio: 'Studio', assets: 'Assets', voices: 'Voices', settings: 'Settings',
     language: 'Language', backendConnected: 'backend connected',
     backendOffline: 'backend offline', connecting: 'connecting…',
+    offlineBanner: 'The backend is unreachable — reconnecting automatically. Playback and saving are paused.',
+    retryNow: 'Retry now', reconnected: 'Backend reconnected — projects refreshed.',
   },
   transport: {
     stop: 'Stop', play: 'Play', pause: 'Pause', stopRecording: 'Stop recording',
@@ -42,6 +44,12 @@ export default {
     noProject: 'Open or create a project first, then I can edit it.',
     hint: 'Ask for a song: “create a punk song with drums, bass and guitar”, “add a chorus”, “make it faster”, “add lyrics about summer”…',
     planning: 'planning…', placeholder: 'Describe the song or a change…', send: 'Send',
+    sessionTokens: 'this session: {n} tokens',
+    err: {
+      rate_limit: 'The provider is rate-limiting requests — wait a moment and try again.',
+      quota: 'The API key has no credit/quota left — top up or switch provider in Settings.',
+      auth: 'The API key was rejected — check it in Settings.',
+    },
   },
   mixer: {
     empty: 'No tracks to mix yet — click ＋ Add Track above the timeline, or ask the chat: “create a pop song with drums, bass and keys”.',

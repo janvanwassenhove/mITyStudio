@@ -41,3 +41,6 @@ class ChatResponse(BaseModel):
     reply: str
     operations: list[OperationResult]
     project: dict
+    # token usage of this turn (model, input_tokens, output_tokens,
+    # error_kind?) — cost/rate-limit visibility in the chat panel
+    usage: dict | None = None

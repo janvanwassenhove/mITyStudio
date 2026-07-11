@@ -10,7 +10,7 @@ from pydantic import ValidationError
 from ..models.operations import ChatOperation, OperationType
 from ..models.song import SongProject
 from . import asset_repo
-from .llm.provider import LlmProviderError, get_provider
+from .llm.provider import LlmProviderError, classify_llm_error, get_provider
 from .llm.settings import load_settings
 
 log = logging.getLogger(__name__)
@@ -138,15 +138,18 @@ AVAILABLE ASSETS (the ONLY assets you may reference):
 
 
 def plan(project: SongProject, message: str,
-         language: str = "en") -> tuple[str, list[ChatOperation], list[str]]:
-    """Returns (reply, valid_operations, validation_warnings)."""
+         language: str = "en"
+         ) -> tuple[str, list[ChatOperation], list[str], dict | None]:
+    """Returns (reply, valid_operations, validation_warnings, llm_usage)."""
     settings = load_settings()
     provider = get_provider(settings)
     system_prompt = build_system_prompt(project, language)
     try:
         raw = provider.plan(system_prompt, message)
     except LlmProviderError as e:
-        return f"LLM error: {e}", [], [str(e)]
+        usage = {"model": settings.model, "input_tokens": 0,
+                 "output_tokens": 0, "error_kind": classify_llm_error(str(e))}
+        return f"LLM error: {e}", [], [str(e)], usage
 
     warnings: list[str] = []
     operations: list[ChatOperation] = []
@@ -156,4 +159,4 @@ def plan(project: SongProject, message: str,
         except ValidationError as e:
             warnings.append(f"operation {i} rejected: {e.errors()[0]['msg']}")
     reply = str(raw.get("reply", "")) or "Done."
-    return reply, operations, warnings
+    return reply, operations, warnings, provider.last_usage

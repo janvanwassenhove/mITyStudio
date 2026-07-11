@@ -8,6 +8,8 @@ export default {
     studio: 'Studio', assets: 'Bibliothek', voices: 'Stimmen', settings: 'Einstellungen',
     language: 'Sprache', backendConnected: 'Backend verbunden',
     backendOffline: 'Backend offline', connecting: 'verbinden…',
+    offlineBanner: 'Das Backend ist nicht erreichbar — automatische Wiederverbindung läuft. Wiedergabe und Speichern sind pausiert.',
+    retryNow: 'Jetzt versuchen', reconnected: 'Backend wieder verbunden — Projekte aktualisiert.',
   },
   transport: {
     stop: 'Stopp', play: 'Wiedergabe', pause: 'Pause', stopRecording: 'Aufnahme stoppen',
@@ -42,6 +44,12 @@ export default {
     noProject: 'Öffne oder erstelle zuerst ein Projekt, dann kann ich es bearbeiten.',
     hint: 'Bitte um einen Song: „erstelle einen Punksong mit Schlagzeug, Bass und Gitarre“, „füg einen Refrain hinzu“, „mach es schneller“, „schreib einen Songtext über den Sommer“…',
     planning: 'plane…', placeholder: 'Beschreibe den Song oder eine Änderung…', send: 'Senden',
+    sessionTokens: 'diese Sitzung: {n} Tokens',
+    err: {
+      rate_limit: 'Der Anbieter drosselt die Anfragen — warte kurz und versuch es erneut.',
+      quota: 'Der API-Schlüssel hat kein Guthaben/Kontingent mehr — auffüllen oder in den Einstellungen den Anbieter wechseln.',
+      auth: 'Der API-Schlüssel wurde abgelehnt — prüfe ihn in den Einstellungen.',
+    },
   },
   mixer: {
     empty: 'Noch keine Spuren zum Mischen — klicke über der Timeline auf ＋ Spur hinzufügen, oder frag den Chat: „erstelle einen Popsong mit Schlagzeug, Bass und Keys“.',
