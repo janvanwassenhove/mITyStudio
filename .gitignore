@@ -34,3 +34,11 @@ samples/*.flac
 voices/recordings/*
 !voices/recordings/README.md
 projects/*/
+
+# RVC training artifacts (personal voice datasets, trained models, logs) and
+# the bundled Applio tool (third-party, own git history + large torch models)
+tools/Applio/
+tools/Applio
+tools/rvc-datasets/
+tools/rvc-training*.log
+tools/logs/
