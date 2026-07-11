@@ -84,6 +84,12 @@ def test_wizard_endpoints(client, workspace):
     assert d["recommended_tier"] in ("quick", "full")
     assert d["tiers"] == {"quick": 60, "full": 200}
 
+    # engine-install status is a safe read (POST would spawn a real pip run);
+    # the test env disables the clone engine, so it reports not-installed
+    st = client.get("/api/voice/engine/status").json()
+    assert st["installed"] is False and st["installing"] is False
+    assert isinstance(st["log"], list)
+
     rec = upload_recording(client)
     qa = client.post(f"/api/voice/recordings/{rec['id']}/qa").json()
     assert qa["verdict"] in ("pass", "warn", "fail")

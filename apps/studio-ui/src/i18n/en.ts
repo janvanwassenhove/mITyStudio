@@ -297,7 +297,11 @@ export default {
     showRecordings: 'show the recordings in this voice',
     recordingsUnavailable: '{n} source recording(s) not available',
     engineMissingTitle: 'AI voice engine not installed',
-    engineMissingBody: 'Recording and creating profiles works, but cloning and singing previews need the optional voice add-on. It downloads on first use, or reinstall the app with the voice engine enabled.',
+    engineMissingBody: 'Recording and creating profiles works, but cloning and singing previews need the optional voice add-on (torch + XTTS, a few GB). Install it once below — it downloads the build that matches your device.',
+    engineInstall: 'Install voice engine',
+    engineInstalling: 'Installing… (this can take several minutes)',
+    engineInstalled: '✓ Voice engine installed. If previews don\'t work yet, restart the app.',
+    engineInstallFailed: 'Install failed — see the log above.',
   },
   wizard: {
     title: 'Guided voice setup',

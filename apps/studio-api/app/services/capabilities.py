@@ -33,6 +33,9 @@ def detect_capabilities() -> dict:
 
 @lru_cache(maxsize=1)
 def voice_clone_available() -> bool:
+    # honour the same kill-switch the engine selection uses (tests set this)
+    if os.environ.get("MITY_DISABLE_CLONE_ENGINE"):
+        return False
     try:
         return all(importlib.util.find_spec(m) is not None
                    for m in ("torch", "TTS"))

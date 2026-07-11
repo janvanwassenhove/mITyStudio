@@ -297,7 +297,11 @@ export default {
     showRecordings: 'toon de opnames in deze stem',
     recordingsUnavailable: '{n} bronopname(s) niet beschikbaar',
     engineMissingTitle: 'AI-stemengine niet geïnstalleerd',
-    engineMissingBody: 'Opnemen en profielen aanmaken werkt, maar klonen en zangvoorbeelden vereisen de optionele stem-add-on. Die wordt bij het eerste gebruik gedownload, of installeer de app opnieuw met de stemengine ingeschakeld.',
+    engineMissingBody: 'Opnemen en profielen aanmaken werkt, maar klonen en zangvoorbeelden vereisen de optionele stem-add-on (torch + XTTS, enkele GB). Installeer die hieronder één keer — de build die bij je apparaat past wordt gedownload.',
+    engineInstall: 'Stemengine installeren',
+    engineInstalling: 'Bezig met installeren… (kan enkele minuten duren)',
+    engineInstalled: '✓ Stemengine geïnstalleerd. Werken de voorbeelden nog niet, herstart dan de app.',
+    engineInstallFailed: 'Installatie mislukt — zie het logboek hierboven.',
   },
   wizard: {
     title: 'Begeleide steminstallatie',

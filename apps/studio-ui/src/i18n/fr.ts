@@ -297,7 +297,11 @@ export default {
     showRecordings: 'afficher les enregistrements de cette voix',
     recordingsUnavailable: '{n} enregistrement(s) source indisponible(s)',
     engineMissingTitle: 'Moteur vocal IA non installé',
-    engineMissingBody: "L'enregistrement et la création de profils fonctionnent, mais le clonage et les aperçus chantés nécessitent le module vocal optionnel. Il se télécharge à la première utilisation, ou réinstallez l'application avec le moteur vocal activé.",
+    engineMissingBody: "L'enregistrement et la création de profils fonctionnent, mais le clonage et les aperçus chantés nécessitent le module vocal optionnel (torch + XTTS, quelques Go). Installez-le une fois ci-dessous — la version adaptée à votre appareil sera téléchargée.",
+    engineInstall: 'Installer le moteur vocal',
+    engineInstalling: 'Installation… (cela peut prendre plusieurs minutes)',
+    engineInstalled: '✓ Moteur vocal installé. Si les aperçus ne marchent pas encore, redémarrez l\'application.',
+    engineInstallFailed: 'Échec de l\'installation — voir le journal ci-dessus.',
   },
   wizard: {
     title: 'Configuration vocale guidée',

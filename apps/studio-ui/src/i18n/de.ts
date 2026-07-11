@@ -297,7 +297,11 @@ export default {
     showRecordings: 'Aufnahmen dieser Stimme anzeigen',
     recordingsUnavailable: '{n} Quellaufnahme(n) nicht verfügbar',
     engineMissingTitle: 'KI-Stimm-Engine nicht installiert',
-    engineMissingBody: 'Aufnehmen und Profile erstellen funktioniert, aber Klonen und Gesangsvorschauen benötigen das optionale Stimm-Add-on. Es wird beim ersten Gebrauch heruntergeladen, oder installiere die App mit aktivierter Stimm-Engine neu.',
+    engineMissingBody: 'Aufnehmen und Profile erstellen funktioniert, aber Klonen und Gesangsvorschauen benötigen das optionale Stimm-Add-on (torch + XTTS, einige GB). Installiere es unten einmalig — die zu deinem Gerät passende Version wird heruntergeladen.',
+    engineInstall: 'Stimm-Engine installieren',
+    engineInstalling: 'Wird installiert… (kann einige Minuten dauern)',
+    engineInstalled: '✓ Stimm-Engine installiert. Falls Vorschauen noch nicht gehen, starte die App neu.',
+    engineInstallFailed: 'Installation fehlgeschlagen — siehe Protokoll oben.',
   },
   wizard: {
     title: 'Geführte Stimmeinrichtung',

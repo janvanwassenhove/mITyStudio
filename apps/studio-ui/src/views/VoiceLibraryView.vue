@@ -24,6 +24,49 @@ async function loadHealth() {
   } catch { /* keep optimistic; the test call will surface any real error */ }
 }
 
+// --- on-demand voice-engine install (installs torch + XTTS into the backend
+//     venv, matched to the GPU) --------------------------------------------
+interface EngineStatus {
+  installed: boolean; installing: boolean; returncode: number | null; log: string[]
+}
+const engineInstalling = ref(false)
+const engineLog = ref<string[]>([])
+const engineMsg = ref('')
+let engineTimer: ReturnType<typeof setInterval> | null = null
+
+async function pollEngine() {
+  try {
+    const s = await api.get<EngineStatus>('/voice/engine/status?log_lines=80')
+    engineLog.value = s.log
+    engineInstalling.value = s.installing
+    if (!s.installing && engineTimer) {
+      clearInterval(engineTimer); engineTimer = null
+      if (s.installed) {
+        cloneAvailable.value = true
+        engineMsg.value = t('voices.engineInstalled')
+      } else if (s.returncode) {
+        engineMsg.value = t('voices.engineInstallFailed')
+      }
+    }
+  } catch { /* backend busy during heavy install — keep polling */ }
+}
+
+async function installEngine() {
+  engineMsg.value = ''
+  try {
+    const r = await api.post<{ started: boolean; reason?: string }>('/voice/engine/install')
+    if (r.started || r.reason === 'already_installing') {
+      engineInstalling.value = true
+      if (!engineTimer) engineTimer = setInterval(pollEngine, 3000)
+      void pollEngine()
+    } else if (r.reason === 'already_installed') {
+      cloneAvailable.value = true
+    }
+  } catch (e) {
+    engineMsg.value = String(e)
+  }
+}
+
 // Per-profile expansion: show which recordings belong to each voice.
 const expandedProfiles = ref<Set<string>>(new Set())
 function toggleProfile(id: string) {
@@ -259,7 +302,10 @@ onMounted(() => {
   void loadRvcStatus()
   rvcTimer = setInterval(loadRvcStatus, 30000)
 })
-onUnmounted(() => { if (rvcTimer) clearInterval(rvcTimer) })
+onUnmounted(() => {
+  if (rvcTimer) clearInterval(rvcTimer)
+  if (engineTimer) clearInterval(engineTimer)
+})
 
 async function testVoice(p: VoiceProfile) {
   testingId.value = p.id
@@ -329,6 +375,14 @@ onMounted(load)
       <div v-if="!cloneAvailable" class="engine-note">
         <strong>{{ t('voices.engineMissingTitle') }}</strong>
         <span class="dim small">{{ t('voices.engineMissingBody') }}</span>
+        <div class="engine-actions">
+          <button class="primary small-btn" :disabled="engineInstalling" @click="installEngine">
+            <Download class="icon" :size="12" />
+            {{ engineInstalling ? t('voices.engineInstalling') : t('voices.engineInstall') }}
+          </button>
+          <span v-if="engineMsg" class="dim small">{{ engineMsg }}</span>
+        </div>
+        <pre v-if="engineInstalling && engineLog.length" class="engine-log">{{ engineLog.join('\n') }}</pre>
       </div>
       <div class="create-row">
         <button class="primary" @click="showWizard = true"
@@ -437,8 +491,10 @@ h3 { margin: 0 0 8px; }
 .expander:hover { color: var(--text); }
 .profile-recordings { margin: 8px 0 2px; padding: 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); display: flex; flex-direction: column; gap: 8px; }
 .pr-item { display: flex; flex-direction: column; gap: 3px; }
-.engine-note { border: 1px solid var(--warn); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 3px; }
+.engine-note { border: 1px solid var(--warn); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .engine-note strong { color: var(--warn); font-size: 12px; }
+.engine-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.engine-log { font-size: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 160px; overflow: auto; white-space: pre-wrap; margin: 2px 0 0; }
 .create-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .log-row { margin-bottom: 8px; }
 .train-log { font-size: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 180px; overflow: auto; white-space: pre-wrap; margin: 6px 0 0; }

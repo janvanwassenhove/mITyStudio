@@ -84,6 +84,21 @@ def wizard_exercises(language: str = "en") -> list[dict]:
     return [{**e, "guide": guide_for(e["id"], language)} for e in EXERCISES]
 
 
+@router.post("/engine/install")
+def voice_engine_install() -> dict:
+    """Install the optional neural voice stack (torch + XTTS) into the running
+    venv, matched to the detected device. Runs in the background; poll
+    /voice/engine/status for progress."""
+    from ..services.voice_engine_install import start_install
+    return start_install()
+
+
+@router.get("/engine/status")
+def voice_engine_status(log_lines: int = 60) -> dict:
+    from ..services.voice_engine_install import install_status
+    return install_status(log_lines)
+
+
 @router.get("/wizard/guide/{exercise_id}")
 def wizard_guide(exercise_id: str) -> FileResponse:
     """Synthesized guide clip the user hears before attempting a take."""
