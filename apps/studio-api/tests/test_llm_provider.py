@@ -290,8 +290,11 @@ def test_composition_aware_context(client, workspace):
         "name": "Me", "source_recording_ids": [rec["id"]],
         "consent_confirmed": True})
 
+    from app.services import project_repo
     from app.services.operation_planner import _asset_context
-    ctx = _asset_context()
+    p = make_project(client)
+    project = project_repo.load_project(p["id"])
+    ctx = _asset_context("add a dreamy pad", project)
     if fonts:
         assert ctx["instruments"]
         inst = ctx["instruments"][0]
@@ -301,6 +304,8 @@ def test_composition_aware_context(client, workspace):
     assert s["bpm"] == 100.0
     assert s["key"] == "A minor"
     assert ctx["voice_profiles"][0]["high_fidelity_model_trained"] is False
+    # the model can reason about the library beyond the retrieved slice
+    assert ctx["library_summary"]["total_samples"] >= 1
 
 
 def test_assign_soundfont_with_bank(client, workspace):

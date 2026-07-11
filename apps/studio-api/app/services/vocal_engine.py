@@ -31,7 +31,8 @@ log = logging.getLogger(__name__)
 #   3 → sustain looping (no slow-motion vowels), delivery styles
 #       (sing/soft/powerful/rap), breaths between phrases, section-mismatch
 #       fallback, backing-vocal harmonies
-VOCAL_ENGINE_VERSION = "3"
+VOCAL_ENGINE_VERSION = "4"   # 4: forced-alignment syllables, consonant lead,
+                             #    genre delivery profiles, RVC autotune
 
 
 def vocal_fingerprint(project: SongProject, track: Track) -> str:
@@ -581,7 +582,8 @@ def _mix_recorded_takes(project: SongProject, track: Track,
                 tin = tdir / f"_take_in_{clip.id[:8]}.wav"
                 tout = tdir / f"_take_out_{clip.id[:8]}.wav"
                 write_wav(tin, tmp[s0:s1], SAMPLE_RATE)
-                warns = convert_stem(tin, tout, profile)
+                # user's own singing: keep their natural pitch (no autotune)
+                warns = convert_stem(tin, tout, profile, autotune=False)
                 if not warns and tout.exists():
                     from .audio_io import read_audio, resample_linear
                     conv, crate = read_audio(tout)

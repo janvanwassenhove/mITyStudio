@@ -113,9 +113,15 @@ def training_status(profile) -> dict:
     }
 
 
-def convert_stem(in_wav: Path, out_wav: Path, profile) -> list[str]:
+def convert_stem(in_wav: Path, out_wav: Path, profile,
+                 autotune: bool = True) -> list[str]:
     """Convert a vocal stem to the profile's trained voice. Returns warnings
-    (empty on success). The input is left untouched on failure."""
+    (empty on success). The input is left untouched on failure.
+
+    autotune: RVC's f0 tracking adds pitch noise (~2× the source's cents
+    error, measured). Our melodies are semitone-exact, so snapping RVC's f0
+    toward the nearest semitone recovers pitch fidelity for singing. Disable
+    for spoken-word/rap material where natural pitch must survive."""
     weights, index = find_model_files(profile)
     if weights is None:
         return [f"RVC model for {profile.name!r} not trained yet — "
@@ -130,6 +136,8 @@ def convert_stem(in_wav: Path, out_wav: Path, profile) -> list[str]:
            "--index_rate", "0.66",
            "--protect", "0.33",
            "--export_format", "WAV"]
+    if autotune:
+        cmd += ["--f0_autotune", "True", "--f0_autotune_strength", "0.8"]
     try:
         proc = subprocess.run(cmd, cwd=str(_applio_dir()),
                               capture_output=True, text=True, timeout=1800)

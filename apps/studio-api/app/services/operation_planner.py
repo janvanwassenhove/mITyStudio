@@ -18,49 +18,22 @@ log = logging.getLogger(__name__)
 _OP_TYPES = list(OperationType.__args__)  # type: ignore[attr-defined]
 
 
-def _asset_context() -> dict:
+def _asset_context(message: str, project: SongProject) -> dict:
     """Available assets the LLM may reference. It must not invent others.
-    Composition-aware: real instrument presets (bank/program), analysed
-    sample metadata (bpm/key/type), voice readiness."""
-    from . import sample_analysis, voice_profiles
+    Retrieval-based (deterministic RAG over the asset registry): the
+    instruments/samples listed are the ones RELEVANT to this request and
+    project (keyword + bpm/key scoring), plus a library summary so the model
+    knows the full inventory's shape beyond the retrieved slice."""
+    from . import asset_retrieval, voice_profiles
     from .rvc_convert import rvc_model_ready
-    from .sf2_parser import instrument_catalog
-
-    # instruments: a curated slice of the categorized preset catalog
-    instruments: list[dict] = []
-    for cat in instrument_catalog():
-        for p in cat["presets"][:8]:
-            instruments.append({"category": cat["category"],
-                                "preset": p["label"],
-                                "soundfont_asset_id": p["asset_id"],
-                                "bank": p["bank"], "program": p["program"]})
-
-    # samples: analysed ones first, with the data that matters for fit
-    samples: list[dict] = []
-    analysed_first = sorted(
-        asset_repo.list_assets("sample", include_missing=False),
-        key=lambda a: a.analysis_status != "analysed")
-    for a in analysed_first[:80]:
-        entry: dict = {"id": a.id, "filename": a.filename, "tags": a.tags[:4]}
-        analysis = sample_analysis.get_analysis(a.id) or {}
-        for k_src, k_dst in (("estimated_bpm", "bpm"), ("estimated_key", "key"),
-                             ("sound_type_guess", "type"),
-                             ("loopability_estimate", "loopable"),
-                             ("has_vocals", "vocals"),
-                             ("is_acapella", "acapella")):
-            if analysis.get(k_src) is not None:
-                entry[k_dst] = analysis[k_src]
-        vibes = analysis.get("vibe_tags") or []
-        if vibes:
-            entry["tags"] = list(dict.fromkeys([*entry["tags"], *vibes]))[:8]
-        samples.append(entry)
 
     def brief(assets, limit=40):
         return [{"id": a.id, "filename": a.filename} for a in assets[:limit]]
 
     return {
-        "instruments": instruments,
-        "samples": samples,
+        "library_summary": asset_retrieval.summary(),
+        "instruments": asset_retrieval.retrieve_instruments(message, project),
+        "samples": asset_retrieval.retrieve_samples(message, project),
         "scores": brief(asset_repo.list_assets("score", include_missing=False)),
         "voice_profiles": [
             {"id": p.id, "name": p.name,
@@ -73,8 +46,9 @@ _LANG_NAMES = {"en": "English", "nl": "Dutch (Nederlands)",
                "fr": "French (Français)", "de": "German (Deutsch)"}
 
 
-def build_system_prompt(project: SongProject, language: str = "en") -> str:
-    ctx = _asset_context()
+def build_system_prompt(project: SongProject, language: str = "en",
+                        message: str = "") -> str:
+    ctx = _asset_context(message, project)
     lang_name = _LANG_NAMES.get(language, "English")
     return f"""You are the song-planning engine of mITyStudio, a local music studio.
 Write the "reply" field in {lang_name} — unless the user writes in a
@@ -140,6 +114,10 @@ CURRENT PROJECT:
              "lyrics_lines": len(project.lyrics.lines)}, indent=1)}
 
 AVAILABLE ASSETS (the ONLY assets you may reference):
+library_summary describes the user's FULL library; the instruments/samples
+lists below it are the subset retrieved as most relevant to this request —
+already filtered for bpm/key fit. If nothing listed fits, use generate_*
+instead; never invent ids.
 {json.dumps(ctx, indent=1)}
 """
 
@@ -150,7 +128,7 @@ def plan(project: SongProject, message: str,
     """Returns (reply, valid_operations, validation_warnings, llm_usage)."""
     settings = load_settings()
     provider = get_provider(settings)
-    system_prompt = build_system_prompt(project, language)
+    system_prompt = build_system_prompt(project, language, message)
     try:
         raw = provider.plan(system_prompt, message)
     except LlmProviderError as e:

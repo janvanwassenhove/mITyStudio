@@ -133,9 +133,10 @@ def _lines_with_notes(project: SongProject, track: Track):
 
 
 def _tts_line(text: str, speaker_wavs: list[Path],
-              language: str) -> tuple[np.ndarray, int]:
+              language: str) -> tuple[np.ndarray, int, Path]:
     """Cloned speech for one line, cached on disk. Multiple reference
-    recordings improve the clone's fidelity."""
+    recordings improve the clone's fidelity. Returns (audio, rate, cache
+    path) — the path also keys the forced-alignment cache."""
     cfg = get_config()
     cache_dir = cfg.analysis_cache_dir / "tts"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -145,7 +146,7 @@ def _tts_line(text: str, speaker_wavs: list[Path],
     cached = cache_dir / f"{key}.wav"
     if cached.exists():
         data, rate = read_audio(cached)
-        return data[:, 0], rate
+        return data[:, 0], rate, cached
     tts = _get_tts()
     wav = tts.tts(text=text,
                   speaker_wav=[str(p) for p in speaker_wavs],
@@ -153,7 +154,7 @@ def _tts_line(text: str, speaker_wavs: list[Path],
     audio = np.asarray(wav, dtype=np.float32)
     rate = 24000  # XTTS output rate
     write_wav(cached, audio[:, None], rate)
-    return audio, rate
+    return audio, rate, cached
 
 
 def _frame_f0(audio: np.ndarray, rate: int, frame: int = 1024,
@@ -297,24 +298,73 @@ def _map_syllable_frames(a: int, b: int, span: int, rng) -> np.ndarray:
                            np.arange(b - coda, b)]).astype(np.int64)
 
 
-# vocal delivery styles: vibrato depth, breathiness (aperiodicity boost),
-# gain, portamento overshoot — selected via Track.vocal_style
+# vocal delivery profiles: vibrato depth+rate, breathiness (aperiodicity
+# boost), gain, portamento overshoot, timing feel (seconds; + = laid back,
+# - = pushing ahead). User-facing styles (sing/soft/powerful/rap) come from
+# Track.vocal_style; the genre profiles below are auto-selected from the
+# project's style when the track uses the default "sing".
 _STYLES = {
-    "sing": {"vib": 0.018, "breath": 0.0, "gain": 1.0, "overshoot": 0.06},
-    "soft": {"vib": 0.010, "breath": 0.22, "gain": 0.85, "overshoot": 0.04},
-    "powerful": {"vib": 0.028, "breath": 0.0, "gain": 1.12, "overshoot": 0.09},
+    "sing":     {"vib": 0.018, "vib_rate": 5.3, "breath": 0.0,  "gain": 1.0,
+                 "overshoot": 0.06, "feel": 0.0},
+    "soft":     {"vib": 0.010, "vib_rate": 5.0, "breath": 0.22, "gain": 0.85,
+                 "overshoot": 0.04, "feel": 0.012},
+    "powerful": {"vib": 0.028, "vib_rate": 5.6, "breath": 0.0,  "gain": 1.12,
+                 "overshoot": 0.09, "feel": -0.008},
+    "ballad":   {"vib": 0.024, "vib_rate": 5.0, "breath": 0.14, "gain": 0.95,
+                 "overshoot": 0.05, "feel": 0.02},
+    "rock":     {"vib": 0.022, "vib_rate": 5.8, "breath": 0.04, "gain": 1.10,
+                 "overshoot": 0.10, "feel": -0.010},
+    "jazz":     {"vib": 0.016, "vib_rate": 5.0, "breath": 0.10, "gain": 0.92,
+                 "overshoot": 0.03, "feel": 0.025},
+    "edm":      {"vib": 0.008, "vib_rate": 5.5, "breath": 0.06, "gain": 1.05,
+                 "overshoot": 0.03, "feel": 0.0},
+    "country":  {"vib": 0.020, "vib_rate": 5.4, "breath": 0.08, "gain": 1.0,
+                 "overshoot": 0.12, "feel": 0.008},
 }
+
+# genre keyword → delivery profile (first match wins, checked in order)
+_GENRE_STYLE = [
+    (("ballad", "acoustic", "folk", "singer-songwriter", "lullaby"), "ballad"),
+    (("punk", "metal", "hard rock", "grunge", "rock"), "rock"),
+    (("jazz", "blues", "soul", "swing", "bossa"), "jazz"),
+    (("edm", "house", "techno", "trance", "dance", "electro", "dubstep"), "edm"),
+    (("country", "americana", "bluegrass"), "country"),
+    (("r&b", "rnb", "neo-soul", "lofi", "chill", "ambient"), "soft"),
+    (("gospel", "anthem", "power", "epic"), "powerful"),
+]
+
+
+def resolve_delivery(track_style: str, project_style: str | None) -> str:
+    """The delivery profile for a track: explicit styles win; the default
+    'sing' is refined by the project's genre so a ballad breathes and a rock
+    song pushes without the user configuring anything."""
+    if track_style and track_style not in ("sing", "rap"):
+        return track_style if track_style in _STYLES else "sing"
+    if track_style == "rap":
+        return "sing"   # rap keeps natural pitch; delivery params barely used
+    genre = (project_style or "").lower()
+    for keywords, style in _GENRE_STYLE:
+        if any(k in genre for k in keywords):
+            return style
+    return "sing"
 
 
 def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
                      line_dur: float, line_start: float,
-                     rap: bool = False, style: str = "sing") -> np.ndarray:
+                     rap: bool = False, style: str = "sing",
+                     layout: dict | None = None) -> np.ndarray:
     """WORLD-vocoder singing resynthesis (the speech-to-singing technique):
     the whole line is decomposed into pitch / spectral envelope /
     aperiodicity, time-warped so each syllable spans exactly its note, and
     resynthesized with one CONTINUOUS musical pitch curve — portamento
     between notes, delayed vibrato, slight overshoot, phrase-end fall,
     human micro-drift. Formants (the voice's identity) are untouched.
+
+    `layout` (from vocal_align.align_syllables, computed on the SAME trimmed
+    audio) provides phoneme-accurate syllable cuts + vowel onsets; without it
+    the energy-valley heuristic is used. With vowel onsets, each syllable's
+    consonants are placed AHEAD of the note so the vowel lands on the beat —
+    how real singers phrase.
     """
     import pyworld
 
@@ -333,11 +383,23 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
     med_f0 = float(np.median(f0_in[f0_in > 0])) if np.any(f0_in > 0) else 180.0
 
     syllables = [nd.get("syl") or "la" for nd in line_notes]
-    cuts = _syllable_cuts(spoken, rate, syllables)
+    vowel_at: list[int] | None = None
+    if layout and len(layout.get("cuts", [])) == len(line_notes) + 1:
+        cuts = [min(int(c), len(spoken)) for c in layout["cuts"]]
+        vowel_at = [int(v) for v in layout["vowel_at"]]
+    else:
+        cuts = _syllable_cuts(spoken, rate, syllables)
     # input frame boundary per syllable
     in_bounds = [min(int(c / rate * 1000 / fp_ms), n_in - 1) for c in cuts]
     if len(in_bounds) - 1 != len(line_notes):
         in_bounds = list(np.linspace(0, n_in - 1, len(line_notes) + 1).astype(int))
+        vowel_at = None
+    # vowel onset per syllable in input frames (consonant lead-in anchor)
+    vowel_f = None
+    if vowel_at is not None:
+        vowel_f = [min(max(int(v / rate * 1000 / fp_ms), in_bounds[i]),
+                       max(in_bounds[i + 1] - 1, in_bounds[i]))
+                   for i, v in enumerate(vowel_at)]
 
     fp_s = fp_ms / 1000.0
     n_out = max(int(line_dur / fp_s), 2)
@@ -349,17 +411,27 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
     drift = np.cumsum(rng.standard_normal(n_out)) * 0.0015
     drift -= np.linspace(drift[0], drift[-1], n_out)  # zero-mean wander
 
+    feel_frames = int(st.get("feel", 0.0) / fp_s)
     prev_freq: float | None = None
     for i, nd in enumerate(line_notes):
-        t0 = int((nd["start"] - line_start) / fp_s)
-        t1 = int((nd["end"] - line_start) / fp_s)
+        t0 = int((nd["start"] - line_start) / fp_s) + feel_frames
+        t1 = int((nd["end"] - line_start) / fp_s) + feel_frames
         t0 = max(min(t0, n_out - 1), 0)
         t1 = max(min(t1, n_out), t0 + 1)
         span = t1 - t0
-        # time-warp: onset/coda natural, vowel core looped on sustains
         a, b = in_bounds[i], max(in_bounds[i + 1], in_bounds[i] + 1)
+        # with a known vowel onset, the consonants LEAD the beat at natural
+        # speech rate and the vowel lands exactly on the note start
+        if vowel_f is not None and vowel_f[i] > a and t0 > 0:
+            lead = min(vowel_f[i] - a, int(0.12 / fp_s), t0)
+            if lead > 0:
+                lf = np.linspace(a, vowel_f[i] - 1, lead).astype(np.int64)
+                frame_map[t0 - lead:t0] = np.clip(lf, 0, n_in - 1)
+                audible[t0 - lead:t0] = True
+            a = vowel_f[i]
+        # time-warp: onset/coda natural, vowel core looped on sustains
         frame_map[t0:t1] = np.clip(
-            _map_syllable_frames(a, b, span, rng), 0, n_in - 1)
+            _map_syllable_frames(a, max(b, a + 1), span, rng), 0, n_in - 1)
         audible[t0:t1] = True
 
         target = nd["freq"]
@@ -377,7 +449,8 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
         note_dur = span * fp_s
         if note_dur > 0.3:
             vib_on = np.clip((tt - 0.4 * note_dur) / (0.25 * note_dur), 0, 1)
-            curve *= 1 + st["vib"] * vib_on * np.sin(2 * np.pi * 5.3 * tt)
+            curve *= 1 + st["vib"] * vib_on * np.sin(
+                2 * np.pi * st.get("vib_rate", 5.3) * tt)
         if is_last and span > 8:
             tail = max(int(span * 0.25), 2)
             curve[-tail:] *= np.linspace(1.0, 0.975, tail)  # phrase-end fall
@@ -440,12 +513,13 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
 
 def _sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
                line_dur: float, line_start: float,
-               rap: bool = False, style: str = "sing") -> np.ndarray:
+               rap: bool = False, style: str = "sing",
+               layout: dict | None = None) -> np.ndarray:
     """Sing one spoken line onto its notes. WORLD resynthesis when available
     (smooth, human), granular fallback otherwise."""
     try:
         return _world_sing_line(spoken, rate, line_notes, line_dur,
-                                line_start, rap, style)
+                                line_start, rap, style, layout)
     except Exception as e:  # noqa: BLE001
         log.warning("WORLD resynthesis failed (%s) — granular fallback", e)
         return _granular_sing_line(spoken, rate, line_notes, line_dur,
@@ -545,21 +619,43 @@ class CloneSingingEngine(SingingVoiceEngine):
         total = max(int(project.duration_seconds() * SAMPLE_RATE), SAMPLE_RATE)
         style = getattr(track, "vocal_style", "sing") or "sing"
         rap = style == "rap"
+        delivery = resolve_delivery(style, project.style)
+        if delivery != style and not rap:
+            result.render_log.append(
+                f"delivery profile {delivery!r} (from genre {project.style!r})")
 
         # sing each line, keep (timeline start, audio) — placed onto the
         # timeline only AFTER the (optional) RVC stage
         segments: list[tuple[int, np.ndarray]] = []
+        aligned_lines = 0
         prev_end = -10.0
         for text, line_notes in pairs:
             try:
-                spoken, rate = _tts_line(text, speakers, language)
+                spoken, rate, tts_path = _tts_line(text, speakers, language)
             except Exception as e:  # noqa: BLE001
                 result.warnings.append(f"line {text[:30]!r}: TTS failed ({e})")
                 continue
+            # phoneme-accurate syllable layout (forced alignment) — computed
+            # on the trimmed audio, exactly what _world_sing_line warps
+            spoken = _trim_silence(spoken, rate)
+            layout = None
+            if not rap and len(spoken) > 512:
+                syls = [nd.get("syl") or "la" for nd in line_notes]
+                try:
+                    from .vocal_align import align_syllables
+                    layout = align_syllables(
+                        spoken, rate, text, syls,
+                        cache_path=tts_path.with_name(
+                            f"{tts_path.stem}.align{len(syls)}.json"))
+                except Exception as e:  # noqa: BLE001
+                    log.debug("alignment skipped for %r: %s", text[:30], e)
+                if layout:
+                    aligned_lines += 1
             line_start = line_notes[0]["start"]
             line_dur = max(line_notes[-1]["end"] - line_start, 0.3)
             sung_line = _sing_line(spoken, rate, line_notes, line_dur,
-                                   line_start, rap=rap, style=style)
+                                   line_start, rap=rap, style=delivery,
+                                   layout=layout)
             i0 = int(line_start * SAMPLE_RATE)
             seglen = min(len(sung_line), total - i0)
             if seglen > 0:
@@ -583,7 +679,8 @@ class CloneSingingEngine(SingingVoiceEngine):
         from .rvc_convert import rvc_model_ready
         placed = segments
         if sung and rvc_model_ready(self.profile):
-            converted = self._rvc_convert_segments(segments, result)
+            converted = self._rvc_convert_segments(segments, result,
+                                                   autotune=not rap)
             if converted is not None:
                 placed = converted
                 result.render_log.append(
@@ -601,7 +698,8 @@ class CloneSingingEngine(SingingVoiceEngine):
         result.stem_path = out_path
         result.render_log.append(
             f"clone-singing engine (XTTS, voice {self.profile.name!r}) sang "
-            f"{sung}/{len(pairs)} lyric lines")
+            f"{sung}/{len(pairs)} lyric lines "
+            f"({aligned_lines} phoneme-aligned)")
         if sung == 0:
             result.warnings.append(
                 "no lines could be sung — check lyrics + melody exist "
@@ -610,7 +708,8 @@ class CloneSingingEngine(SingingVoiceEngine):
         return result
 
     def _rvc_convert_segments(self, segments: list[tuple[int, np.ndarray]],
-                              result: VocalRenderResult):
+                              result: VocalRenderResult,
+                              autotune: bool = True):
         """RVC-convert the dense concatenation of sung lines in ONE pass, then
         slice the converted audio back per line. Returns [(start, audio)] or
         None on failure (caller keeps the un-converted cloned singing).
@@ -638,7 +737,7 @@ class CloneSingingEngine(SingingVoiceEngine):
         tin = tmp / f"_rvc_in_{self.profile.id[:8]}.wav"
         tout = tmp / f"_rvc_out_{self.profile.id[:8]}.wav"
         write_wav(tin, np.repeat(dense[:, None], 2, axis=1), SAMPLE_RATE)
-        warnings = convert_stem(tin, tout, self.profile)
+        warnings = convert_stem(tin, tout, self.profile, autotune=autotune)
         if warnings or not tout.exists():
             result.warnings.extend(warnings)
             return None

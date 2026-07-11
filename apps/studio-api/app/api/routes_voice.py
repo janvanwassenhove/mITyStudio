@@ -206,7 +206,7 @@ def test_voice(profile_id: str, req: VoiceTestRequest) -> FileResponse:
     if not refs:
         raise HTTPException(422, "profile has no usable source recordings")
     try:
-        audio, rate = _tts_line(req.text.strip()[:300], refs, "en")
+        audio, rate, _ = _tts_line(req.text.strip()[:300], refs, "en")
     except Exception as e:  # noqa: BLE001
         raise HTTPException(500, f"synthesis failed: {e}")
 
@@ -219,7 +219,8 @@ def test_voice(profile_id: str, req: VoiceTestRequest) -> FileResponse:
     rvc_used = False
     if rvc_model_ready(profile):
         rvc_out = out.with_name(out.stem + "_rvc.wav")
-        if not convert_stem(out, rvc_out, profile) and rvc_out.exists():
+        # spoken test sentence — keep natural speech pitch
+        if not convert_stem(out, rvc_out, profile, autotune=False) and rvc_out.exists():
             out = rvc_out
             rvc_used = True
     return FileResponse(out, media_type="audio/wav",
