@@ -27,6 +27,26 @@ def test_quick_add_instrument_generates_part(client):
     assert sum(len(c["note_events"]) for c in drums["clips"]) > 20
 
 
+def test_quick_add_duplicate_type_gets_own_part(client):
+    """Adding a second track of the same type must generate a part on the NEW
+    track, not silently target the pre-existing same-named one (the
+    "Write the part for me does nothing" bug)."""
+    p = make_project(client, title="Dup")
+    client.post(f"/api/projects/{p['id']}/tracks/quick-add",
+                json={"track_type": "drums"})
+    r = client.post(f"/api/projects/{p['id']}/tracks/quick-add",
+                    json={"track_type": "drums"}).json()
+    assert r["errors"] == []
+    drum_tracks = [t for t in r["project"]["tracks"]
+                   if t["track_type"] == "drums"]
+    assert len(drum_tracks) == 2
+    # the second track has a distinct name and its own generated clips
+    names = {t["name"] for t in drum_tracks}
+    assert len(names) == 2
+    assert all(sum(len(c["note_events"]) for c in t["clips"]) > 0
+               for t in drum_tracks)
+
+
 def test_quick_add_empty_track(client):
     p = make_project(client)
     r = client.post(f"/api/projects/{p['id']}/tracks/quick-add",

@@ -99,6 +99,16 @@ def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
     name = req.name or {"lead_vocal": "Lead Vocal",
                         "backing_vocal": "Backing Vocal"}.get(
         req.track_type, req.track_type.replace("_", " ").title())
+    # Ensure a unique track name. add_track and the generate op both reference
+    # the track by name; if a same-named track already exists (e.g. a second
+    # "Drums"), the generate op would resolve to the OLD track and the new one
+    # would stay empty — the "Write the part for me" no-op bug.
+    existing = {t.name.lower() for t in project.tracks}
+    if name.lower() in existing:
+        base, n = name, 2
+        while f"{base} {n}".lower() in existing:
+            n += 1
+        name = f"{base} {n}"
 
     ops: list[ChatOperation] = []
     # an empty project gets a starter structure so there is something to play
