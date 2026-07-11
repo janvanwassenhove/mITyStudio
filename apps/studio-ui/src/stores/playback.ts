@@ -76,6 +76,84 @@ export const usePlaybackStore = defineStore('playback', () => {
   let startedAtSongTime = 0
   let raf = 0
 
+  // Persistent per-track gain/pan chains + master gain. Sources plug into
+  // these, so mixer changes (volume/pan/mute/solo/master) apply LIVE during
+  // playback instead of only on the next play.
+  let trackChains = new Map<string, { gain: GainNode; pan: StereoPannerNode }>()
+  let masterGain: GainNode | null = null
+
+  function ensureMaster(): GainNode {
+    if (!masterGain) {
+      masterGain = ctx!.createGain()
+      masterGain.connect(ctx!.destination)
+    }
+    return masterGain
+  }
+
+  function ensureChain(trackId: string) {
+    let c = trackChains.get(trackId)
+    if (!c) {
+      const gain = ctx!.createGain()
+      const pan = ctx!.createStereoPanner()
+      gain.connect(pan).connect(ensureMaster())
+      c = { gain, pan }
+      trackChains.set(trackId, c)
+    }
+    return c
+  }
+
+  /** Current mixer state, live from the project being edited (mixer faders
+   *  write there immediately), falling back to the manifest snapshot. */
+  function mixerTracks(): { id: string; volume: number; pan: number;
+                            mute: boolean; solo: boolean }[] {
+    const p = studio.project
+    if (p) return p.tracks.map((t) => ({ id: t.id, volume: t.volume,
+      pan: t.pan, mute: t.mute, solo: t.solo }))
+    return (studio.manifest?.tracks ?? []).map((t) => ({ id: t.track_id,
+      volume: t.volume, pan: t.pan, mute: t.mute, solo: t.solo }))
+  }
+
+  /** Push mixer state into the running audio graph. Smoothed by default to
+   *  avoid zipper noise while dragging faders. */
+  function applyMixer(smooth = true) {
+    if (!ctx) return
+    const tracks = mixerTracks()
+    const anySolo = tracks.some((t) => t.solo)
+    const now = ctx.currentTime
+    const T = 0.03
+    for (const [trackId, chain] of trackChains) {
+      const t = tracks.find((x) => x.id === trackId)
+      if (!t) continue
+      const target = (anySolo ? t.solo : !t.mute) ? t.volume : 0
+      if (smooth) {
+        chain.gain.gain.setTargetAtTime(target, now, T)
+        chain.pan.pan.setTargetAtTime(t.pan, now, T)
+      } else {
+        chain.gain.gain.value = target
+        chain.pan.pan.value = t.pan
+      }
+    }
+    const mv = studio.project?.mix_settings.master_volume
+      ?? studio.manifest?.mix_settings?.master_volume ?? 1
+    if (masterGain) {
+      if (smooth) masterGain.gain.setTargetAtTime(mv, now, T)
+      else masterGain.gain.value = mv
+    }
+  }
+
+  // live-follow mixer edits (Mixer panel + track-header M/S/volume all write
+  // to studio.project) while the song is playing
+  watch(
+    () => {
+      const p = studio.project
+      if (!p) return ''
+      return p.tracks.map((t) =>
+        `${t.id}:${t.volume}:${t.pan}:${t.mute}:${t.solo}`).join('|')
+        + `#${p.mix_settings.master_volume}`
+    },
+    () => { if (playing.value) applyMixer() },
+  )
+
   const duration = computed(() => studio.manifest?.duration_seconds ?? 0)
 
   function manifestStems(m: PlaybackManifest) {
@@ -148,23 +226,17 @@ export const usePlaybackStore = defineStore('playback', () => {
     await ctx.resume()
     if (buffers.size === 0 && manifestStems(m).length > 0) await loadStems()
 
-    const anySolo = m.tracks.some((t) => t.solo)
     stopSources()
+    // start EVERY buffered track; mute/solo act through the gain nodes, so
+    // toggling them mid-song is instant and stays sample-synced
     for (const [trackId, buf] of buffers) {
-      const t = m.tracks.find((x) => x.track_id === trackId)
-      if (!t) continue
-      const audible = anySolo ? t.solo : !t.mute
-      if (!audible) continue
       const src = ctx.createBufferSource()
       src.buffer = buf
-      const gain = ctx.createGain()
-      gain.gain.value = t.volume
-      const pan = ctx.createStereoPanner()
-      pan.pan.value = t.pan
-      src.connect(gain).connect(pan).connect(ctx.destination)
+      src.connect(ensureChain(trackId).gain)
       src.start(0, Math.min(playhead.value, buf.duration))
       sources.push(src)
     }
+    applyMixer(false)
     startedAtCtxTime = ctx.currentTime
     startedAtSongTime = playhead.value
     playing.value = true
@@ -197,6 +269,11 @@ export const usePlaybackStore = defineStore('playback', () => {
     stop()
     buffers = new Map()
     stemsLoaded.value = 0
+    // drop the old project's track chains so stale ids don't accumulate
+    for (const c of trackChains.values()) {
+      try { c.gain.disconnect(); c.pan.disconnect() } catch { /* detached */ }
+    }
+    trackChains = new Map()
   })
 
   return { playing, playhead, duration, stemsLoaded, preparing, renderWarnings,
