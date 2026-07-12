@@ -2,7 +2,7 @@ export default {
   common: {
     back: '← Retour', save: 'Enregistrer', saving: 'enregistrement…', search: 'Rechercher',
     stop: 'Stop', add: 'Ajouter', cancel: 'Annuler', continue: 'Continuer',
-    done: 'Terminé', clear: 'Effacer',
+    done: 'Terminé', clear: 'Effacer', delete: 'Supprimer',
   },
   rec: { go: 'Partez !', getReady: 'Préparez-vous à chanter…' },
   nav: {
@@ -53,7 +53,7 @@ export default {
       action: 'Aller au Studio' },
   },
   ctx: {
-    open: 'Ouvrir', rename: 'Renommer…', renamePrompt: 'Nouveau nom :',
+    open: 'Ouvrir', reload: 'Recharger', rename: 'Renommer…', renamePrompt: 'Nouveau nom :',
     duplicate: 'Dupliquer', delete: 'Supprimer…',
     deleteConfirm: 'Supprimer le projet « {name} » ? Les stems rendus disparaissent aussi ; vos assets restent.',
     exportBundle: 'Exporter le bundle portable',

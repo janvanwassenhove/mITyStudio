@@ -2,7 +2,7 @@ export default {
   common: {
     back: '← Zurück', save: 'Speichern', saving: 'speichern…', search: 'Suchen',
     stop: 'Stopp', add: 'Hinzufügen', cancel: 'Abbrechen', continue: 'Weiter',
-    done: 'Fertig', clear: 'Leeren',
+    done: 'Fertig', clear: 'Leeren', delete: 'Löschen',
   },
   rec: { go: 'Los!', getReady: 'Mach dich bereit zum Singen…' },
   nav: {
@@ -53,7 +53,7 @@ export default {
       action: 'Zum Studio' },
   },
   ctx: {
-    open: 'Öffnen', rename: 'Umbenennen…', renamePrompt: 'Neuer Name:',
+    open: 'Öffnen', reload: 'Neu laden', rename: 'Umbenennen…', renamePrompt: 'Neuer Name:',
     duplicate: 'Duplizieren', delete: 'Löschen…',
     deleteConfirm: 'Projekt "{name}" löschen? Gerenderte Stems verschwinden mit; deine Assets bleiben.',
     exportBundle: 'Portables Bundle exportieren',

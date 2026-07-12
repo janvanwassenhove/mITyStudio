@@ -2,7 +2,7 @@ export default {
   common: {
     back: '← Terug', save: 'Opslaan', saving: 'opslaan…', search: 'Zoeken',
     stop: 'Stop', add: 'Toevoegen', cancel: 'Annuleren', continue: 'Verder',
-    done: 'Klaar', clear: 'Wissen',
+    done: 'Klaar', clear: 'Wissen', delete: 'Verwijderen',
   },
   rec: { go: 'Start!', getReady: 'Maak je klaar om te zingen…' },
   nav: {
@@ -53,7 +53,7 @@ export default {
       action: 'Naar de Studio' },
   },
   ctx: {
-    open: 'Openen', rename: 'Hernoemen…', renamePrompt: 'Nieuwe naam:',
+    open: 'Openen', reload: 'Herladen', rename: 'Hernoemen…', renamePrompt: 'Nieuwe naam:',
     duplicate: 'Dupliceren', delete: 'Verwijderen…',
     deleteConfirm: 'Project "{name}" verwijderen? Gerenderde stems verdwijnen mee; je assets blijven staan.',
     exportBundle: 'Draagbare bundel exporteren',

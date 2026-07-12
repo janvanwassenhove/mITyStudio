@@ -2,7 +2,7 @@ export default {
   common: {
     back: '← Back', save: 'Save', saving: 'saving…', search: 'Search',
     stop: 'Stop', add: 'Add', cancel: 'Cancel', continue: 'Continue',
-    done: 'Done', clear: 'Clear',
+    done: 'Done', clear: 'Clear', delete: 'Delete',
   },
   rec: { go: 'Go!', getReady: 'Get ready to sing…' },
   nav: {
@@ -53,7 +53,7 @@ export default {
       action: 'Go to the Studio' },
   },
   ctx: {
-    open: 'Open', rename: 'Rename…', renamePrompt: 'New name:',
+    open: 'Open', reload: 'Reload', rename: 'Rename…', renamePrompt: 'New name:',
     duplicate: 'Duplicate', delete: 'Delete…',
     deleteConfirm: 'Delete project "{name}"? Rendered stems are removed too; your assets stay.',
     exportBundle: 'Export portable bundle',

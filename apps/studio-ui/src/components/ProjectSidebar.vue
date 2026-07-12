@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { PackageOpen } from 'lucide-vue-next'
 import { api } from '../api/client'
@@ -11,6 +11,13 @@ const studio = useStudioStore()
 const newTitle = ref('')
 const creating = ref(false)
 const busyMsg = ref('')
+
+// inline rename + delete confirm — Electron does NOT support window.prompt()
+// (returns null) and confirm() is unreliable, so we use in-app UI instead
+const renamingId = ref('')
+const renameDraft = ref('')
+const renameInput = ref<HTMLInputElement | null>(null)
+const confirmDeleteId = ref('')
 
 async function create() {
   if (!newTitle.value.trim()) return
@@ -28,19 +35,31 @@ const menu = ref<{ x: number; y: number; items: MenuItem[] } | null>(null)
 
 function projectMenu(e: MouseEvent, p: { id: string; title: string }) {
   e.preventDefault()
+  const isOpen = studio.project?.id === p.id
   menu.value = {
     x: e.clientX, y: e.clientY,
     items: [
-      { label: t('ctx.open'), action: () => void studio.openProject(p.id) },
-      { label: t('ctx.rename'), action: () => void renameProject(p) },
+      // "Open" is redundant when it's already the open project, so label it
+      // honestly and no-op gracefully rather than looking broken
+      { label: isOpen ? t('ctx.reload') : t('ctx.open'),
+        action: () => void studio.openProject(p.id) },
+      { label: t('ctx.rename'), action: () => startRename(p) },
       { label: t('ctx.exportBundle'), action: () => exportBundle(p) },
-      { label: t('ctx.delete'), danger: true, action: () => void deleteProject(p) },
+      { label: t('ctx.delete'), danger: true,
+        action: () => { confirmDeleteId.value = p.id } },
     ],
   }
 }
 
-async function renameProject(p: { id: string; title: string }) {
-  const title = prompt(t('ctx.renamePrompt'), p.title)?.trim()
+function startRename(p: { id: string; title: string }) {
+  renamingId.value = p.id
+  renameDraft.value = p.title
+  void nextTick(() => renameInput.value?.focus())
+}
+
+async function commitRename(p: { id: string; title: string }) {
+  const title = renameDraft.value.trim()
+  renamingId.value = ''
   if (!title || title === p.title) return
   const proj = await api.get<{ [k: string]: unknown }>(`/projects/${p.id}`)
   proj.title = title
@@ -49,10 +68,10 @@ async function renameProject(p: { id: string; title: string }) {
   if (studio.project?.id === p.id) await studio.reloadCurrent()
 }
 
-async function deleteProject(p: { id: string; title: string }) {
-  if (!confirm(t('ctx.deleteConfirm', { name: p.title }))) return
-  await api.del(`/projects/${p.id}`)
-  if (studio.project?.id === p.id) studio.project = null
+async function deleteProject(id: string) {
+  confirmDeleteId.value = ''
+  await api.del(`/projects/${id}`)
+  if (studio.project?.id === id) studio.project = null
   await studio.refreshProjects()
 }
 
@@ -103,11 +122,23 @@ async function importBundle() {
       v-for="p in studio.projects" :key="p.id"
       class="project-item" :class="{ active: studio.project?.id === p.id }"
       :title="$t('ctx.rightClickTip')"
-      @click="studio.openProject(p.id)"
+      @click="renamingId === p.id ? null : studio.openProject(p.id)"
       @contextmenu="projectMenu($event, p)"
     >
-      <div class="p-title">{{ p.title }}</div>
+      <input v-if="renamingId === p.id" ref="renameInput" v-model="renameDraft"
+             class="rename-input" @click.stop
+             @keyup.enter="($event.target as HTMLInputElement).blur()"
+             @keyup.esc="renamingId = ''"
+             @blur="commitRename(p)" />
+      <div v-else class="p-title">{{ p.title }}</div>
       <div class="dim small">{{ p.bpm }} BPM · {{ $t('sidebar.trackCount', { n: p.track_count }) }}</div>
+      <div v-if="confirmDeleteId === p.id" class="del-confirm" @click.stop>
+        <span class="dim small">{{ $t('ctx.deleteConfirm', { name: p.title }) }}</span>
+        <div class="del-btns">
+          <button class="danger-btn" @click="deleteProject(p.id)">{{ $t('common.delete') }}</button>
+          <button @click="confirmDeleteId = ''">{{ $t('common.cancel') }}</button>
+        </div>
+      </div>
     </div>
     <ContextMenu v-if="menu" :x="menu.x" :y="menu.y" :items="menu.items" @close="menu = null" />
   </div>
@@ -123,6 +154,11 @@ h3 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacin
 .empty { font-size: 12px; }
 .project-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; margin-bottom: 4px; }
 .project-item:hover { background: var(--bg-elevated); }
+.rename-input { width: 100%; font-size: 13px; padding: 3px 6px; margin-bottom: 2px; }
+.del-confirm { margin-top: 6px; padding: 6px; border: 1px solid var(--err); border-radius: 5px; display: flex; flex-direction: column; gap: 6px; }
+.del-btns { display: flex; gap: 6px; }
+.del-btns button { font-size: 11px; padding: 3px 10px; }
+.danger-btn { border-color: var(--err); color: var(--err); }
 .project-item.active { background: var(--bg-elevated); outline: 1px solid var(--accent); }
 .p-title { font-size: 13px; font-weight: 600; }
 .small { font-size: 11px; }
