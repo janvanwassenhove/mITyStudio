@@ -725,46 +725,53 @@ class CloneSingingEngine(SingingVoiceEngine):
     def _rvc_convert_segments(self, segments: list[tuple[int, np.ndarray]],
                               result: VocalRenderResult,
                               autotune: bool = True):
-        """RVC-convert the dense concatenation of sung lines in ONE pass, then
-        slice the converted audio back per line. Returns [(start, audio)] or
-        None on failure (caller keeps the un-converted cloned singing).
+        return rvc_convert_segments(segments, self.profile, result,
+                                    autotune=autotune)
 
-        Dense input is essential: RVC collapses long, mostly-silent stems to
-        silence, but converts continuous audio faithfully."""
-        from .rvc_convert import convert_stem
-        cfg = get_config()
-        gap = int(0.2 * SAMPLE_RATE)
-        parts: list[np.ndarray] = []
-        offsets: list[tuple[int, int]] = []   # (start in dense, length)
-        pos = 0
-        for _, sl in segments:
-            offsets.append((pos, len(sl)))
-            parts.append(sl)
-            parts.append(np.zeros(gap, dtype=np.float32))
-            pos += len(sl) + gap
-        dense = np.concatenate(parts).astype(np.float32)
-        pk = float(np.abs(dense).max())
-        if pk > 0.005:
-            dense = dense * (0.9 / pk)
 
-        tmp = cfg.analysis_cache_dir / "tts"
-        tmp.mkdir(parents=True, exist_ok=True)
-        tin = tmp / f"_rvc_in_{self.profile.id[:8]}.wav"
-        tout = tmp / f"_rvc_out_{self.profile.id[:8]}.wav"
-        write_wav(tin, np.repeat(dense[:, None], 2, axis=1), SAMPLE_RATE)
-        warnings = convert_stem(tin, tout, self.profile, autotune=autotune)
-        if warnings or not tout.exists():
-            result.warnings.extend(warnings)
-            return None
-        conv, rate = read_audio(tout)
-        conv = conv[:, 0]
-        if rate != SAMPLE_RATE:
-            conv = resample_linear(conv[:, None], rate, SAMPLE_RATE)[:, 0]
-        out_segs: list[tuple[int, np.ndarray]] = []
-        for (i0, _sl), (dstart, dlen) in zip(segments, offsets):
-            seg = conv[dstart:dstart + dlen]
-            if len(seg) < dlen:
-                seg = np.concatenate(
-                    [seg, np.zeros(dlen - len(seg), dtype=np.float32)])
-            out_segs.append((i0, seg.astype(np.float32)))
-        return out_segs
+def rvc_convert_segments(segments: list[tuple[int, np.ndarray]], profile,
+                         result: VocalRenderResult, autotune: bool = True):
+    """RVC-convert the dense concatenation of sung lines in ONE pass, then
+    slice the converted audio back per line. Returns [(start, audio)] or
+    None on failure (caller keeps the un-converted singing). Shared by the
+    clone (XTTS) and SVS (DiffSinger) engines.
+
+    Dense input is essential: RVC collapses long, mostly-silent stems to
+    silence, but converts continuous audio faithfully."""
+    from .rvc_convert import convert_stem
+    cfg = get_config()
+    gap = int(0.2 * SAMPLE_RATE)
+    parts: list[np.ndarray] = []
+    offsets: list[tuple[int, int]] = []   # (start in dense, length)
+    pos = 0
+    for _, sl in segments:
+        offsets.append((pos, len(sl)))
+        parts.append(sl)
+        parts.append(np.zeros(gap, dtype=np.float32))
+        pos += len(sl) + gap
+    dense = np.concatenate(parts).astype(np.float32)
+    pk = float(np.abs(dense).max())
+    if pk > 0.005:
+        dense = dense * (0.9 / pk)
+
+    tmp = cfg.analysis_cache_dir / "tts"
+    tmp.mkdir(parents=True, exist_ok=True)
+    tin = tmp / f"_rvc_in_{profile.id[:8]}.wav"
+    tout = tmp / f"_rvc_out_{profile.id[:8]}.wav"
+    write_wav(tin, np.repeat(dense[:, None], 2, axis=1), SAMPLE_RATE)
+    warnings = convert_stem(tin, tout, profile, autotune=autotune)
+    if warnings or not tout.exists():
+        result.warnings.extend(warnings)
+        return None
+    conv, rate = read_audio(tout)
+    conv = conv[:, 0]
+    if rate != SAMPLE_RATE:
+        conv = resample_linear(conv[:, None], rate, SAMPLE_RATE)[:, 0]
+    out_segs: list[tuple[int, np.ndarray]] = []
+    for (i0, _sl), (dstart, dlen) in zip(segments, offsets):
+        seg = conv[dstart:dstart + dlen]
+        if len(seg) < dlen:
+            seg = np.concatenate(
+                [seg, np.zeros(dlen - len(seg), dtype=np.float32)])
+        out_segs.append((i0, seg.astype(np.float32)))
+    return out_segs

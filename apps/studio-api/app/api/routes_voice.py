@@ -84,6 +84,25 @@ def wizard_exercises(language: str = "en") -> list[dict]:
     return [{**e, "guide": guide_for(e["id"], language)} for e in EXERCISES]
 
 
+@router.get("/svs/status")
+def svs_status() -> dict:
+    """SVS (DiffSinger) singing engine: installed voicebanks + what's
+    missing. Banks are dropped into voices/svs/<bank>/ by the user."""
+    from ..services.svs_engine import svs_status as status
+    return status()
+
+
+@router.post("/svs/install-vocoder")
+def svs_install_vocoder() -> dict:
+    """One-time download of the shared NSF-HiFiGAN vocoder (~50 MB) every
+    DiffSinger voicebank needs."""
+    from ..services.svs_engine import install_vocoder
+    try:
+        return install_vocoder()
+    except Exception as e:  # noqa: BLE001
+        raise HTTPException(502, f"vocoder download failed: {e}")
+
+
 @router.post("/engine/install")
 def voice_engine_install() -> dict:
     """Install the optional neural voice stack (torch + XTTS) into the running

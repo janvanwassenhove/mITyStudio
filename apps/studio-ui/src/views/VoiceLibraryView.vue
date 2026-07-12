@@ -67,6 +67,39 @@ async function installEngine() {
   }
 }
 
+// --- SVS (DiffSinger) singing engine: banks the user dropped in voices/svs/
+interface SvsStatus {
+  runtime_available: boolean
+  vocoder_installed: boolean
+  banks: { name: string; dir: string; phonemes: number; words: number }[]
+  bank_dirs: string[]
+  svs_dir: string
+}
+const svs = ref<SvsStatus | null>(null)
+const vocoderBusy = ref(false)
+const svsMsg = ref('')
+
+async function loadSvs() {
+  try {
+    svs.value = await api.get<SvsStatus>('/voice/svs/status')
+  } catch { /* endpoint absent on old backends */ }
+}
+
+async function installSvsVocoder() {
+  vocoderBusy.value = true
+  svsMsg.value = ''
+  try {
+    const r = await api.post<{ installed: boolean }>('/voice/svs/install-vocoder')
+    svsMsg.value = r.installed ? '✓ ' + t('voices.svsVocoderDone')
+      : t('voices.svsVocoderFailed')
+    await loadSvs()
+  } catch (e) {
+    svsMsg.value = String(e)
+  } finally {
+    vocoderBusy.value = false
+  }
+}
+
 // Per-profile expansion: show which recordings belong to each voice.
 const expandedProfiles = ref<Set<string>>(new Set())
 function toggleProfile(id: string) {
@@ -300,6 +333,7 @@ async function importVoice() {
 onMounted(() => {
   void loadHealth()
   void loadRvcStatus()
+  void loadSvs()
   rvcTimer = setInterval(loadRvcStatus, 30000)
 })
 onUnmounted(() => {
@@ -400,6 +434,32 @@ onMounted(load)
           {{ showLog ? '▾' : '▸' }} {{ t('voices.trainingLog') }}</button>
         <pre v-if="showLog" class="train-log">{{ logLines.join('\n') || t('voices.noLog') }}</pre>
       </div>
+
+      <div v-if="svs" class="svs panel-sub">
+        <div class="svs-head">
+          <strong>{{ t('voices.svsTitle') }}</strong>
+          <span v-if="svs.banks.length" class="ok small">
+            ✓ {{ t('voices.svsActive', { name: svs.banks[0].name }) }}</span>
+          <span v-else class="dim small">{{ t('voices.svsNone') }}</span>
+        </div>
+        <p class="dim small">{{ t('voices.svsBlurb') }}</p>
+        <div v-if="!svs.banks.length" class="dim small">
+          <div>1. {{ t('voices.svsStep1') }} <code>voices/svs/</code></div>
+          <div>2. {{ t('voices.svsStep2') }}
+            <button class="small-btn" :disabled="vocoderBusy || svs.vocoder_installed"
+                    @click="installSvsVocoder">
+              {{ svs.vocoder_installed ? '✓ ' + t('voices.svsVocoderOk')
+                : vocoderBusy ? '⏳' : t('voices.svsVocoderInstall') }}</button>
+          </div>
+          <div v-if="svs.bank_dirs.length && !svs.banks.length" class="warn-text">
+            {{ t('voices.svsBankNeedsVocoder', { n: svs.bank_dirs.length }) }}
+          </div>
+        </div>
+        <div v-for="b in svs.banks" :key="b.dir" class="dim small">
+          🎵 {{ b.name }} — {{ t('voices.svsBankInfo', { ph: b.phonemes, w: b.words }) }}
+        </div>
+        <div v-if="svsMsg" class="dim small">{{ svsMsg }}</div>
+      </div>
       <div v-if="showProfileForm" class="profile-form">
         <label>{{ t('voices.profileName') }} <input v-model="profileName" /></label>
         <label>{{ t('voices.performerAlias') }} <input v-model="performerAlias" /></label>
@@ -494,6 +554,11 @@ h3 { margin: 0 0 8px; }
 .engine-note { border: 1px solid var(--warn); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
 .engine-note strong { color: var(--warn); font-size: 12px; }
 .engine-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.panel-sub { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 4px; }
+.svs-head { display: flex; gap: 8px; align-items: center; }
+.svs-head strong { font-size: 12px; }
+.svs code { background: var(--bg); padding: 0 4px; border-radius: 3px; }
+.warn-text { color: var(--warn); }
 .engine-log { font-size: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 160px; overflow: auto; white-space: pre-wrap; margin: 2px 0 0; }
 .create-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .log-row { margin-bottom: 8px; }

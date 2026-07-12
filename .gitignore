@@ -37,6 +37,8 @@ voices/recordings/*
 !voices/recordings/README.md
 voices/profiles/*
 !voices/profiles/README.md
+voices/svs/*
+!voices/svs/README.md
 projects/*/
 
 # RVC training artifacts (personal voice datasets, trained models, logs) and

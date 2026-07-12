@@ -52,9 +52,16 @@ def resolve_profile(track: Track):
 
 def available_engine_tier(profile) -> int:
     """Quality tier the CURRENT backend can render this profile at:
-    3 = neural clone (XTTS installed), 2 = PSOLA on the profile recording,
-    1 = formant synthesis. Used to refuse silent downgrades of stems."""
+    4 = SVS voicebank (true singing), 3 = neural clone (XTTS),
+    2 = PSOLA on the profile recording, 1 = formant synthesis.
+    Used to refuse silent downgrades of stems."""
     import os
+    if not os.environ.get("MITY_DISABLE_SVS"):
+        from . import svs_engine
+        from .rvc_convert import rvc_model_ready
+        if svs_engine.available() and svs_engine.default_bank() is not None \
+                and (profile is None or rvc_model_ready(profile)):
+            return 4
     if profile is not None and profile.consent_confirmed \
             and profile.source_recording_ids:
         if not os.environ.get("MITY_DISABLE_CLONE_ENGINE"):
@@ -562,14 +569,26 @@ class RecordingVoiceEngine(SingingVoiceEngine):
         return result
 
 
-def get_engine(engine_name: str = "mock", profile=None) -> SingingVoiceEngine:
-    """Factory for singing engines. With a consented voice profile:
-    neural clone-singing (XTTS — real words in the cloned voice) when
-    installed, else the PSOLA recording engine. Without a profile: formant
-    synthesis."""
+def get_engine(engine_name: str = "mock", profile=None,
+               allow_svs: bool = True) -> SingingVoiceEngine:
+    """Factory for singing engines, best quality first:
+    1. SVS (DiffSinger voicebank in voices/svs/) — TRAINED to sing; the
+       user's trained RVC model supplies the timbre on top.
+    2. Neural clone-singing (XTTS speech reshaped onto notes).
+    3. PSOLA on the profile recording. 4. Formant synthesis.
+    A profile without a trained RVC model skips SVS (the bank would replace
+    the user's timbre entirely) unless no profile is set at all."""
+    import os
+    if allow_svs and not os.environ.get("MITY_DISABLE_SVS"):
+        from . import svs_engine
+        from .rvc_convert import rvc_model_ready
+        if svs_engine.available():
+            bank = svs_engine.default_bank()
+            if bank is not None and (
+                    profile is None or rvc_model_ready(profile)):
+                return svs_engine.SvsSingingEngine(bank, profile)
     if profile is not None and profile.consent_confirmed \
             and profile.source_recording_ids:
-        import os
         if not os.environ.get("MITY_DISABLE_CLONE_ENGINE"):
             from .vocal_clone import CloneSingingEngine, clone_engine_available
             if clone_engine_available():
@@ -709,7 +728,19 @@ def render_vocal_stems(project: SongProject) -> dict:
         fp = vocal_fingerprint(project, track)
         out_path = cfg.stems_dir / project.id / f"vocal_{_safe_name(track.name)}_{track.id[:8]}.wav"
         try:
-            r = engine.render(project, track, out_path)
+            try:
+                r = engine.render(project, track, out_path)
+            except Exception as e:
+                # SVS bank can't sing this material (e.g. other language) —
+                # the clone chain takes over transparently
+                from .svs_engine import SvsUnsupportedError
+                if not isinstance(e, SvsUnsupportedError):
+                    raise
+                results["render_log"].append(f"{track.name}: {e} — "
+                                             "using the clone engine")
+                engine = get_engine("mock", profile, allow_svs=False)
+                tier = min(tier, 3)
+                r = engine.render(project, track, out_path)
             _mix_recorded_takes(project, track, out_path, r, profile)
             from .render.clip_fades import apply_midi_clip_fades
             r.render_log.extend(apply_midi_clip_fades(project, track, out_path))
