@@ -69,10 +69,20 @@ def ensure_stems(project: SongProject, job: ExportJob) -> None:
             return True
         if not (cfg.root / stem.path).exists():
             return True
-        fp = (vocal_engine.vocal_fingerprint(project, track)
-              if stem_type == "vocal"
-              else track_fingerprint(project, track))
-        return stem.source_fingerprint != fp
+        if stem_type == "vocal":
+            fp = vocal_engine.vocal_fingerprint(project, track)
+            if stem.source_fingerprint == fp:
+                return False
+            # engine-tier guard: a backend without the voice stack must not
+            # treat a better backend's content-fresh stem as stale (it would
+            # overwrite sung words with fallback sounds)
+            profile = vocal_engine.resolve_profile(track)
+            if (stem.engine_tier > vocal_engine.available_engine_tier(profile)
+                    and stem.content_fingerprint
+                    == vocal_engine.vocal_content_fingerprint(project, track)):
+                return False
+            return True
+        return stem.source_fingerprint != track_fingerprint(project, track)
 
     from .midi_export import exportable_tracks
     needs_instruments = any(

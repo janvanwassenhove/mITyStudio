@@ -163,6 +163,12 @@ class StemRef(BaseModel):
     asset_id: str | None = None
     rendered_at: str = Field(default_factory=now_iso)
     source_fingerprint: str = ""   # hash of track content when rendered
+    # vocal stems: which engine quality produced this stem (3=neural clone,
+    # 2=recording/PSOLA, 1=formant) + the content-only hash — a backend
+    # missing the voice stack must NEVER overwrite a better, content-fresh
+    # stem with a word-less fallback render
+    engine_tier: int = 0
+    content_fingerprint: str = ""
 
 
 class SongProject(BaseModel):

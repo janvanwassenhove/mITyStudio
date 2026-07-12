@@ -36,6 +36,41 @@ VOCAL_ENGINE_VERSION = "5"   # 5: legato gap-bridging (continuous phrases)
                              #    genre delivery profiles, RVC autotune
 
 
+def resolve_profile(track: Track):
+    """The voice profile a vocal track will actually sing with: its assigned
+    profile, else the user's first consented profile (default singer)."""
+    from . import voice_profiles as vp
+    profile = vp.get_profile(track.voice_profile_id) \
+        if track.voice_profile_id else None
+    if profile is None:
+        consented = [p for p in vp.list_profiles()
+                     if p.consent_confirmed and p.source_recording_ids
+                     and p.status != "disabled"]
+        profile = consented[0] if consented else None
+    return profile
+
+
+def available_engine_tier(profile) -> int:
+    """Quality tier the CURRENT backend can render this profile at:
+    3 = neural clone (XTTS installed), 2 = PSOLA on the profile recording,
+    1 = formant synthesis. Used to refuse silent downgrades of stems."""
+    import os
+    if profile is not None and profile.consent_confirmed \
+            and profile.source_recording_ids:
+        if not os.environ.get("MITY_DISABLE_CLONE_ENGINE"):
+            from .vocal_clone import clone_engine_available
+            if clone_engine_available():
+                return 3
+        return 2
+    return 1
+
+
+def vocal_content_fingerprint(project: SongProject, track: Track) -> str:
+    """Content-only hash (no engine version) — used to tell 'the song
+    changed' apart from 'the engine changed'."""
+    return track_fingerprint(project, track)
+
+
 def vocal_fingerprint(project: SongProject, track: Track) -> str:
     """Fingerprint for a vocal stem — track state + vocal engine version."""
     return f"{track_fingerprint(project, track)}:v{VOCAL_ENGINE_VERSION}"
@@ -646,6 +681,30 @@ def render_vocal_stems(project: SongProject) -> dict:
                 results["render_log"].append(
                     f"{track.name}: no voice selected — singing with your "
                     f"voice profile {profile.name!r} (change it in the Track tab)")
+        tier = available_engine_tier(profile)
+        content_fp = vocal_content_fingerprint(project, track)
+        # NEVER silently downgrade: if this backend lacks the voice stack but
+        # a content-fresh stem from a better engine exists, keep that stem.
+        # (The desktop bundle without the XTTS add-on used to overwrite good
+        # neural renders with word-less fallback audio on engine bumps.)
+        existing = next((s for s in project.stems if s.track_id == track.id
+                         and s.stem_type == "vocal"), None)
+        if (existing is not None and existing.engine_tier > tier
+                and existing.content_fingerprint == content_fp
+                and (cfg.root / existing.path).exists()):
+            results["skipped"].append(
+                f"{track.name}: keeping the higher-quality vocal stem — this "
+                "backend is missing the AI voice engine")
+            results["warnings"].append(
+                f"{track.name}: AI voice engine not installed here — kept "
+                "the previously rendered voice (install the voice add-on in "
+                "the Voices screen to re-render)")
+            continue
+        if profile is not None and tier < 3:
+            results["warnings"].append(
+                f"{track.name}: AI voice engine (XTTS) not installed — "
+                "vocals use the basic engine (sounds, not words). Install "
+                "the voice add-on in the Voices screen for sung lyrics.")
         engine = get_engine("mock", profile)
         fp = vocal_fingerprint(project, track)
         out_path = cfg.stems_dir / project.id / f"vocal_{_safe_name(track.name)}_{track.id[:8]}.wav"
@@ -663,7 +722,8 @@ def render_vocal_stems(project: SongProject) -> dict:
         project.stems = [s for s in project.stems
                          if not (s.track_id == track.id and s.stem_type == "vocal")]
         stem = StemRef(track_id=track.id, stem_type="vocal", path=rel,
-                       source_fingerprint=fp)
+                       source_fingerprint=fp, engine_tier=tier,
+                       content_fingerprint=content_fp)
         _register_stem_asset(stem, track.name, "vocal_stem")
         project.stems.append(stem)
         results["rendered"].append({"track": track.name, "path": rel})
@@ -671,8 +731,11 @@ def render_vocal_stems(project: SongProject) -> dict:
             all_alignment = r.alignment
 
     align_path = cfg.projects_dir / project.id / "lyrics_alignment.json"
-    align_path.parent.mkdir(parents=True, exist_ok=True)
-    align_path.write_text(json.dumps(all_alignment, indent=1), encoding="utf-8")
+    # don't clobber good alignment when every track was kept (skip path)
+    if results["rendered"] or not align_path.exists():
+        align_path.parent.mkdir(parents=True, exist_ok=True)
+        align_path.write_text(json.dumps(all_alignment, indent=1),
+                              encoding="utf-8")
 
     from .render.waveforms import update_waveform_cache
     update_waveform_cache(project)

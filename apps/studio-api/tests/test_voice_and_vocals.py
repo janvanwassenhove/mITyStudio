@@ -106,6 +106,26 @@ def test_mock_vocal_render_and_alignment(client, workspace):
     # registered as vocal_stem asset
     assert client.get("/api/assets?asset_type=vocal_stem").json()
 
+    # a backend with a WEAKER engine must not overwrite a content-fresh stem
+    # rendered by a better one (the desktop-without-voice-stack regression)
+    from app.services import project_repo, vocal_engine
+    project = project_repo.load_project(p["id"])
+    stem = next(s for s in project.stems if s.stem_type == "vocal")
+    stem.engine_tier = 3                       # pretend: neural clone stem
+    stem.source_fingerprint = "old-engine-version"   # version bump happened
+    project_repo.save_project(project)
+    project = project_repo.load_project(p["id"])
+    r2 = vocal_engine.render_vocal_stems(project)
+    assert any("keeping the higher-quality" in s for s in r2["skipped"]), r2
+    kept = next(s for s in project.stems if s.stem_type == "vocal")
+    assert kept.engine_tier == 3               # untouched, not downgraded
+    # ...and the freshness check agrees (no render loop every play)
+    from app.services.mix_export import ExportJob, ensure_stems
+    job = ExportJob(id="j1", project_id=project.id, format="mp3")
+    ensure_stems(project, job)
+    still = next(s for s in project.stems if s.stem_type == "vocal")
+    assert still.engine_tier == 3
+
     # lyrics alignment in manifest with correct structure and ordering
     m = client.get(f"/api/projects/{p['id']}/playback-manifest").json()
     align = m["lyrics_alignment"]
