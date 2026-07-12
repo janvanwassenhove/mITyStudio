@@ -31,7 +31,8 @@ log = logging.getLogger(__name__)
 #   3 → sustain looping (no slow-motion vowels), delivery styles
 #       (sing/soft/powerful/rap), breaths between phrases, section-mismatch
 #       fallback, backing-vocal harmonies
-VOCAL_ENGINE_VERSION = "4"   # 4: forced-alignment syllables, consonant lead,
+VOCAL_ENGINE_VERSION = "5"   # 5: legato gap-bridging (continuous phrases)
+                             # 4: forced-alignment syllables, consonant lead,
                              #    genre delivery profiles, RVC autotune
 
 

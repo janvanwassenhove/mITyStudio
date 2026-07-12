@@ -382,6 +382,21 @@ def _world_sing_line(spoken: np.ndarray, rate: int, line_notes: list[dict],
         return np.zeros(n_out_samples, dtype=np.float32)
     med_f0 = float(np.median(f0_in[f0_in > 0])) if np.any(f0_in > 0) else 180.0
 
+    # LEGATO: bridge micro-gaps between a line's notes (humanized melodies
+    # leave small rests between syllables; silencing each one made the voice
+    # choppy — measured voiced_ratio 0.27). Singers connect syllables within
+    # a phrase; only real rests (>180 ms) stay silent. Rap keeps its gaps.
+    if not rap and len(line_notes) > 1:
+        bridged = []
+        for i, nd in enumerate(line_notes):
+            nd = dict(nd)
+            if i + 1 < len(line_notes):
+                gap = line_notes[i + 1]["start"] - nd["end"]
+                if 0 < gap < 0.18:
+                    nd["end"] = line_notes[i + 1]["start"]
+            bridged.append(nd)
+        line_notes = bridged
+
     syllables = [nd.get("syl") or "la" for nd in line_notes]
     vowel_at: list[int] | None = None
     if layout and len(layout.get("cuts", [])) == len(line_notes) + 1:

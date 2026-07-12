@@ -83,9 +83,15 @@ function dismissDrumCoach() {
 }
 
 // ---------------- loop preview with the REAL instrument sound -------------
+// WebAudio buffer looping (NOT an HTMLAudioElement): loopEnd is pinned to
+// the exact musical span, so the render's silent tail can't drift the loop,
+// it is gapless, and it runs until the user stops it — media elements
+// looping blob wavs proved unreliable (stopped after a few cycles).
 const looping = ref(false)
 const loopLoading = ref(false)
-let loopAudio: HTMLAudioElement | null = null
+let loopSrc: AudioBufferSourceNode | null = null
+let loopStartedAt = 0        // ctx time of musical position 0
+let loopSpanSec = 0
 let loopTimer: ReturnType<typeof setTimeout> | null = null
 
 function loopNotes() {
@@ -103,6 +109,11 @@ function loopNotes() {
     .map((n) => ({ midi_note: n.midi_note, start_beat: n.start_beat,
                    duration_beats: Math.min(n.duration_beats, span - n.start_beat),
                    velocity: n.velocity }))
+}
+
+function stopLoopSource() {
+  try { loopSrc?.stop() } catch { /* not started */ }
+  loopSrc = null
 }
 
 async function refreshLoop() {
@@ -123,12 +134,26 @@ async function refreshLoop() {
       }),
     })
     if (!res.ok) throw new Error((await res.json()).detail ?? res.statusText)
-    const url = URL.createObjectURL(await res.blob())
-    const next = new Audio(url)
-    next.loop = true
-    if (loopAudio) { loopAudio.pause() }
-    loopAudio = next
-    if (looping.value) void next.play()
+    const c = ensureCtx()
+    await c.resume()
+    const buf = await c.decodeAudioData(await res.arrayBuffer())
+    if (!looping.value) return   // stopped while rendering
+    const bpb = studio.manifest?.beats_per_bar ?? 4
+    const spanSec = (bpb * 2 * 60) / p.bpm
+    // keep the musical phase across refreshes (edits swap seamlessly)
+    const phase = loopSrc
+      ? (c.currentTime - loopStartedAt) % loopSpanSec : 0
+    stopLoopSource()
+    const src = c.createBufferSource()
+    src.buffer = buf
+    src.loop = true
+    src.loopStart = 0
+    src.loopEnd = Math.min(spanSec, buf.duration)
+    src.connect(c.destination)
+    src.start(0, Math.min(phase, Math.max(buf.duration - 0.01, 0)))
+    loopSpanSec = src.loopEnd
+    loopStartedAt = c.currentTime - phase
+    loopSrc = src
   } catch (e) {
     lastInsert.value = String(e)
     looping.value = false
@@ -140,7 +165,7 @@ async function refreshLoop() {
 function toggleLoop() {
   looping.value = !looping.value
   if (looping.value) void refreshLoop()
-  else if (loopAudio) { loopAudio.pause(); loopAudio = null }
+  else stopLoopSource()
 }
 
 function queueLoopRefresh() {
@@ -149,7 +174,7 @@ function queueLoopRefresh() {
   loopTimer = setTimeout(refreshLoop, 700)
 }
 
-onBeforeUnmount(() => { if (loopAudio) loopAudio.pause() })
+onBeforeUnmount(() => stopLoopSource())
 
 // ---------------- insert into clip ----------------
 const lastInsert = ref('')
