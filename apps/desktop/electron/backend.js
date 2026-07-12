@@ -1,6 +1,7 @@
 // Backend lifecycle: spawn uvicorn from the per-machine venv, wait for
 // /api/health, kill on quit.
 const { spawn } = require('child_process')
+const { app } = require('electron')
 const http = require('http')
 const net = require('net')
 const path = require('path')
@@ -51,6 +52,8 @@ async function startBackend(env, onStatus) {
         ...process.env,
         MITY_ROOT: env.workspace,
         MITY_UI_DIST: env.uiDist,
+        // so the About box can show the exact installed desktop version
+        MITY_APP_VERSION: (() => { try { return app.getVersion() } catch { return '' } })(),
         ...env.tools,
       },
     },

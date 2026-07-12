@@ -5,6 +5,15 @@ export default {
     done: 'Fertig', clear: 'Leeren', delete: 'Löschen',
   },
   rec: { go: 'Los!', getReady: 'Mach dich bereit zum Singen…' },
+  about: {
+    title: 'Über / Version', appVersion: 'App-Version', uiVersion: 'UI-Build',
+    backendBuild: 'Backend-Build', python: 'Python', engines: 'Engine-Versionen',
+    capabilities: 'Installierte Fähigkeiten',
+    fluidsynth: 'FluidSynth (Instrument-Rendering)', ffmpeg: 'ffmpeg (Audio-Export)',
+    voiceClone: 'KI-Stimm-Engine (XTTS-Klon)', svsRuntime: 'SVS-Runtime (onnxruntime)',
+    vocoder: 'SVS-Vocoder', voicebanks: 'Gesangs-Voicebanks', none: 'keine installiert',
+    tip: 'Ändern sich diese Nummern nach einem Update/einer Neuinstallation nicht, wurde die neue Version nicht übernommen — starte die App neu; auf dem Desktop installieren sich die Engines in den App-Datenordner und überleben Neuinstallationen.',
+  },
   nav: {
     studio: 'Studio', assets: 'Bibliothek', voices: 'Stimmen', settings: 'Einstellungen',
     language: 'Sprache', backendConnected: 'Backend verbunden',

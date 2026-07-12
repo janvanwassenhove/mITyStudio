@@ -5,6 +5,15 @@ export default {
     done: 'Klaar', clear: 'Wissen', delete: 'Verwijderen',
   },
   rec: { go: 'Start!', getReady: 'Maak je klaar om te zingen…' },
+  about: {
+    title: 'Over / versie', appVersion: 'App-versie', uiVersion: 'UI-build',
+    backendBuild: 'Backend-build', python: 'Python', engines: 'Engine-versies',
+    capabilities: 'Geïnstalleerde mogelijkheden',
+    fluidsynth: 'FluidSynth (instrumenten renderen)', ffmpeg: 'ffmpeg (audio-export)',
+    voiceClone: 'AI-stemengine (XTTS-kloon)', svsRuntime: 'SVS-runtime (onnxruntime)',
+    vocoder: 'SVS-vocoder', voicebanks: 'Zang-voicebanks', none: 'niets geïnstalleerd',
+    tip: 'Als deze nummers na een update/herinstallatie niet veranderen, is de nieuwe versie niet doorgekomen — herstart de app; op desktop installeren de engines in de app-datamap en overleven ze herinstallaties.',
+  },
   nav: {
     studio: 'Studio', assets: 'Bibliotheek', voices: 'Stemmen', settings: 'Instellingen',
     language: 'Taal', backendConnected: 'backend verbonden',

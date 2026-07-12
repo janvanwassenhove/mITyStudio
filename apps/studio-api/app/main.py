@@ -10,6 +10,12 @@ from .logging_setup import setup_logging
 
 log = logging.getLogger(__name__)
 
+# Bump when cutting a notable backend change you want to confirm is deployed.
+# The About box surfaces this alongside the desktop app version + live engine
+# versions, so "did my reinstall/update actually take?" is answerable at a
+# glance (stale build → these numbers don't move).
+BACKEND_BUILD = "2026.07.12"
+
 
 def create_app() -> FastAPI:
     setup_logging()
@@ -28,6 +34,37 @@ def create_app() -> FastAPI:
     def health() -> dict:
         from .services.capabilities import detect_capabilities
         return {"status": "ok", "root": str(cfg.root), "capabilities": detect_capabilities()}
+
+    @app.get("/api/version")
+    def version() -> dict:
+        """Everything needed to double-check WHAT is actually running — the
+        installed app version and which engines/voicebanks are live. If a
+        reinstall didn't take, the numbers here won't move."""
+        import os
+        import sys
+
+        from .services.capabilities import detect_capabilities
+        from .services.vocal_engine import VOCAL_ENGINE_VERSION
+        from .services import svs_engine
+        try:
+            from .services.render.soundfont_renderer import ENGINE_VERSION
+        except Exception:  # noqa: BLE001
+            ENGINE_VERSION = "?"
+        svs = svs_engine.svs_status()
+        return {
+            "app_version": os.environ.get("MITY_APP_VERSION") or "dev",
+            "backend_build": BACKEND_BUILD,
+            "python": sys.version.split()[0],
+            "engines": {"instrument": str(ENGINE_VERSION),
+                        "vocal": VOCAL_ENGINE_VERSION},
+            "capabilities": detect_capabilities(),
+            "singing_engine": {
+                "svs_runtime": svs["runtime_available"],
+                "vocoder_installed": svs["vocoder_installed"],
+                "voicebanks": [b["name"] for b in svs["banks"]],
+                "voicebank_problems": svs["problems"],
+            },
+        }
 
     from .api import (routes_assets, routes_projects, routes_settings,
                       routes_scores, routes_chat, routes_render,

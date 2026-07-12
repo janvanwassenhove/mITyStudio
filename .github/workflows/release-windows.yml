@@ -48,6 +48,8 @@ jobs:
 
       - name: Build frontend
         working-directory: apps/studio-ui
+        env:
+          MITY_APP_VERSION: ${{ steps.meta.outputs.version }}
         run: |
           npm ci
           npm run build

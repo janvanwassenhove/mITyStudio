@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { Moon, PanelBottom, PanelLeft, PanelRight, Sun } from 'lucide-vue-next'
+import { Info, Moon, PanelBottom, PanelLeft, PanelRight, Sun } from 'lucide-vue-next'
 import { getHealth, type HealthResponse } from './api/client'
 import { LOCALES, currentLocale, setLocale, type LocaleCode } from './i18n'
 import { useStudioStore } from './stores/studio'
@@ -8,6 +8,9 @@ import { isDesktop, showBottomPanel, showLeftPanel, showRightPanel,
          theme, toggleTheme } from './composables/uiPrefs'
 import OnboardingGuide from './components/OnboardingGuide.vue'
 import CountdownOverlay from './components/CountdownOverlay.vue'
+import AboutBox from './components/AboutBox.vue'
+
+const showAbout = ref(false)
 
 const health = ref<HealthResponse | null>(null)
 const healthError = ref('')
@@ -84,6 +87,9 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
       <button class="tbtn" :title="$t('nav.toggleTheme')" @click="toggleTheme">
         <Sun v-if="theme === 'dark'" :size="15" /><Moon v-else :size="15" />
       </button>
+      <button class="tbtn" :title="$t('about.title')" @click="showAbout = true">
+        <Info :size="15" />
+      </button>
       <select v-model="locale" class="lang" :title="$t('nav.language')" @change="changeLocale">
         <option v-for="l in LOCALES" :key="l.code" :value="l.code">{{ l.label }}</option>
       </select>
@@ -104,6 +110,7 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
       <RouterView />
     </main>
     <OnboardingGuide v-if="showOnboarding" @close="showOnboarding = false" />
+    <AboutBox v-if="showAbout" @close="showAbout = false" />
     <CountdownOverlay />
   </div>
 </template>

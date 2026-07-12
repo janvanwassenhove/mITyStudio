@@ -5,6 +5,15 @@ export default {
     done: 'Done', clear: 'Clear', delete: 'Delete',
   },
   rec: { go: 'Go!', getReady: 'Get ready to sing…' },
+  about: {
+    title: 'About / version', appVersion: 'App version', uiVersion: 'UI build',
+    backendBuild: 'Backend build', python: 'Python', engines: 'Engine versions',
+    capabilities: 'Installed capabilities',
+    fluidsynth: 'FluidSynth (instrument rendering)', ffmpeg: 'ffmpeg (audio export)',
+    voiceClone: 'AI voice engine (XTTS clone)', svsRuntime: 'SVS runtime (onnxruntime)',
+    vocoder: 'SVS vocoder', voicebanks: 'Singing voicebanks', none: 'none installed',
+    tip: 'If these numbers do not change after an update/reinstall, the new version did not take — restart the app; on desktop the engines install into the app data folder and survive reinstalls.',
+  },
   nav: {
     studio: 'Studio', assets: 'Assets', voices: 'Voices', settings: 'Settings',
     language: 'Language', backendConnected: 'backend connected',

@@ -53,3 +53,19 @@ export interface HealthResponse {
 }
 
 export const getHealth = () => api.get<HealthResponse>('/health')
+
+export interface VersionResponse {
+  app_version: string
+  backend_build: string
+  python: string
+  engines: { instrument: string; vocal: string }
+  capabilities: { fluidsynth: boolean; ffmpeg: boolean; voice_clone?: boolean }
+  singing_engine: {
+    svs_runtime: boolean
+    vocoder_installed: boolean
+    voicebanks: string[]
+    voicebank_problems: Record<string, string>
+  }
+}
+
+export const getVersion = () => api.get<VersionResponse>('/version')

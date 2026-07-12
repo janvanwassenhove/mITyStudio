@@ -5,6 +5,15 @@ export default {
     done: 'Terminé', clear: 'Effacer', delete: 'Supprimer',
   },
   rec: { go: 'Partez !', getReady: 'Préparez-vous à chanter…' },
+  about: {
+    title: 'À propos / version', appVersion: 'Version de l’app', uiVersion: 'Build UI',
+    backendBuild: 'Build backend', python: 'Python', engines: 'Versions des moteurs',
+    capabilities: 'Capacités installées',
+    fluidsynth: 'FluidSynth (rendu des instruments)', ffmpeg: 'ffmpeg (export audio)',
+    voiceClone: 'Moteur vocal IA (clone XTTS)', svsRuntime: 'Runtime SVS (onnxruntime)',
+    vocoder: 'Vocodeur SVS', voicebanks: 'Voicebanks de chant', none: 'aucune installée',
+    tip: 'Si ces numéros ne changent pas après une mise à jour/réinstallation, la nouvelle version n’a pas été prise en compte — redémarrez l’app ; sur desktop les moteurs s’installent dans le dossier de données de l’app et survivent aux réinstallations.',
+  },
   nav: {
     studio: 'Studio', assets: 'Bibliothèque', voices: 'Voix', settings: 'Réglages',
     language: 'Langue', backendConnected: 'backend connecté',
