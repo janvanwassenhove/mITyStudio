@@ -110,6 +110,11 @@ class Track(BaseModel):
     solo: bool = False
     # vocal tracks
     voice_profile_id: str | None = None
+    # SVS singing voice: which DiffSinger voicebank sings this track (dir
+    # name under voices/svs/). When a voice_profile_id is ALSO set, the bank
+    # sings and RVC re-voices to that trained profile; when it's empty, you
+    # hear the VOICEBANK'S OWN voice (no RVC). Empty = auto-pick a bank.
+    svs_bank: str = ""
     # delivery style: sing (default), rap (rhythm-locked natural pitch),
     # soft (airy/breathy, light vibrato), powerful (belted, deep vibrato)
     vocal_style: Literal["sing", "rap", "soft", "powerful"] = "sing"

@@ -140,17 +140,84 @@ class SvsBank:
     cfg: dict
     tokens: dict[str, int]                 # phoneme -> token id
     languages: dict[str, int]              # 'en' -> language id (may be {})
-    dsdict: dict[str, list[str]]           # word/grapheme -> phonemes
-    phdict: dict[str, dict[str, str]]      # lang -> arpabet -> bank phoneme
-    vowels: set[str]
     acoustic_path: Path
-    spk_embed: np.ndarray | None           # (D,) speaker embedding
+    search_dirs: tuple                     # dirs to find dicts/embeddings in
     vocoder: Vocoder | None
     _session: object = field(default=None, repr=False)
+    _dsdict: dict | None = field(default=None, repr=False)
+    _phdict: dict | None = field(default=None, repr=False)
+    _vowels: set | None = field(default=None, repr=False)
+    _spk: object = field(default=0, repr=False)   # 0 = not loaded
 
     @property
     def lang_prefixed(self) -> bool:
         return any("/" in t for t in self.tokens)
+
+    # heavy fields are parsed lazily — 40-bank packs scatter big multilingual
+    # dictionaries that would make discovery crawl if read up front
+    def _ensure_dicts(self) -> None:
+        if self._dsdict is not None:
+            return
+        dsdict: dict[str, list[str]] = {}
+        vowels: set[str] = set()
+        for sd in self.search_dirs:
+            for df in Path(sd).glob("dsdict*.yaml"):
+                data = _read_yaml(df)
+                for e in data.get("entries") or []:
+                    g = str(e.get("grapheme", "")).lower().strip()
+                    phs = [str(p) for p in (e.get("phonemes") or [])]
+                    if g and phs and g not in dsdict:
+                        dsdict[g] = phs
+                for sym in data.get("symbols") or []:
+                    if str(sym.get("type", "")) == "vowel":
+                        s = str(sym.get("symbol"))
+                        if s not in _NON_VOWEL_SYMBOLS:
+                            vowels.add(s)
+        if not vowels:
+            vowels = {t for t in self.tokens
+                      if t.split("/")[-1][:2] in (
+                          "aa", "ae", "ah", "ao", "aw", "ax", "ay", "eh",
+                          "er", "ey", "ih", "iy", "ow", "oy", "uh", "uw")}
+        self._dsdict, self._vowels = dsdict, vowels
+
+    @property
+    def dsdict(self) -> dict:
+        self._ensure_dicts()
+        return self._dsdict
+
+    @property
+    def vowels(self) -> set:
+        self._ensure_dicts()
+        return self._vowels
+
+    @property
+    def phdict(self) -> dict:
+        if self._phdict is None:
+            phdict: dict[str, dict[str, str]] = {}
+            for sd in self.search_dirs:
+                for f in Path(sd).glob("dictionary-*.txt"):
+                    lang = f.stem.split("-", 1)[1]
+                    mapping = {}
+                    for line in f.read_text(encoding="utf-8").splitlines():
+                        parts = line.split("\t") if "\t" in line \
+                            else line.split()
+                        if len(parts) >= 2:
+                            mapping[parts[0].strip().lower()] = parts[1].strip()
+                    if mapping:
+                        phdict[lang] = mapping
+            self._phdict = phdict
+        return self._phdict
+
+    @property
+    def spk_embed(self):
+        if self._spk is 0:  # noqa: F632 — sentinel identity check is intended
+            cand: list[Path] = [self.dir / f"{sp}.emb"
+                                for sp in (self.cfg.get("speakers") or [])]
+            embs = [e for sd in self.search_dirs for e in Path(sd).glob("*.emb")]
+            cand += [e for e in embs if "standard" in e.stem.lower()] + embs
+            self._spk = next((np.fromfile(p, dtype=np.float32)
+                              for p in cand if p.exists()), None)
+        return self._spk
 
     def session(self):
         if self._session is None:
@@ -161,7 +228,8 @@ class SvsBank:
 
 
 def _load_bank(d: Path) -> tuple[SvsBank | None, str]:
-    """(bank, "") on success, (None, reason) on failure."""
+    """(bank, "") on success, (None, reason) on failure. Only cheap metadata
+    is read here; dictionaries/embeddings load lazily on first sing."""
     cfgf = d / "dsconfig.yaml"
     cfg = _read_yaml(cfgf)
     if "acoustic" not in cfg:
@@ -194,56 +262,24 @@ def _load_bank(d: Path) -> tuple[SvsBank | None, str]:
             languages = {str(k): int(v) for k, v in json.loads(
                 lf.read_text(encoding="utf-8")).items()}
 
-    # dsdict(s): word entries + symbol types (vowels); search near the
-    # acoustic model too (multilingual banks keep them in dsmain/)
-    dsdict: dict[str, list[str]] = {}
-    vowels: set[str] = set()
-    for df in {*d.glob("dsdict*.yaml"), *ac.parent.glob("dsdict*.yaml")}:
-        data = _read_yaml(df)
-        for e in data.get("entries") or []:
-            g = str(e.get("grapheme", "")).lower().strip()
-            phs = [str(p) for p in (e.get("phonemes") or [])]
-            if g and phs and g not in dsdict:
-                dsdict[g] = phs
-        for sym in data.get("symbols") or []:
-            if str(sym.get("type", "")) == "vowel":
-                s = str(sym.get("symbol"))
-                if s not in _NON_VOWEL_SYMBOLS:
-                    vowels.add(s)
-    if not vowels:   # fallback: ARPAbet-ish vowel names among the tokens
-        vowels = {t for t in tokens
-                  if t.split("/")[-1][:2] in ("aa", "ae", "ah", "ao", "aw",
-                                              "ax", "ay", "eh", "er", "ey",
-                                              "ih", "iy", "ow", "oy", "uh",
-                                              "uw")}
+    search_dirs = tuple(str(sd) for sd in
+                        (d, ac.parent, d / "dsmain", d / "dsdur",
+                         d / "dspitch", d / "dsacoustic") if sd.exists())
 
-    # per-language phoneme mapping files (dictionary-en.txt: arpabet → bank)
-    phdict: dict[str, dict[str, str]] = {}
-    for f in {*d.glob("dictionary-*.txt"), *ac.parent.glob("dictionary-*.txt")}:
-        lang = f.stem.split("-", 1)[1]
-        mapping = {}
-        for line in f.read_text(encoding="utf-8").splitlines():
-            parts = line.split("\t") if "\t" in line else line.split()
-            if len(parts) >= 2:
-                mapping[parts[0].strip().lower()] = parts[1].strip()
-        if mapping:
-            phdict[lang] = mapping
-
-    # speaker embedding (multi-speaker banks REQUIRE spk_embed)
-    spk = None
-    embs = sorted(ac.parent.glob("*.emb")) + sorted(d.glob("*.emb"))
-    preferred = next((e for e in embs if "standard" in e.stem.lower()), None)
-    if preferred or embs:
-        spk = np.fromfile(preferred or embs[0], dtype=np.float32)
-
-    # vocoder: named in dsconfig → find its folder inside the bank
+    # vocoder: named in dsconfig → look in the usual folders (glob, not rglob)
     vocoder = None
     want = str(cfg.get("vocoder", ""))
-    for vy in sorted(d.rglob("vocoder.yaml")):
-        v = Vocoder.load(vy.parent)
+    voc_dirs = [d / want, d / "dsvocoder", d / "vocoder", d,
+                ac.parent / "dsvocoder", ac.parent]
+    seen_voc: set[Path] = set()
+    for vd in voc_dirs:
+        if not vd.exists() or vd in seen_voc:
+            continue
+        seen_voc.add(vd)
+        v = Vocoder.load(vd)
         if v is None or v.model_path == ac:
             continue
-        vcfg = _read_yaml(vy)
+        vcfg = _read_yaml(vd / "vocoder.yaml") if (vd / "vocoder.yaml").exists() else {}
         if not want or str(vcfg.get("name", "")) == want \
                 or want in v.model_path.name:
             vocoder = v
@@ -251,63 +287,148 @@ def _load_bank(d: Path) -> tuple[SvsBank | None, str]:
         vocoder = vocoder or v
     name = str(cfg.get("name") or d.name)
     return SvsBank(dir=d, name=name, cfg=cfg, tokens=tokens,
-                   languages=languages, dsdict=dsdict, phdict=phdict,
-                   vowels=vowels, acoustic_path=ac, spk_embed=spk,
-                   vocoder=vocoder), ""
+                   languages=languages, acoustic_path=ac,
+                   search_dirs=search_dirs, vocoder=vocoder), ""
+
+
+_shared_vocoder_cache: list = []   # [] = not computed, [v|None] = computed
 
 
 def shared_vocoder() -> Vocoder | None:
+    if _shared_vocoder_cache:
+        return _shared_vocoder_cache[0]
     d = svs_dir() / "nsf_hifigan"
+    v = None
     if d.exists():
         v = Vocoder.load(d)
-        if v:
-            return v
-        sub = next((s for s in d.iterdir() if s.is_dir()), None)
-        if sub:
-            return Vocoder.load(sub)
-    return None
+        if v is None:
+            sub = next((s for s in d.iterdir() if s.is_dir()), None)
+            if sub:
+                v = Vocoder.load(sub)
+    _shared_vocoder_cache.append(v)
+    return v
+
+
+# sub-model / asset folders that never hold an ACOUSTIC bank config — don't
+# descend into them (image folders especially make a full walk very slow)
+_SKIP_DIRS = {"images", "dsdur", "dspitch", "dsvariance", "dsvocoder",
+              "dsacoustic", "extras", "0_PHONEMIZERS", "__pycache__"}
 
 
 def _bank_config_dirs() -> list[Path]:
-    """Directories under voices/svs/ holding an ACOUSTIC dsconfig.yaml —
-    searched recursively so unzipped release folders work as dropped."""
+    """Directories under voices/svs/ holding an ACOUSTIC dsconfig.yaml.
+    A bounded, directory-only walk (depth ≤3) — NOT rglob, which stat()s
+    every image file in every bank and is pathologically slow at scale."""
     root = svs_dir()
     if not root.exists():
         return []
-    out = []
-    for cfgf in sorted(root.rglob("dsconfig.yaml")):
-        if len(cfgf.relative_to(root).parts) > 4:
-            continue
-        if "acoustic" in _read_yaml(cfgf):
-            out.append(cfgf.parent)
-    return out
+    out: list[Path] = []
+
+    def walk(d: Path, depth: int):
+        cfg = d / "dsconfig.yaml"
+        if cfg.exists() and "acoustic" in _read_yaml(cfg):
+            out.append(d)
+            return                       # a bank dir; don't recurse into it
+        if depth <= 0:
+            return
+        try:
+            for child in d.iterdir():
+                if child.is_dir() and child.name not in _SKIP_DIRS \
+                        and child.name != "nsf_hifigan":
+                    walk(child, depth - 1)
+        except OSError:
+            pass
+
+    walk(root, 3)
+    return sorted(out)
+
+
+_bank_cache: dict | None = None   # {"sig": ..., "banks": [...], "problems": {}}
+
+
+def _svs_signature() -> tuple:
+    """Cheap fingerprint of the voices/svs tree — dir names + mtimes — so the
+    (relatively expensive) bank scan only re-runs when files change."""
+    root = svs_dir()
+    if not root.exists():
+        return ()
+    try:
+        return tuple(sorted((p.name, int(p.stat().st_mtime))
+                            for p in root.iterdir()))
+    except OSError:
+        return ()
 
 
 def find_banks(problems: dict[str, str] | None = None) -> list[SvsBank]:
+    """Loaded voicebanks, cached until the svs/ tree changes. Loading 40+
+    banks reads many small files, so re-scanning per request would make the
+    Voices screen and every render crawl."""
+    global _bank_cache
     if not available():
         return []
-    banks = []
-    for d in _bank_config_dirs():
-        bank, reason = _load_bank(d)
-        if bank is None:
-            if problems is not None:
-                problems[d.name] = reason
-            log.info("SVS bank %s not loadable: %s", d.name, reason)
-            continue
-        if bank.vocoder is None:
-            bank.vocoder = shared_vocoder()
-        if bank.vocoder is None:
-            if problems is not None:
-                problems[d.name] = "no vocoder (bank has none embedded and " \
-                                   "the shared one is not installed)"
-            continue
-        banks.append(bank)
-    return banks
+    sig = _svs_signature()
+    if _bank_cache is None or _bank_cache["sig"] != sig:
+        banks, probs = [], {}
+        for d in _bank_config_dirs():
+            bank, reason = _load_bank(d)
+            if bank is None:
+                probs[d.name] = reason
+                log.info("SVS bank %s not loadable: %s", d.name, reason)
+                continue
+            if bank.vocoder is None:
+                bank.vocoder = shared_vocoder()
+            if bank.vocoder is None:
+                probs[d.name] = ("no vocoder (bank has none embedded and the "
+                                 "shared one is not installed)")
+                continue
+            banks.append(bank)
+        _bank_cache = {"sig": sig, "banks": banks, "problems": probs}
+    if problems is not None:
+        problems.update(_bank_cache["problems"])
+    return _bank_cache["banks"]
 
 
 def default_bank() -> SvsBank | None:
     banks = find_banks()
     return banks[0] if banks else None
+
+
+def bank_by_dir(dir_name: str) -> SvsBank | None:
+    if not dir_name:
+        return None
+    return next((b for b in find_banks() if b.dir.name == dir_name), None)
+
+
+def preview_bank(dir_name: str, text: str = "la la la la",
+                 out_path: Path | None = None) -> Path | None:
+    """Render a short sung phrase in a voicebank's OWN voice (no RVC) so the
+    user can audition it. Returns the WAV path, or None if unavailable."""
+    bank = bank_by_dir(dir_name) or default_bank()
+    if bank is None:
+        return None
+    # a simple rising 5-note phrase, ~1.8 s
+    words = (text.split() or ["la"])[:5]
+    while len(words) < 3:
+        words.append(words[-1])
+    freqs = [220.0, 246.94, 261.63, 293.66, 329.63]
+    notes, t = [], 0.0
+    for i, w in enumerate(words):
+        dur = 0.4
+        notes.append({"syl": w, "start": t, "end": t + dur,
+                      "freq": freqs[min(i, len(freqs) - 1)]})
+        t += dur
+    eng = SvsSingingEngine(bank, profile=None)
+    r = eng._sing_line(" ".join(words), notes,
+                       {"vib": 0.02, "vib_rate": 5.3}, "en")
+    if r is None:
+        return None
+    wav, _start = r
+    out = out_path or (get_config().analysis_cache_dir / "svs"
+                       / f"preview_{bank.dir.name[:16]}.wav")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    peak = float(np.abs(wav).max()) or 1.0
+    write_wav(out, (wav * (0.9 / peak))[:, None], SAMPLE_RATE)
+    return out
 
 
 def svs_status() -> dict:
@@ -319,11 +440,12 @@ def svs_status() -> dict:
         "runtime_available": available(),
         "vocoder_installed": shared_vocoder() is not None,
         "bank_dirs": [d.name for d in _bank_config_dirs()],
+        # NB: only cheap fields here — b.dsdict/b.phdict are lazy and would
+        # parse every bank's dictionaries if touched during a listing
         "banks": [{"name": b.name, "dir": b.dir.name,
                    "phonemes": len(b.tokens),
-                   "languages": sorted(b.languages) or
-                   (["en"] if "en" in b.phdict else []),
-                   "words": len(b.dsdict)}
+                   "languages": sorted(b.languages) or ["en"],
+                   "words": 0}
                   for b in banks],
         "problems": problems,
         "svs_dir": str(svs_dir()),
@@ -339,6 +461,7 @@ def install_vocoder() -> dict:
     dest = svs_dir() / "nsf_hifigan"
     if shared_vocoder() is not None:
         return {"installed": True, "already": True}
+    _shared_vocoder_cache.clear()   # re-probe after download
     dest.mkdir(parents=True, exist_ok=True)
     log.info("downloading NSF-HiFiGAN vocoder…")
     req = urllib.request.Request(VOCODER_URL,
@@ -347,6 +470,7 @@ def install_vocoder() -> dict:
         data = r.read()
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         z.extractall(dest)
+    _shared_vocoder_cache.clear()
     if not any(dest.glob("*.onnx")):
         sub = next((s for s in dest.iterdir() if s.is_dir()), None)
         if sub:
@@ -443,6 +567,14 @@ def _token_language(bank: SvsBank, phoneme: str) -> int:
 _HEAD_SEC = 0.10   # SP padding around each line (OpenUtau does the same)
 _TAIL_SEC = 0.15
 _CONS_SEC = 0.055  # onset consonant length (lead the beat)
+
+# ONNX declared type string -> numpy dtype, so feeds match whatever a bank
+# wants (banks vary: some declare steps/speedup as int64, variance as float)
+_ONNX_DTYPES = {
+    "tensor(int64)": np.int64, "tensor(int32)": np.int32,
+    "tensor(float)": np.float32, "tensor(float16)": np.float16,
+    "tensor(double)": np.float64, "tensor(bool)": np.bool_,
+}
 
 
 class SvsUnsupportedError(RuntimeError):
@@ -589,6 +721,10 @@ class SvsSingingEngine(SingingVoiceEngine):
             log.warning("SVS bank %s needs unsupported inputs %s",
                         self.bank.name, missing)
             return None
+        # cast every feed to the dtype the model actually declares — banks
+        # differ (steps/speedup int64 in some, variance float, etc.)
+        feeds = {k: v.astype(_ONNX_DTYPES.get(inputs[k].type, v.dtype))
+                 for k, v in feeds.items()}
         mel = sess.run(None, feeds)[0]
 
         vsess = voc.session()

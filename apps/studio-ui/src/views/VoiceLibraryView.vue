@@ -80,6 +80,22 @@ interface SvsStatus {
 const svs = ref<SvsStatus | null>(null)
 const vocoderBusy = ref(false)
 const svsMsg = ref('')
+const svsTestBusy = ref('')
+const svsTestUrl = ref('')
+
+async function testBank(dir: string) {
+  svsTestBusy.value = dir
+  try {
+    const res = await fetch(`/api/voice/svs/preview/${encodeURIComponent(dir)}`)
+    if (!res.ok) throw new Error((await res.json()).detail ?? res.statusText)
+    if (svsTestUrl.value) URL.revokeObjectURL(svsTestUrl.value)
+    svsTestUrl.value = URL.createObjectURL(await res.blob())
+  } catch (e) {
+    svsMsg.value = String(e)
+  } finally {
+    svsTestBusy.value = ''
+  }
+}
 
 async function loadSvs() {
   try {
@@ -454,9 +470,19 @@ onMounted(load)
                 : vocoderBusy ? '⏳' : t('voices.svsVocoderInstall') }}</button>
           </div>
         </div>
-        <div v-for="b in svs.banks" :key="b.dir" class="dim small">
-          🎵 {{ b.name }} — {{ t('voices.svsBankInfo', { ph: b.phonemes, w: b.words }) }}
-          <span v-if="b.languages?.length"> · {{ b.languages.join(', ') }}</span>
+        <div v-if="svs.banks.length" class="bank-list">
+          <div v-for="b in svs.banks" :key="b.dir" class="bank-row">
+            <button class="small-btn" :disabled="svsTestBusy === b.dir"
+                    :title="t('voices.svsTestTip')" @click="testBank(b.dir)">
+              <template v-if="svsTestBusy === b.dir">⏳</template>
+              <template v-else><Play class="icon" :size="11" /></template>
+            </button>
+            <span class="dim small">🎵 {{ b.name }}
+              <span class="dimmer">— {{ t('voices.svsBankInfo', { ph: b.phonemes, w: b.words }) }}<span v-if="b.languages?.length"> · {{ b.languages.join(', ') }}</span></span>
+            </span>
+          </div>
+          <audio v-if="svsTestUrl" :src="svsTestUrl" controls autoplay class="bank-audio" />
+          <p class="dim small">{{ t('voices.svsPickHint') }}</p>
         </div>
         <div v-for="(reason, dir) in svs.problems" :key="dir" class="warn-text small">
           ⚠ {{ t('voices.svsProblem', { dir, reason }) }}
@@ -562,6 +588,11 @@ h3 { margin: 0 0 8px; }
 .svs-head strong { font-size: 12px; }
 .svs code { background: var(--bg); padding: 0 4px; border-radius: 3px; }
 .warn-text { color: var(--warn); }
+.bank-list { display: flex; flex-direction: column; gap: 3px; max-height: 220px; overflow-y: auto; margin-top: 4px; }
+.bank-row { display: flex; gap: 6px; align-items: center; }
+.bank-row .small-btn { padding: 1px 6px; flex: none; }
+.bank-row .dimmer { color: var(--text-dim); opacity: 0.7; }
+.bank-audio { width: 100%; height: 30px; margin-top: 4px; }
 .engine-log { font-size: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; max-height: 160px; overflow: auto; white-space: pre-wrap; margin: 2px 0 0; }
 .create-row { display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
 .log-row { margin-bottom: 8px; }

@@ -106,6 +106,34 @@ def test_bank_discovery_and_phonemization(client, workspace, monkeypatch):
     assert st["banks"] and st["banks"][0]["name"] == "TestBank"
 
 
+def test_track_bank_selection_uses_own_voice(client, workspace, monkeypatch):
+    """A track that pins a voicebank (svs_bank) with NO profile sings in the
+    bank's OWN voice — get_engine must not auto-substitute a profile, and a
+    preview renders that bank alone."""
+    monkeypatch.delenv("MITY_DISABLE_SVS", raising=False)
+    _build_fake_bank(workspace.root)
+    from app.models.song import Track
+    from app.services import svs_engine
+    from app.services.vocal_engine import get_engine
+
+    eng = get_engine("mock", None, svs_bank="testbank")
+    assert isinstance(eng, svs_engine.SvsSingingEngine)
+    assert eng.profile is None                 # bank's own voice, no RVC
+    assert eng.bank.dir.name == "testbank"
+
+    # a track carries the choice; the model field round-trips
+    t = Track(name="Lead", track_type="lead_vocal", svs_bank="testbank")
+    assert t.svs_bank == "testbank"
+
+    # preview renders audibly in the bank's own voice (text the tiny fake
+    # dictionary covers; real banks use CMUdict for arbitrary words)
+    out = svs_engine.preview_bank("testbank", text="hello world sing")
+    assert out is not None and out.exists()
+    import soundfile as sf
+    data, _ = sf.read(str(out))
+    assert abs(data).max() > 0.05
+
+
 def test_svs_sings_at_the_right_pitch(client, workspace, monkeypatch):
     """Full engine render on a real project: the fake vocoder outputs a sine
     at the driver's f0 curve — measured pitch must match the melody."""

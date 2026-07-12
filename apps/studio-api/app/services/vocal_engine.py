@@ -570,20 +570,23 @@ class RecordingVoiceEngine(SingingVoiceEngine):
 
 
 def get_engine(engine_name: str = "mock", profile=None,
-               allow_svs: bool = True) -> SingingVoiceEngine:
+               allow_svs: bool = True, svs_bank: str = "") -> SingingVoiceEngine:
     """Factory for singing engines, best quality first:
-    1. SVS (DiffSinger voicebank in voices/svs/) — TRAINED to sing; the
-       user's trained RVC model supplies the timbre on top.
+    1. SVS (DiffSinger voicebank in voices/svs/) — TRAINED to sing. With a
+       trained profile the bank sings and RVC re-voices to that profile;
+       with NO profile you hear the voicebank's OWN voice.
     2. Neural clone-singing (XTTS speech reshaped onto notes).
     3. PSOLA on the profile recording. 4. Formant synthesis.
-    A profile without a trained RVC model skips SVS (the bank would replace
-    the user's timbre entirely) unless no profile is set at all."""
+    svs_bank pins a specific voicebank (dir name); empty auto-picks one."""
     import os
     if allow_svs and not os.environ.get("MITY_DISABLE_SVS"):
         from . import svs_engine
         from .rvc_convert import rvc_model_ready
         if svs_engine.available():
-            bank = svs_engine.default_bank()
+            bank = svs_engine.bank_by_dir(svs_bank) \
+                or svs_engine.default_bank()
+            # bank picked but no profile → the bank's own voice (no RVC);
+            # bank + trained profile → bank sings, RVC to the profile
             if bank is not None and (
                     profile is None or rvc_model_ready(profile)):
                 return svs_engine.SvsSingingEngine(bank, profile)
@@ -681,6 +684,7 @@ def render_vocal_stems(project: SongProject) -> dict:
     from .midi_export import _safe_name
     from . import voice_profiles as vp
     for track in vocal_tracks:
+        svs_bank = getattr(track, "svs_bank", "") or ""
         profile = None
         if track.voice_profile_id:
             profile = vp.get_profile(track.voice_profile_id)
@@ -688,10 +692,10 @@ def render_vocal_stems(project: SongProject) -> dict:
                 results["warnings"].append(
                     f"{track.name}: selected voice profile no longer exists "
                     "— falling back to the default voice")
-        if profile is None:
-            # default singer: the user's first consented voice profile, so
-            # uploaded voices are heard without extra setup (user-requested
-            # default; consent was given at profile creation)
+        # When the user explicitly picked a VOICEBANK voice (svs_bank set,
+        # no profile), sing in the bank's OWN voice — do NOT auto-substitute
+        # a trained profile. Only auto-pick a profile when nothing is chosen.
+        if profile is None and not svs_bank:
             consented = [p for p in vp.list_profiles()
                          if p.consent_confirmed and p.source_recording_ids
                          and p.status != "disabled"]
@@ -700,6 +704,9 @@ def render_vocal_stems(project: SongProject) -> dict:
                 results["render_log"].append(
                     f"{track.name}: no voice selected — singing with your "
                     f"voice profile {profile.name!r} (change it in the Track tab)")
+        if svs_bank and profile is None:
+            results["render_log"].append(
+                f"{track.name}: singing in voicebank {svs_bank!r}'s own voice")
         tier = available_engine_tier(profile)
         content_fp = vocal_content_fingerprint(project, track)
         # NEVER silently downgrade: if this backend lacks the voice stack but
@@ -724,7 +731,7 @@ def render_vocal_stems(project: SongProject) -> dict:
                 f"{track.name}: AI voice engine (XTTS) not installed — "
                 "vocals use the basic engine (sounds, not words). Install "
                 "the voice add-on in the Voices screen for sung lyrics.")
-        engine = get_engine("mock", profile)
+        engine = get_engine("mock", profile, svs_bank=svs_bank)
         fp = vocal_fingerprint(project, track)
         out_path = cfg.stems_dir / project.id / f"vocal_{_safe_name(track.name)}_{track.id[:8]}.wav"
         try:

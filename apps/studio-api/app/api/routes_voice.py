@@ -92,6 +92,19 @@ def svs_status() -> dict:
     return status()
 
 
+@router.get("/svs/preview/{bank_dir}")
+def svs_preview(bank_dir: str) -> FileResponse:
+    """Audition a voicebank in its OWN voice — a short sung phrase (no RVC)."""
+    from ..services.svs_engine import preview_bank
+    out = preview_bank(bank_dir)
+    if out is None or not out.exists():
+        raise HTTPException(422, "could not render a preview for this "
+                            "voicebank (missing vocoder, or English "
+                            "phonemes unavailable)")
+    return FileResponse(out, media_type="audio/wav",
+                        filename=f"preview_{bank_dir[:20]}.wav")
+
+
 @router.post("/svs/install-vocoder")
 def svs_install_vocoder() -> dict:
     """One-time download of the shared NSF-HiFiGAN vocoder (~50 MB) every

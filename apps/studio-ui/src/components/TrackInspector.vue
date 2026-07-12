@@ -65,6 +65,36 @@ const filteredFonts = computed(() => {
 async function loadLibraries() {
   soundfonts.value = await api.get<Asset[]>('/assets/soundfonts')
   profiles.value = await api.get<VoiceProfile[]>('/voice/profiles')
+  try {
+    const s = await api.get<{ banks: { name: string; dir: string }[] }>('/voice/svs/status')
+    svsBanks.value = s.banks
+  } catch { /* SVS unavailable on this backend */ }
+}
+
+// combined singing-voice selector: profiles (RVC to your voice) + voicebanks
+// (the bank's own voice). Encoded as 'profile:<id>' / 'bank:<dir>'.
+const svsBanks = ref<{ name: string; dir: string }[]>([])
+const voiceValue = computed(() => {
+  const t = track.value
+  if (!t) return ''
+  if (t.voice_profile_id) return 'profile:' + t.voice_profile_id
+  if (t.svs_bank) return 'bank:' + t.svs_bank
+  return ''
+})
+function setVoice(v: string) {
+  const t = track.value
+  if (!t) return
+  if (v.startsWith('profile:')) {
+    t.voice_profile_id = v.slice(8)
+    t.svs_bank = ''
+  } else if (v.startsWith('bank:')) {
+    t.voice_profile_id = null
+    t.svs_bank = v.slice(5)
+  } else {
+    t.voice_profile_id = null
+    t.svs_bank = ''
+  }
+  save()
 }
 
 async function loadPresets(assetId: string | null) {
@@ -303,13 +333,19 @@ loadLibraries()
       </template>
 
       <template v-if="isVocal">
-        <label class="field">{{ t('inspector.voiceProfile') }}
-          <select :value="track.voice_profile_id ?? ''"
-                  @change="track.voice_profile_id = ($event.target as HTMLSelectElement).value || null; save()">
+        <label class="field">{{ t('inspector.singingVoice') }}
+          <select :value="voiceValue" @change="setVoice(($event.target as HTMLSelectElement).value)">
             <option value="">{{ t('inspector.noProfile') }}</option>
-            <option v-for="p in profiles" :key="p.id" :value="p.id">{{ t('inspector.aiVoice', { name: p.name }) }}</option>
+            <optgroup v-if="profiles.length" :label="t('inspector.yourVoices')">
+              <option v-for="p in profiles" :key="p.id" :value="'profile:' + p.id">
+                {{ t('inspector.aiVoice', { name: p.name }) }}</option>
+            </optgroup>
+            <optgroup v-if="svsBanks.length" :label="t('inspector.voicebanks')">
+              <option v-for="b in svsBanks" :key="b.dir" :value="'bank:' + b.dir">{{ b.name }}</option>
+            </optgroup>
           </select>
         </label>
+        <p class="dim small">{{ t('inspector.voiceHint') }}</p>
         <label class="field">{{ t('inspector.vocalStyle') }}
           <select :value="track.vocal_style ?? 'sing'"
                   @change="track.vocal_style = ($event.target as HTMLSelectElement).value as Track['vocal_style']; save()">

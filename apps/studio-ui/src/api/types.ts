@@ -63,6 +63,7 @@ export interface Track {
   voice_profile_id: string | null
   vocal_style: 'sing' | 'rap' | 'soft' | 'powerful'
   vocal_pace?: number
+  svs_bank?: string
 }
 
 export interface Section {
