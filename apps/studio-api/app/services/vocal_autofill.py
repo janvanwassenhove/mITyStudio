@@ -37,7 +37,8 @@ def ensure_vocal_melodies(project: SongProject) -> list[str]:
             clip = generate_vocal_melody(
                 project, section, lines_by_section[section.id],
                 rap=track.vocal_style == "rap",
-                harmony=track.track_type == "backing_vocal")
+                harmony=track.track_type == "backing_vocal",
+                pace=getattr(track, "vocal_pace", 1.0) or 1.0)
             if clip.note_events:
                 track.clips.append(clip)
                 out.append(f"{track.name}: melody written for "

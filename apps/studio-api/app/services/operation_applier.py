@@ -322,17 +322,20 @@ def op_generate_melody(project: SongProject, p: dict) -> str:
         # sung/rapped vocals: one note per syllable (clone-engine aligned)
         rap = str(p.get("style", "")).lower() == "rap"
         track_ref = p.get("track")
-        if not rap and track_ref:
+        pace = 1.0
+        if track_ref:
             existing = next((t for t in project.tracks
                              if t.id == track_ref
                              or t.name.lower() == str(track_ref).lower()), None)
-            rap = existing is not None and existing.vocal_style == "rap"
+            if existing is not None:
+                rap = rap or existing.vocal_style == "rap"
+                pace = getattr(existing, "vocal_pace", 1.0) or 1.0
 
         harmony = track_type == "backing_vocal"
 
         def gen(proj, sec):
             return music_gen.generate_vocal_melody(proj, sec, lines, rap=rap,
-                                                   harmony=harmony)
+                                                   harmony=harmony, pace=pace)
         return _generate(project, p, "rap flow" if rap else "vocal melody",
                          track_type, gen)
 

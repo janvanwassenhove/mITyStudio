@@ -381,7 +381,8 @@ def _make_motif(rng: random.Random, bpb: float) -> list[tuple[float, float, int]
 def generate_vocal_melody(project: SongProject, section: Section,
                           lyrics_lines: list[str],
                           rap: bool = False,
-                          harmony: bool = False) -> Clip:
+                          harmony: bool = False,
+                          pace: float = 1.0) -> Clip:
     """Singable vocal melody: exactly ONE note per syllable, phrased per
     lyric line with breaths between lines, contour arcs that resolve to
     chord tones. Rap mode keeps a tight monotone-ish rhythm instead.
@@ -408,11 +409,19 @@ def generate_vocal_melody(project: SongProject, section: Section,
 
     for li, (line, syls) in enumerate(lines):
         line_start = li * slot
-        breath = min(1.0, slot * 0.18)  # rest at the end of every line
+        # rest at the end of every line — shrinks when the section is packed
+        # so crowded lyrics spend their time on words, not pauses
+        crowded = slot / max(len(syls), 1) < 0.5
+        breath = min(1.0, slot * (0.08 if crowded else 0.18))
         usable = slot - breath
         n = len(syls)
-        # rhythm: mostly even syllables, stretched last syllable of the line
-        base_dur = max(min(usable / n, 1.0), 0.22)
+        # rhythm: mostly even syllables, stretched last syllable of the line.
+        # `pace` stretches the per-syllable time (slow singing on request);
+        # the floor keeps crowded sections from machine-gunning syllables —
+        # when even the floor doesn't fit, syllables get the room there is.
+        pace = max(pace, 0.5)
+        base_dur = max(min(usable / n, 1.0 * pace),
+                       min(0.35 * pace, usable / n if n else 0.35))
         durs = [base_dur] * n
         durs[-1] = min(base_dur * 2.2, usable - base_dur * (n - 1) + base_dur)
         if not rap:

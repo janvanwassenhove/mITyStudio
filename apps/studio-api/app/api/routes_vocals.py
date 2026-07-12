@@ -9,9 +9,11 @@ router = APIRouter(prefix="/api/projects", tags=["vocals"])
 
 
 @router.post("/{project_id}/vocals/sing-lyrics")
-def sing_lyrics(project_id: str) -> dict:
+def sing_lyrics(project_id: str, track_id: str | None = None) -> dict:
     """Give every section that has lyrics a sung melody on the Lead Vocal
-    track (created if missing). One click from lyrics to singing."""
+    track (created if missing). One click from lyrics to singing.
+    track_id targets a specific vocal track instead (e.g. to re-phrase after
+    changing its singing pace)."""
     from ..models.operations import ChatOperation
     from ..services import operation_applier
 
@@ -24,9 +26,15 @@ def sing_lyrics(project_id: str) -> dict:
     if not lyric_sections:
         raise HTTPException(422, "this project has no lyrics yet — add some "
                                  "via the chat ('add lyrics about …') first")
+    track_ref, track_type = "Lead Vocal", "lead_vocal"
+    if track_id:
+        tr = next((t for t in project.tracks if t.id == track_id), None)
+        if tr is None or tr.track_type not in ("lead_vocal", "backing_vocal"):
+            raise HTTPException(404, "vocal track not found")
+        track_ref, track_type = tr.id, tr.track_type
     ops = [ChatOperation(op_type="generate_melody",
-                         params={"section": s.id, "track": "Lead Vocal",
-                                 "track_type": "lead_vocal"})
+                         params={"section": s.id, "track": track_ref,
+                                 "track_type": track_type})
            for s in lyric_sections]
     results = operation_applier.apply_operations(project, ops)
     errors = [r.error for r in results if not r.applied and r.error]

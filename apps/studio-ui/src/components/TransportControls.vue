@@ -145,6 +145,24 @@ async function commitBpm() {
   p.bpm = v
   await studio.saveProject()   // fingerprints change → re-render on next ▶
 }
+
+// --- editable key + time signature (click the chips next to the BPM) -------
+const KEY_OPTIONS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+  .flatMap((r) => [`${r} major`, `${r} minor`])
+const TIME_SIG_OPTIONS = ['4/4', '3/4', '2/4', '6/8', '12/8']
+
+async function setKey(k: string) {
+  const p = studio.project
+  if (!p || !k || k === p.key) return
+  p.key = k
+  await studio.saveProject()
+}
+async function setTimeSig(ts: string) {
+  const p = studio.project
+  if (!p || !ts || ts === p.time_signature) return
+  p.time_signature = ts
+  await studio.saveProject()
+}
 </script>
 
 <template>
@@ -185,8 +203,20 @@ async function commitBpm() {
              @blur="commitBpm" @keyup.enter="($event.target as HTMLInputElement).blur()" />
       <button v-else class="bpm-btn dim" :title="t('transport.bpmTip')" @click="startBpmEdit">
         {{ studio.project.bpm }} BPM</button>
-      <span class="dim" :title="t('transport.tempoTip')">
-        · {{ studio.project.key }} · {{ studio.project.time_signature }}</span>
+      <select class="meta-select" :value="studio.project.key"
+              :title="t('transport.keyTip')"
+              @change="setKey(($event.target as HTMLSelectElement).value)">
+        <option v-for="k in KEY_OPTIONS" :key="k" :value="k">{{ k }}</option>
+        <option v-if="!KEY_OPTIONS.includes(studio.project.key)"
+                :value="studio.project.key">{{ studio.project.key }}</option>
+      </select>
+      <select class="meta-select" :value="studio.project.time_signature"
+              :title="t('transport.timeSigTip')"
+              @change="setTimeSig(($event.target as HTMLSelectElement).value)">
+        <option v-for="ts in TIME_SIG_OPTIONS" :key="ts" :value="ts">{{ ts }}</option>
+        <option v-if="!TIME_SIG_OPTIONS.includes(studio.project.time_signature)"
+                :value="studio.project.time_signature">{{ studio.project.time_signature }}</option>
+      </select>
       <span v-if="studio.manifest && studio.manifest.stems.length" class="dim"
             :title="t('transport.stemsTip')">
         · {{ t('transport.stemsLoaded', { n: playback.stemsLoaded, total: studio.manifest.stems.length }) }}
@@ -211,5 +241,10 @@ async function commitBpm() {
 .bpm-btn { border: none; background: transparent; padding: 2px 4px; font-size: 13px; }
 .bpm-btn:hover { color: var(--accent); border: none; }
 .bpm-input { width: 64px; padding: 2px 6px; font-size: 13px; }
+.meta-select {
+  border: none; background: transparent; color: var(--text-dim);
+  font-size: 13px; padding: 2px 2px; cursor: pointer;
+}
+.meta-select:hover { color: var(--accent); }
 button.active { border-color: var(--accent); color: var(--accent); }
 </style>

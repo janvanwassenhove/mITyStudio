@@ -113,6 +113,9 @@ class Track(BaseModel):
     # delivery style: sing (default), rap (rhythm-locked natural pitch),
     # soft (airy/breathy, light vibrato), powerful (belted, deep vibrato)
     vocal_style: Literal["sing", "rap", "soft", "powerful"] = "sing"
+    # singing pace: multiplier on the beats each syllable gets when melodies
+    # are (re)generated — 1.0 normal, 1.4 relaxed, 1.8 slow ballad phrasing
+    vocal_pace: float = 1.0
 
 
 class Section(BaseModel):

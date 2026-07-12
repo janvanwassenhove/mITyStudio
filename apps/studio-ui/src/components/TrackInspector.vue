@@ -88,6 +88,37 @@ function save() {
   }, 400)
 }
 
+// --- singing pace: applies when melodies are (re)generated ---------------
+const resinging = ref(false)
+const resingMsg = ref('')
+
+function setPace(pace: number) {
+  if (!track.value) return
+  track.value.vocal_pace = pace
+  save()
+  resingMsg.value = t('inspector.paceHint')
+}
+
+async function resing() {
+  const tr = track.value
+  const p = studio.project
+  if (!tr || !p) return
+  resinging.value = true
+  resingMsg.value = ''
+  try {
+    await studio.saveProject()   // pace must be saved before regenerating
+    const r = await api.post<{ sections_sung: number; errors: string[] }>(
+      `/projects/${p.id}/vocals/sing-lyrics?track_id=${tr.id}`)
+    resingMsg.value = r.errors.length ? r.errors.join('; ')
+      : '✓ ' + t('inspector.resung', { n: r.sections_sung })
+    await studio.reloadCurrent()
+  } catch (e) {
+    resingMsg.value = String(e)
+  } finally {
+    resinging.value = false
+  }
+}
+
 function pickFont(a: Asset) {
   if (!track.value) return
   track.value.instrument_config.soundfont_asset_id = a.id
@@ -288,6 +319,20 @@ loadLibraries()
             <option value="rap">{{ t('addTrack.styleRap') }}</option>
           </select>
         </label>
+        <label class="field">{{ t('inspector.vocalPace') }}
+          <select :value="String(track.vocal_pace ?? 1)"
+                  @change="setPace(Number(($event.target as HTMLSelectElement).value))">
+            <option value="1">{{ t('inspector.paceNormal') }}</option>
+            <option value="1.4">{{ t('inspector.paceRelaxed') }}</option>
+            <option value="1.8">{{ t('inspector.paceSlow') }}</option>
+          </select>
+        </label>
+        <div class="field">
+          <button :disabled="resinging" @click="resing">
+            {{ resinging ? '⏳ ' + t('inspector.resinging') : '🎤 ' + t('inspector.resing') }}
+          </button>
+          <span v-if="resingMsg" class="dim small">{{ resingMsg }}</span>
+        </div>
         <p class="dim small">
           {{ t('inspector.profileBlurb') }}
         </p>

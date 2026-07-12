@@ -62,6 +62,7 @@ export interface Track {
   solo: boolean
   voice_profile_id: string | null
   vocal_style: 'sing' | 'rap' | 'soft' | 'powerful'
+  vocal_pace?: number
 }
 
 export interface Section {
