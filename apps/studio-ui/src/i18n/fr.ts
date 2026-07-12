@@ -8,6 +8,11 @@ export default {
   nav: {
     studio: 'Studio', assets: 'Bibliothèque', voices: 'Voix', settings: 'Réglages',
     language: 'Langue', backendConnected: 'backend connecté',
+    toggleTheme: 'basculer thème clair/sombre',
+    layoutTip: 'disposition des panneaux',
+    togglePanelLeft: 'afficher/masquer la barre latérale projets',
+    togglePanelBottom: 'afficher/masquer le panneau inférieur',
+    togglePanelRight: 'afficher/masquer la barre latérale chat',
     backendOffline: 'backend hors ligne', connecting: 'connexion…',
     offlineBanner: 'Le backend est injoignable — reconnexion automatique en cours. Lecture et sauvegarde sont en pause.',
     retryNow: 'Réessayer', reconnected: 'Backend reconnecté — projets actualisés.',

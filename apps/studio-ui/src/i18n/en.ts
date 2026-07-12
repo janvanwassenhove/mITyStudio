@@ -8,6 +8,11 @@ export default {
   nav: {
     studio: 'Studio', assets: 'Assets', voices: 'Voices', settings: 'Settings',
     language: 'Language', backendConnected: 'backend connected',
+    toggleTheme: 'switch light/dark theme',
+    layoutTip: 'panel layout',
+    togglePanelLeft: 'toggle projects sidebar',
+    togglePanelBottom: 'toggle bottom panel',
+    togglePanelRight: 'toggle chat sidebar',
     backendOffline: 'backend offline', connecting: 'connecting…',
     offlineBanner: 'The backend is unreachable — reconnecting automatically. Playback and saving are paused.',
     retryNow: 'Retry now', reconnected: 'Backend reconnected — projects refreshed.',

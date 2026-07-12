@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Clip, NoteEvent, Track } from '../api/types'
 import { useStudioStore } from '../stores/studio'
@@ -52,18 +52,26 @@ function hitAt(midi: number, step: number): Hit | undefined {
 
 function tapStep(midi: number, step: number) {
   const existing = hitAt(midi, step)
+  let added: Hit | null = null
   if (tool.value === 'velocity') {
     if (existing) {
       existing.vel = existing.vel < 75 ? 95 : existing.vel < 110 ? 122 : 60
+      added = existing
     } else {
-      grid.value.push({ midi, step, vel: 95 })
+      added = { midi, step, vel: 95 }
+      grid.value.push(added)
     }
   } else if (existing) {
     grid.value = grid.value.filter((h) => h !== existing)
   } else {
-    grid.value.push({ midi, step, vel: step % 4 === 0 ? 110 : 90 })
+    added = { midi, step, vel: step % 4 === 0 ? 110 : 90 }
+    grid.value.push(added)
   }
-  queueLoopRefresh()
+  // audition the drum right away when the loop is stopped (sounds loaded
+  // after the first ▶); while playing the scheduler picks the edit up live
+  if (added && !playing.value && ctx && oneShots.size) {
+    playHit(added.midi, added.vel, ctx.currentTime)
+  }
 }
 
 // --- pattern presets (steps are 16th indices within one bar) ---
@@ -90,12 +98,10 @@ function applyPattern(name: string) {
     }
   }
   patternName.value = name
-  queueLoopRefresh()
 }
 
 function clearGrid() {
   grid.value = []
-  queueLoopRefresh()
 }
 
 // --- add the pattern to the song as a NEW clip on this track --------------
@@ -125,48 +131,94 @@ function addAsClip() {
   emit('changed')
 }
 
-// --- loop playback with the real kit + step highlight ---
+// --- live loop: WebAudio step scheduler over per-drum one-shots ----------
+// Each lane's drum is rendered ONCE by the real kit and cached; hits are
+// then scheduled sample-accurately client-side. Result: a perfectly tight
+// loop (no file-loop gap/drift) and edits that are audible on the very next
+// step — no server round-trip while playing.
 const playing = ref(false)
 const loading = ref(false)
 const currentStep = ref(-1)
-let audio: HTMLAudioElement | null = null
+let ctx: AudioContext | null = null
 let raf = 0
-let loopTimer: ReturnType<typeof setTimeout> | null = null
+let schedTimer: ReturnType<typeof setInterval> | null = null
+const oneShots = new Map<number, AudioBuffer>()
+let kitKey = ''
 
-const loopSeconds = computed(() => {
-  const bpm = studio.project?.bpm ?? 120
-  return (stepCount.value * STEP * 60) / bpm
-})
+const stepSeconds = computed(() =>
+  (STEP * 60) / (studio.project?.bpm ?? 120))
 
-async function fetchLoop(): Promise<HTMLAudioElement | null> {
+function currentKitKey(): string {
+  const cfg = props.track.instrument_config
+  return `${cfg.soundfont_asset_id}:${cfg.bank}:${cfg.program}`
+}
+
+async function fetchOneShot(midi: number): Promise<AudioBuffer | null> {
   const p = studio.project
-  if (!p) return null
-  if (!grid.value.length) { msg.value = t('seq.gridEmptyHint'); return null }
-  const span = stepCount.value * STEP
-  const notes = grid.value
-    .filter((h) => h.step < stepCount.value)
-    .map((h) => ({ midi_note: h.midi, start_beat: h.step * STEP,
-                   duration_beats: 0.2, velocity: h.vel }))
-  // a near-silent tail-guard keeps the render exactly loop-length
-  notes.push({ midi_note: 36, start_beat: span - 0.01, duration_beats: 0.01, velocity: 1 })
+  if (!p || !ctx) return null
   const cfg = props.track.instrument_config
   const res = await fetch('/api/projects/preview/instrument', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ soundfont_asset_id: cfg.soundfont_asset_id,
                            bank: cfg.bank, program: cfg.program,
-                           is_drum_kit: true, bpm: p.bpm, notes }),
+                           is_drum_kit: true, bpm: p.bpm,
+                           notes: [{ midi_note: midi, start_beat: 0,
+                                     duration_beats: 0.3, velocity: 112 }] }),
   })
-  if (!res.ok) throw new Error((await res.json()).detail ?? res.statusText)
-  const el = new Audio(URL.createObjectURL(await res.blob()))
-  el.loop = true
-  return el
+  if (!res.ok) return null
+  return ctx.decodeAudioData(await res.arrayBuffer())
+}
+
+async function ensureOneShots(): Promise<void> {
+  if (kitKey === currentKitKey() && oneShots.size) return
+  oneShots.clear()
+  kitKey = currentKitKey()
+  await Promise.all(LANES.map(async (l) => {
+    const buf = await fetchOneShot(l.midi)
+    if (buf) oneShots.set(l.midi, buf)
+  }))
+}
+
+function playHit(midi: number, vel: number, when: number) {
+  const buf = oneShots.get(midi)
+  if (!buf || !ctx) return
+  const src = ctx.createBufferSource()
+  src.buffer = buf
+  const g = ctx.createGain()
+  g.gain.value = Math.pow(vel / 127, 1.2)
+  src.connect(g).connect(ctx.destination)
+  src.start(when)
+}
+
+// lookahead scheduler: reads the LIVE grid each tick, so any edit plays on
+// its next occurrence
+let nextStep = 0
+let nextTime = 0
+let stepTimes: { step: number; at: number }[] = []
+const LOOKAHEAD = 0.12
+
+function schedule() {
+  if (!ctx || !playing.value) return
+  while (nextTime < ctx.currentTime + LOOKAHEAD) {
+    const stepIdx = nextStep % stepCount.value
+    for (const h of grid.value) {
+      if (h.step === stepIdx) playHit(h.midi, h.vel, nextTime)
+    }
+    stepTimes.push({ step: stepIdx, at: nextTime })
+    nextTime += stepSeconds.value
+    nextStep++
+  }
 }
 
 function tick() {
-  if (!playing.value || !audio) return
-  currentStep.value = Math.floor((audio.currentTime % loopSeconds.value)
-    / (loopSeconds.value / stepCount.value)) % stepCount.value
+  if (!playing.value || !ctx) return
+  while (stepTimes.length > 1 && stepTimes[1].at <= ctx.currentTime) {
+    stepTimes.shift()
+  }
+  if (stepTimes.length && stepTimes[0].at <= ctx.currentTime) {
+    currentStep.value = stepTimes[0].step
+  }
   raf = requestAnimationFrame(tick)
 }
 
@@ -175,24 +227,22 @@ async function togglePower() {
     playing.value = false
     currentStep.value = -1
     cancelAnimationFrame(raf)
-    audio?.pause()
-    audio = null
+    if (schedTimer) { clearInterval(schedTimer); schedTimer = null }
     return
   }
   loading.value = true
   msg.value = ''
   try {
-    const el = await fetchLoop()
-    if (!el) return
-    audio = el
+    ctx = ctx ?? new AudioContext()
+    await ctx.resume()
+    await ensureOneShots()
+    if (!oneShots.size) { msg.value = t('seq.audioBlocked'); return }
     playing.value = true
-    try {
-      await el.play()
-    } catch (e) {
-      msg.value = t('seq.audioBlocked')
-      playing.value = false
-      return
-    }
+    nextStep = 0
+    nextTime = ctx.currentTime + 0.06
+    stepTimes = []
+    schedule()
+    schedTimer = setInterval(schedule, 30)
     raf = requestAnimationFrame(tick)
   } catch (e) {
     msg.value = String(e)
@@ -201,23 +251,14 @@ async function togglePower() {
   }
 }
 
-function queueLoopRefresh() {
-  if (!playing.value) return
-  if (loopTimer) clearTimeout(loopTimer)
-  loopTimer = setTimeout(async () => {
-    try {
-      const el = await fetchLoop()
-      if (!el || !playing.value) return
-      const t = audio?.currentTime ?? 0
-      audio?.pause()
-      audio = el
-      el.currentTime = t % loopSeconds.value
-      void el.play()
-    } catch { /* keep old loop */ }
-  }, 600)
-}
+// kit switched while playing → re-fetch the one-shots, loop keeps running
+watch(currentKitKey, () => { if (playing.value) void ensureOneShots() })
 
-onBeforeUnmount(() => { audio?.pause(); cancelAnimationFrame(raf) })
+onBeforeUnmount(() => {
+  cancelAnimationFrame(raf)
+  if (schedTimer) clearInterval(schedTimer)
+  void ctx?.close()
+})
 </script>
 
 <template>

@@ -8,6 +8,11 @@ export default {
   nav: {
     studio: 'Studio', assets: 'Bibliothek', voices: 'Stimmen', settings: 'Einstellungen',
     language: 'Sprache', backendConnected: 'Backend verbunden',
+    toggleTheme: 'helles/dunkles Design umschalten',
+    layoutTip: 'Panel-Layout',
+    togglePanelLeft: 'Projekt-Seitenleiste ein-/ausblenden',
+    togglePanelBottom: 'unteres Panel ein-/ausblenden',
+    togglePanelRight: 'Chat-Seitenleiste ein-/ausblenden',
     backendOffline: 'Backend offline', connecting: 'verbinden…',
     offlineBanner: 'Das Backend ist nicht erreichbar — automatische Wiederverbindung läuft. Wiedergabe und Speichern sind pausiert.',
     retryNow: 'Jetzt versuchen', reconnected: 'Backend wieder verbunden — Projekte aktualisiert.',

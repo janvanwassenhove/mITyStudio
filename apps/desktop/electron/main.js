@@ -132,7 +132,13 @@ async function boot() {
     return
   }
 
-  // 4. main window
+  // 4. main window — integrated title bar: the app's top nav IS the title
+  // bar (drag region set in CSS); native window controls overlay it and are
+  // recolored on theme switch (titlebar:theme IPC from the UI).
+  const TITLEBAR = {
+    dark: { color: '#1c1f26', symbolColor: '#e6e8ec', height: 38 },
+    light: { color: '#ffffff', symbolColor: '#1d2129', height: 38 },
+  }
   setStatus('Opening the studio…')
   mainWin = new BrowserWindow({
     width: 1440,
@@ -143,6 +149,14 @@ async function boot() {
     backgroundColor: '#14161a',
     title: 'mITyStudio',
     icon: path.join(__dirname, '..', 'build', 'icon.png'),
+    titleBarStyle: 'hidden',
+    titleBarOverlay: TITLEBAR.dark,
+    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+  })
+  ipcMain.on('titlebar:theme', (_e, theme) => {
+    try {
+      mainWin?.setTitleBarOverlay(TITLEBAR[theme] ?? TITLEBAR.dark)
+    } catch { /* not supported on this platform */ }
   })
   mainWin.removeMenu?.()
   mainWin.webContents.setWindowOpenHandler(({ url }) => {

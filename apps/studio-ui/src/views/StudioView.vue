@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
+import { showBottomPanel, showLeftPanel, showRightPanel } from '../composables/uiPrefs'
 import TransportControls from '../components/TransportControls.vue'
 import ProjectSidebar from '../components/ProjectSidebar.vue'
 import TimelinePanel from '../components/TimelinePanel.vue'
@@ -40,6 +41,26 @@ function startResize(e: PointerEvent) {
   const move = (ev: PointerEvent) => {
     bottomH.value = Math.min(Math.max(h0 + (y0 - ev.clientY), 150),
                              window.innerHeight * 0.75)
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup',
+    () => window.removeEventListener('pointermove', move), { once: true })
+}
+
+// draggable side-panel widths (persisted)
+const leftW = ref(Number(localStorage.getItem('mity-w-left')) || 230)
+const rightW = ref(Number(localStorage.getItem('mity-w-right')) || 330)
+watch(leftW, () => localStorage.setItem('mity-w-left', String(leftW.value)))
+watch(rightW, () => localStorage.setItem('mity-w-right', String(rightW.value)))
+
+function startSideResize(side: 'left' | 'right', e: PointerEvent) {
+  const x0 = e.clientX
+  const w0 = side === 'left' ? leftW.value : rightW.value
+  const move = (ev: PointerEvent) => {
+    const d = side === 'left' ? ev.clientX - x0 : x0 - ev.clientX
+    const w = Math.min(Math.max(w0 + d, 170), window.innerWidth * 0.45)
+    if (side === 'left') leftW.value = w
+    else rightW.value = w
   }
   window.addEventListener('pointermove', move)
   window.addEventListener('pointerup',
@@ -116,10 +137,15 @@ const SHORTCUTS = computed(() => [
       <TransportControls />
     </div>
     <div class="body-row">
-      <aside class="sidebar panel"><ProjectSidebar /></aside>
+      <aside v-if="showLeftPanel" class="sidebar panel"
+             :style="{ width: leftW + 'px' }">
+        <ProjectSidebar />
+      </aside>
+      <div v-if="showLeftPanel" class="vsplit"
+           @pointerdown="startSideResize('left', $event)" />
       <section class="center">
         <div class="timeline panel"><TimelinePanel /></div>
-        <div class="bottom panel" :style="{ height: bottomH + 'px' }">
+        <div v-if="showBottomPanel" class="bottom panel" :style="{ height: bottomH + 'px' }">
           <div class="resize-handle" :title="t('studio.dragResize')" @pointerdown="startResize" />
           <div class="tabs">
             <button :class="{ active: bottomTab === 'mixer' }" @click="bottomTab = 'mixer'">{{ t('studio.mixer') }}</button>
@@ -137,7 +163,10 @@ const SHORTCUTS = computed(() => [
           <LyricsKaraokeView v-else />
         </div>
       </section>
-      <aside class="rightbar panel">
+      <div v-if="showRightPanel" class="vsplit"
+           @pointerdown="startSideResize('right', $event)" />
+      <aside v-if="showRightPanel" class="rightbar panel"
+             :style="{ width: rightW + 'px' }">
         <div class="tabs">
           <button :class="{ active: rightTab === 'chat' }" @click="rightTab = 'chat'">{{ t('studio.chat') }}</button>
           <button :class="{ active: rightTab === 'export' }" @click="rightTab = 'export'">{{ t('studio.export') }}</button>
@@ -167,7 +196,10 @@ const SHORTCUTS = computed(() => [
 .studio { display: flex; flex-direction: column; height: 100%; padding: 8px; gap: 8px; }
 .transport-row { flex: none; }
 .body-row { flex: 1; display: flex; gap: 8px; min-height: 0; }
-.sidebar { width: 230px; flex: none; overflow-y: auto; }
+.sidebar { flex: none; overflow-y: auto; }
+/* splitter occupies exactly one flex gap (8px) via negative margins */
+.vsplit { flex: none; width: 8px; margin: 0 -8px; cursor: ew-resize; border-radius: 3px; z-index: 5; }
+.vsplit:hover { background: var(--accent); opacity: 0.5; }
 .center { flex: 1; display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .timeline { flex: 1; min-height: 0; overflow: hidden; }
 .bottom { flex: none; display: flex; flex-direction: column; overflow: hidden; position: relative; }
@@ -178,7 +210,7 @@ const SHORTCUTS = computed(() => [
 .shortcuts h3 { margin: 0; }
 .shortcuts td { padding: 3px 14px 3px 0; font-size: 13px; }
 .shortcuts kbd { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 4px; padding: 1px 7px; font-size: 12px; }
-.rightbar { width: 340px; flex: none; display: flex; flex-direction: column; overflow: hidden; }
+.rightbar { flex: none; display: flex; flex-direction: column; overflow: hidden; position: relative; }
 .tabs { display: flex; gap: 4px; padding: 6px; border-bottom: 1px solid var(--border); flex: none; }
 .tabs button { padding: 4px 10px; font-size: 12px; border: none; background: transparent; color: var(--text-dim); }
 .tabs button.active { color: var(--text); background: var(--bg-elevated); border-radius: 4px; }

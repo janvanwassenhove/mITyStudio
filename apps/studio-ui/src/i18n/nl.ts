@@ -8,6 +8,11 @@ export default {
   nav: {
     studio: 'Studio', assets: 'Bibliotheek', voices: 'Stemmen', settings: 'Instellingen',
     language: 'Taal', backendConnected: 'backend verbonden',
+    toggleTheme: 'wissel licht/donker thema',
+    layoutTip: 'paneelindeling',
+    togglePanelLeft: 'projectenzijbalk tonen/verbergen',
+    togglePanelBottom: 'onderpaneel tonen/verbergen',
+    togglePanelRight: 'chatzijbalk tonen/verbergen',
     backendOffline: 'backend offline', connecting: 'verbinden…',
     offlineBanner: 'De backend is onbereikbaar — er wordt automatisch opnieuw verbonden. Afspelen en opslaan zijn gepauzeerd.',
     retryNow: 'Nu proberen', reconnected: 'Backend opnieuw verbonden — projecten ververst.',
