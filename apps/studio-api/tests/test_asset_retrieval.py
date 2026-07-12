@@ -39,6 +39,47 @@ def test_retrieval_ranks_fitting_samples_first(client, workspace):
     assert summary["analysed_samples"] == 2
 
 
+def test_cross_language_query_matches_english_metadata(client, workspace):
+    """Dutch/French/German chat must find English-named assets."""
+    from tests.test_sample_analysis import write_tone
+    write_tone(workspace.samples_dir / "guitar loop warm.wav", seconds=1.0)
+    write_tone(workspace.samples_dir / "kick hard.wav", seconds=0.5)
+    client.post("/api/assets/rescan")
+
+    from app.services import asset_retrieval, project_repo
+    p = make_project(client)
+    project = project_repo.load_project(p["id"])
+    samples = asset_retrieval.retrieve_samples(
+        "voeg een warme gitaar loop toe", project)   # Dutch for guitar loop
+    assert samples[0]["filename"] == "guitar loop warm.wav"
+
+
+def test_content_tags_surface_and_rank(client, workspace):
+    """CLAP content tags stored in the analysis feed both the LLM context
+    (sounds_like) and lexical ranking — even when the model itself is off."""
+    from tests.test_sample_analysis import write_tone
+    write_tone(workspace.samples_dir / "XZ_0231.wav", seconds=1.0)  # cryptic
+    write_tone(workspace.samples_dir / "other.wav", seconds=1.0)
+    client.post("/api/assets/rescan")
+    from app.services import asset_repo, sample_analysis
+    cryptic = next(a for a in asset_repo.list_assets("sample")
+                   if a.filename.startswith("XZ"))
+    analysis = sample_analysis.analyse_asset(cryptic)
+    # simulate a CLAP-analysed library (model disabled in tests)
+    analysis["content_tags"] = ["synth-pad", "ambient"]
+    analysis["vibe_tags"] = [*analysis.get("vibe_tags", []),
+                             "synth-pad", "ambient"]
+    sample_analysis._store(cryptic.id, analysis)
+
+    from app.services import asset_retrieval, project_repo
+    p = make_project(client)
+    project = project_repo.load_project(p["id"])
+    samples = asset_retrieval.retrieve_samples("a dreamy ambient pad",
+                                               project)
+    assert samples[0]["filename"] == "XZ_0231.wav"
+    assert samples[0]["sounds_like"] == ["synth-pad", "ambient"]
+
+
 def test_prompt_carries_summary_and_relevant_assets(client, workspace):
     from tests.test_sample_analysis import write_tone
     write_tone(workspace.samples_dir / "kick punchy.wav", seconds=0.5)

@@ -1,7 +1,7 @@
 {
   "name": "mitystudio-desktop",
   "productName": "mITyStudio",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Local-first AI music studio",
   "author": "Jan Vanwassenhove",
   "repository": {
@@ -25,18 +25,51 @@
   "build": {
     "appId": "studio.mity.app",
     "productName": "mITyStudio",
-    "directories": { "output": "dist", "buildResources": "build" },
-    "files": ["electron/**", "splash.html", "setup.html", "package.json"],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**",
+      "splash.html",
+      "setup.html",
+      "package.json"
+    ],
     "extraResources": [
-      { "from": "../studio-ui/dist", "to": "ui" },
-      { "from": "../studio-api/app", "to": "backend/app" },
-      { "from": "../studio-api/requirements-core.txt", "to": "backend/requirements-core.txt" },
-      { "from": "../studio-api/requirements-voice.txt", "to": "backend/requirements-voice.txt" },
-      { "from": "runtime", "to": "python" },
-      { "from": "seed", "to": "seed" }
+      {
+        "from": "../studio-ui/dist",
+        "to": "ui"
+      },
+      {
+        "from": "../studio-api/app",
+        "to": "backend/app"
+      },
+      {
+        "from": "../studio-api/requirements-core.txt",
+        "to": "backend/requirements-core.txt"
+      },
+      {
+        "from": "../studio-api/requirements-voice.txt",
+        "to": "backend/requirements-voice.txt"
+      },
+      {
+        "from": "runtime",
+        "to": "python"
+      },
+      {
+        "from": "seed",
+        "to": "seed"
+      }
     ],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.png"
     },
     "nsis": {
@@ -47,7 +80,15 @@
       "runAfterFinish": true
     },
     "mac": {
-      "target": [{ "target": "dmg", "arch": ["arm64", "x64"] }],
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.png",
       "category": "public.app-category.music",
       "hardenedRuntime": true,
@@ -55,6 +96,8 @@
       "entitlementsInherit": "build/entitlements.mac.plist"
     },
     "afterSign": "build/notarize.js",
-    "publish": { "provider": "github" }
+    "publish": {
+      "provider": "github"
+    }
   }
 }

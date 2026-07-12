@@ -18,7 +18,7 @@ from .audio_io import AudioReadError, read_audio
 
 log = logging.getLogger(__name__)
 
-ANALYSIS_VERSION = 2   # 2: vocals/acapella/energy classification
+ANALYSIS_VERSION = 3   # 3: CLAP content tags + retrieval embedding
 
 _BPM_RE = re.compile(r"(\d{2,3})\s*bpm", re.IGNORECASE)
 _KEY_RE = re.compile(
@@ -194,6 +194,17 @@ def analyse_asset(asset: Asset) -> dict:
         "acapella" if is_acapella else None,
         energy,
     ) if t]
+
+    # content-based tags + semantic embedding (CLAP hears the audio itself —
+    # essential for cryptically named samples). Optional and graceful.
+    from . import audio_tagging
+    if audio_tagging.available():
+        tagged = audio_tagging.tag_audio(mono, rate)
+        if tagged:
+            analysis["content_tags"] = tagged["content_tags"]
+            analysis["clap_embedding"] = tagged["clap_embedding"]
+            vibe_tags = list(dict.fromkeys(
+                [*vibe_tags, *tagged["content_tags"]]))
 
     desc_parts = [f"{duration:.2f}s", f"{data.shape[1]}ch @ {rate}Hz"]
     if bpm:

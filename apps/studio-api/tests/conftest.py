@@ -20,6 +20,7 @@ def workspace(tmp_path, monkeypatch):
     # unit tests exercise the DSP engines; the neural clone engine (XTTS)
     # is too heavy for tests and is validated manually
     monkeypatch.setenv("MITY_DISABLE_CLONE_ENGINE", "1")
+    monkeypatch.setenv("MITY_DISABLE_AUDIO_TAGGING", "1")
     config_mod.reset_config()
     cfg = config_mod.get_config()
     cfg.ensure_dirs()

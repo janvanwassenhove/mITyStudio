@@ -23,7 +23,35 @@ import re
 from ..models.song import SongProject
 from . import asset_repo
 
+import numpy as np
+
 _WORD = re.compile(r"[a-zà-ÿ0-9']+")
+
+# NL/FR/DE music vocabulary → the English words asset metadata uses. The
+# user chats in their language; filenames/tags are English — bridge cheaply.
+_SYNONYMS = {
+    "gitaar": ["guitar"], "gitarre": ["guitar"], "guitare": ["guitar"],
+    "slagwerk": ["drums", "percussion"], "schlagzeug": ["drums"],
+    "batterie": ["drums"], "drumstel": ["drums"],
+    "bas": ["bass"], "basse": ["bass"],
+    "zang": ["vocals", "voice"], "stem": ["vocals", "voice"],
+    "gesang": ["vocals"], "stimme": ["vocals", "voice"],
+    "voix": ["vocals", "voice"], "chant": ["vocals"],
+    "strijkers": ["strings"], "streicher": ["strings"], "cordes": ["strings"],
+    "blazers": ["brass"], "bläser": ["brass"], "cuivres": ["brass"],
+    "fluit": ["flute"], "flöte": ["flute"], "flûte": ["flute"],
+    "koor": ["choir"], "chor": ["choir"], "choeur": ["choir"],
+    "chœur": ["choir"],
+    "klavier": ["piano", "keys"], "toetsen": ["keys", "piano"],
+    "lus": ["loop"], "boucle": ["loop"], "schleife": ["loop"],
+    "trom": ["drum"], "trommel": ["drum", "percussion"],
+    "handtrommel": ["conga", "percussion"],
+    "vrolijk": ["happy", "upbeat"], "fröhlich": ["happy", "upbeat"],
+    "joyeux": ["happy", "upbeat"], "rustig": ["calm", "mellow"],
+    "ruhig": ["calm", "mellow"], "calme": ["calm", "mellow"],
+    "snel": ["fast"], "schnell": ["fast"], "rapide": ["fast"],
+    "langzaam": ["slow"], "langsam": ["slow"], "lent": ["slow"],
+}
 
 # genre / vibe keywords → instrument-category hints (boost fitting presets)
 _GENRE_HINTS = {
@@ -60,8 +88,11 @@ def _tokens(text: str) -> set[str]:
 
 
 def _hint_words(message: str, project: SongProject) -> set[str]:
-    """Query vocabulary: message words + project genre words + genre hints."""
+    """Query vocabulary: message words + project genre words + genre hints
+    + cross-language synonyms (Dutch/French/German → English metadata)."""
     words = _tokens(message) | _tokens(project.style or "")
+    for w in list(words):
+        words.update(_SYNONYMS.get(w, ()))
     for g, hints in _GENRE_HINTS.items():
         if g in words or any(g in w for w in words):
             words.update(hints)
@@ -168,12 +199,15 @@ def retrieve_instruments(message: str, project: SongProject,
 def retrieve_samples(message: str, project: SongProject,
                      limit: int = 48) -> list[dict]:
     """Samples that actually FIT: scored by keyword match + bpm proximity +
-    key compatibility + vocal/type metadata. Mismatched-bpm loops sink."""
+    key compatibility + vocal/type metadata + CLAP semantic similarity
+    (what the sample SOUNDS like vs what the user asked for). Mismatched-bpm
+    loops sink."""
     from . import sample_analysis
     words = _hint_words(message, project)
     bpm = float(project.bpm or 0)
 
     scored: list[tuple[float, dict]] = []
+    embeds: list[tuple[int, list[float]]] = []   # (index in scored, embedding)
     for a in asset_repo.list_assets("sample", include_missing=False):
         analysis = sample_analysis.get_analysis(a.id) or {}
         tags = [*(a.tags or []), *(analysis.get("vibe_tags") or [])]
@@ -205,10 +239,27 @@ def retrieve_samples(message: str, project: SongProject,
                              ("sound_type_guess", "type"),
                              ("loopability_estimate", "loopable"),
                              ("has_vocals", "vocals"),
-                             ("is_acapella", "acapella")):
+                             ("is_acapella", "acapella"),
+                             ("content_tags", "sounds_like")):
             if analysis.get(k_src) is not None:
                 entry[k_dst] = analysis[k_src]
+        if analysis.get("clap_embedding"):
+            embeds.append((len(scored), analysis["clap_embedding"]))
         scored.append((score, entry))
+
+    # semantic term: rank by what the audio SOUNDS like. Only when the
+    # library already carries CLAP embeddings (batch analysis ran) — a chat
+    # message must never trigger the model download itself.
+    if embeds and message.strip():
+        from . import audio_tagging
+        qvec = (audio_tagging.embed_text(message)
+                if audio_tagging.available() else None)
+        if qvec is not None:
+            q = np.asarray(qvec)
+            for idx, emb in embeds:
+                cos = float(np.asarray(emb) @ q)
+                s, e = scored[idx]
+                scored[idx] = (s + 4.0 * max(cos, 0.0), e)
 
     scored.sort(key=lambda t: -t[0])
     return [e for _s, e in scored[:limit]]
