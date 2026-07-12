@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { AudioWaveform, Cloud, Copy, Drum, Guitar, KeyboardMusic, Megaphone,
          MessageSquare, Mic, Music, Music4, Pencil, Piano, Plus, Repeat,
@@ -184,9 +184,25 @@ function trackMenu(e: MouseEvent, trackId: string) {
   }
 }
 
-async function renameTrack(track: Track) {
-  const name = prompt(t('ctx.renamePrompt'), track.name)?.trim()
-  if (!name || name === track.name) return
+// inline track rename (Electron has no window.prompt())
+const renamingTrackId = ref('')
+const trackRenameDraft = ref('')
+const trackRenameInput = ref<HTMLInputElement | null>(null)
+
+function renameTrack(track: Track) {
+  renamingTrackId.value = track.id
+  trackRenameDraft.value = track.name
+  void nextTick(() => {
+    const el = trackRenameInput.value
+    ;(Array.isArray(el) ? el[0] : el)?.focus()
+  })
+}
+
+async function commitTrackRename(trackId: string) {
+  const name = trackRenameDraft.value.trim()
+  renamingTrackId.value = ''
+  const track = studio.project?.tracks.find((x) => x.id === trackId)
+  if (!track || !name || name === track.name) return
   track.name = name
   await save()
 }
@@ -730,7 +746,13 @@ function laneMenu(e: MouseEvent, mtrack: { track_id: string; track_type: string 
               <span class="type-chip" :style="{ background: color(tl.track.track_type) }"
                     :title="$t('timeline.trackType') + ': ' + tl.track.track_type.replace('_', ' ')">
                 {{ TYPE_ABBR[tl.track.track_type] ?? '??' }}</span>
-              <span class="track-name" :title="tl.track.name">{{ tl.track.name }}</span>
+              <input v-if="renamingTrackId === tl.track.track_id"
+                     ref="trackRenameInput" v-model="trackRenameDraft"
+                     class="track-rename" @click.stop
+                     @keyup.enter="($event.target as HTMLInputElement).blur()"
+                     @keyup.esc="renamingTrackId = ''"
+                     @blur="commitTrackRename(tl.track.track_id)" />
+              <span v-else class="track-name" :title="tl.track.name">{{ tl.track.name }}</span>
             </div>
             <div class="label-controls" @dblclick.stop>
               <button class="mini" :class="{ mute: projTrack(tl.track.track_id)?.mute }"
@@ -878,6 +900,7 @@ function laneMenu(e: MouseEvent, mtrack: { track_id: string; track_type: string 
 .label { flex: none; padding: 4px 8px; display: flex; align-items: center; gap: 6px; position: sticky; left: 0; background: var(--bg-panel); z-index: 5; border-right: 1px solid var(--border); }
 .ruler-row .label, .row .label.small { overflow: hidden; }
 .track-name { font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.track-rename { font-size: 12px; padding: 1px 4px; width: 100%; min-width: 0; }
 .track-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .type-chip { flex: none; font-size: 8px; font-weight: 800; color: #101216; border-radius: 4px; padding: 1px 4px; letter-spacing: 0.04em; }
 .track-label { flex-direction: column; align-items: stretch !important; gap: 3px !important; justify-content: center; cursor: default; overflow: hidden; }

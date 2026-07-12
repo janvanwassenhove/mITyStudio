@@ -54,7 +54,10 @@ function projectMenu(e: MouseEvent, p: { id: string; title: string }) {
 function startRename(p: { id: string; title: string }) {
   renamingId.value = p.id
   renameDraft.value = p.title
-  void nextTick(() => renameInput.value?.focus())
+  void nextTick(() => {
+    const el = renameInput.value as HTMLInputElement | HTMLInputElement[] | null
+    ;(Array.isArray(el) ? el[0] : el)?.focus()
+  })
 }
 
 async function commitRename(p: { id: string; title: string }) {
