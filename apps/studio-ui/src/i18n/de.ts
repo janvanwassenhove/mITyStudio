@@ -314,7 +314,7 @@ export default {
     svsStep2: 'Installiere den gemeinsamen Vocoder (einmalig, ~50 MB):',
     svsVocoderInstall: 'Vocoder installieren', svsVocoderOk: 'Vocoder installiert',
     svsVocoderDone: 'Vocoder installiert.', svsVocoderFailed: 'Vocoder-Installation fehlgeschlagen.',
-    svsBankNeedsVocoder: '{n} Voicebank-Ordner gefunden — installiere den Vocoder zum Aktivieren',
+    svsProblem: 'Ordner „{dir}“ konnte nicht laden: {reason}',
     svsBankInfo: '{ph} Phoneme · {w} Wörterbuch-Wörter',
     showRecordings: 'Aufnahmen dieser Stimme anzeigen',
     recordingsUnavailable: '{n} Quellaufnahme(n) nicht verfügbar',

@@ -314,7 +314,7 @@ export default {
     svsStep2: 'Installez le vocodeur partagé (une fois, ~50 Mo) :',
     svsVocoderInstall: 'Installer le vocodeur', svsVocoderOk: 'vocodeur installé',
     svsVocoderDone: 'Vocodeur installé.', svsVocoderFailed: 'Échec de l’installation du vocodeur.',
-    svsBankNeedsVocoder: '{n} dossier(s) voicebank trouvé(s) — installez le vocodeur pour activer',
+    svsProblem: 'le dossier « {dir} » n’a pas pu charger : {reason}',
     svsBankInfo: '{ph} phonèmes · {w} mots au dictionnaire',
     showRecordings: 'afficher les enregistrements de cette voix',
     recordingsUnavailable: '{n} enregistrement(s) source indisponible(s)',

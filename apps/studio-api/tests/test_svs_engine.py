@@ -21,9 +21,11 @@ def _build_fake_bank(root):
 
     class Acoustic(nn.Module):
         def forward(self, tokens, durations, f0, speedup):
-            frames = f0.shape[1]
+            # consume every input or torch.onnx.export prunes it from the
+            # graph (real banks declare all of these)
             mel = f0.unsqueeze(-1).repeat(1, 1, 128) * 0.001
-            return mel + tokens.float().sum() * 0
+            return (mel + tokens.float().sum() * 0
+                    + durations.float().sum() * 0 + speedup.float() * 0)
 
     class Vocoder(nn.Module):
         HOP = 512

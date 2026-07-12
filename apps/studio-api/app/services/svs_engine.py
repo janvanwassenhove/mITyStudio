@@ -4,26 +4,26 @@ source — the quality rung above speech-to-singing.
 The XTTS chain reshapes SPOKEN audio onto notes; a DiffSinger voicebank was
 TRAINED to sing, so sustained vowels, transitions and phrasing come out
 naturally. The studio drives any voicebank in the OpenUtau DiffSinger format
-dropped into voices/svs/<bank>/ (the same drop-a-file philosophy as
-soundfonts — the user obtains banks from their creators under the creators'
-licenses; nothing is redistributed):
-
-    voices/svs/MyBank/
-        dsconfig.yaml       acoustic.onnx      phonemes.txt
-        dsdict*.yaml        (optional embedded vocoder/)
-    voices/svs/nsf_hifigan/ (shared vocoder, downloadable on demand)
+dropped into voices/svs/ (the same drop-a-file philosophy as soundfonts —
+the user obtains banks from their creators under the creators' licenses;
+nothing is redistributed). Banks are discovered recursively, so the
+character folder inside an unzipped release works as-is.
 
 We already know exactly WHAT to sing (1 note per syllable + phoneme dicts),
-so only the acoustic model + vocoder are needed: tokens/durations/f0 are
-built here — no variance/duration predictors, no OpenUtau process. The sung
+so only the acoustic model + vocoder are needed: tokens/durations/f0 and the
+variance-curve inputs are built here — no OpenUtau process. English lyrics
+are phonemized with CMUdict (ARPAbet), mapped through the bank's
+dictionary-en.txt and language-prefixed for multilingual banks. The sung
 lines then go through the SAME dense RVC stage as the clone engine, so the
 result sings in the USER'S trained voice.
 
 Everything degrades gracefully: no bank / no vocoder / no onnxruntime →
-engine unavailable and the clone chain takes over.
+engine unavailable and the clone chain takes over; per-bank load problems
+are reported to the Voices screen instead of failing silently.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -44,6 +44,10 @@ VOCODER_URL = ("https://github.com/xunmengshe/OpenUtau/releases/download/"
                "0.0.0.0/nsf_hifigan.oudep")
 
 _WORD_RE = re.compile(r"[A-Za-zÀ-ÖØ-öø-ÿŒœ']+")
+_STRESS_RE = re.compile(r"\d")
+
+# breath/silence symbols must never count as vowels for onset detection
+_NON_VOWEL_SYMBOLS = {"AP", "SP", "exh", "axh", "cl", "vf", "gs", "pau"}
 
 
 def svs_dir() -> Path:
@@ -58,6 +62,27 @@ def available() -> bool:
     except Exception:  # noqa: BLE001
         return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# English G2P: CMUdict → ARPAbet (the lingua franca of EN voicebanks)
+# ---------------------------------------------------------------------------
+
+_cmu: dict | None = None
+
+
+def _g2p_en(word: str) -> list[str] | None:
+    global _cmu
+    if _cmu is None:
+        try:
+            import cmudict
+            _cmu = cmudict.dict()
+        except Exception:  # noqa: BLE001
+            _cmu = {}
+    prons = _cmu.get(word.lower())
+    if not prons:
+        return None
+    return [_STRESS_RE.sub("", p).lower() for p in prons[0]]
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +115,8 @@ class Vocoder:
         cfg = _read_yaml(cfgf) if cfgf.exists() else {}
         model = None
         name = cfg.get("model")
-        if name and (d / name).exists():
-            model = d / name
+        if name and (d / str(name)).exists():
+            model = d / str(name)
         else:
             cand = sorted(d.glob("*.onnx"))
             model = cand[0] if cand else None
@@ -114,11 +139,18 @@ class SvsBank:
     name: str
     cfg: dict
     tokens: dict[str, int]                 # phoneme -> token id
-    dsdict: dict[str, list[str]]           # word -> phonemes
+    languages: dict[str, int]              # 'en' -> language id (may be {})
+    dsdict: dict[str, list[str]]           # word/grapheme -> phonemes
+    phdict: dict[str, dict[str, str]]      # lang -> arpabet -> bank phoneme
     vowels: set[str]
     acoustic_path: Path
+    spk_embed: np.ndarray | None           # (D,) speaker embedding
     vocoder: Vocoder | None
     _session: object = field(default=None, repr=False)
+
+    @property
+    def lang_prefixed(self) -> bool:
+        return any("/" in t for t in self.tokens)
 
     def session(self):
         if self._session is None:
@@ -127,58 +159,101 @@ class SvsBank:
                 str(self.acoustic_path), providers=["CPUExecutionProvider"])
         return self._session
 
-    @classmethod
-    def load(cls, d: Path) -> "SvsBank | None":
-        cfg = _read_yaml(d / "dsconfig.yaml")
-        ac = d / str(cfg.get("acoustic", "acoustic.onnx"))
-        if not ac.exists():
-            cand = sorted(d.glob("*acoustic*.onnx")) or sorted(d.glob("*.onnx"))
-            ac = cand[0] if cand else ac
-        if not ac.exists():
-            return None
 
-        # token list: phonemes.txt (one per line, index = id) or phonemes.json
-        tokens: dict[str, int] = {}
-        ph = d / str(cfg.get("phonemes", "phonemes.txt"))
-        if ph.exists() and ph.suffix == ".txt":
+def _load_bank(d: Path) -> tuple[SvsBank | None, str]:
+    """(bank, "") on success, (None, reason) on failure."""
+    cfgf = d / "dsconfig.yaml"
+    cfg = _read_yaml(cfgf)
+    if "acoustic" not in cfg:
+        return None, "dsconfig.yaml has no 'acoustic' model entry"
+    ac = d / str(cfg["acoustic"])
+    if not ac.exists():
+        return None, f"acoustic model missing: {cfg['acoustic']}"
+
+    # phoneme token map: .json dict or .txt list
+    tokens: dict[str, int] = {}
+    ph = d / str(cfg.get("phonemes", "phonemes.txt"))
+    if ph.exists():
+        if ph.suffix == ".json":
+            data = json.loads(ph.read_text(encoding="utf-8"))
+            tokens = {str(k): int(v) for k, v in data.items()}
+        else:
             for i, line in enumerate(
                     ph.read_text(encoding="utf-8").splitlines()):
                 if line.strip():
                     tokens[line.strip()] = i
-        elif ph.with_suffix(".json").exists():
-            import json
-            tokens = {k: int(v) for k, v in json.loads(
-                ph.with_suffix(".json").read_text(encoding="utf-8")).items()}
-        if not tokens:
-            return None
+    if not tokens:
+        return None, f"phoneme list missing/empty: {cfg.get('phonemes')}"
+    if "SP" not in tokens:
+        return None, "phoneme list has no SP (pause) symbol"
 
-        # pronunciation dictionary + phoneme types (vowel detection)
-        dsdict: dict[str, list[str]] = {}
-        vowels: set[str] = set()
-        for df in sorted(d.glob("dsdict*.yaml")):
-            data = _read_yaml(df)
-            for e in data.get("entries") or []:
-                g = str(e.get("grapheme", "")).lower().strip()
-                phs = [str(p) for p in (e.get("phonemes") or [])]
-                if g and phs and g not in dsdict:
-                    dsdict[g] = phs
-            for s in data.get("symbols") or []:
-                if str(s.get("type", "")) == "vowel":
-                    vowels.add(str(s.get("symbol")))
-        if not vowels:   # fallback: ARPAbet-ish vowels present in the tokens
-            vowels = {t for t in tokens
-                      if t[:2].lower() in ("aa", "ae", "ah", "ao", "aw", "ax",
-                                           "ay", "eh", "er", "ey", "ih", "iy",
-                                           "ow", "oy", "uh", "uw")}
-        name = str(cfg.get("name") or d.name)
-        vocoder = None
-        for vd in (d / "vocoder", d):
-            v = Vocoder.load(vd) if vd.exists() else None
-            if v is not None and v.model_path != ac:
-                vocoder = v
-                break
-        return cls(dir=d, name=name, cfg=cfg, tokens=tokens, dsdict=dsdict,
-                   vowels=vowels, acoustic_path=ac, vocoder=vocoder)
+    languages: dict[str, int] = {}
+    if cfg.get("use_lang_id"):
+        lf = d / str(cfg.get("languages", "languages.json"))
+        if lf.exists():
+            languages = {str(k): int(v) for k, v in json.loads(
+                lf.read_text(encoding="utf-8")).items()}
+
+    # dsdict(s): word entries + symbol types (vowels); search near the
+    # acoustic model too (multilingual banks keep them in dsmain/)
+    dsdict: dict[str, list[str]] = {}
+    vowels: set[str] = set()
+    for df in {*d.glob("dsdict*.yaml"), *ac.parent.glob("dsdict*.yaml")}:
+        data = _read_yaml(df)
+        for e in data.get("entries") or []:
+            g = str(e.get("grapheme", "")).lower().strip()
+            phs = [str(p) for p in (e.get("phonemes") or [])]
+            if g and phs and g not in dsdict:
+                dsdict[g] = phs
+        for sym in data.get("symbols") or []:
+            if str(sym.get("type", "")) == "vowel":
+                s = str(sym.get("symbol"))
+                if s not in _NON_VOWEL_SYMBOLS:
+                    vowels.add(s)
+    if not vowels:   # fallback: ARPAbet-ish vowel names among the tokens
+        vowels = {t for t in tokens
+                  if t.split("/")[-1][:2] in ("aa", "ae", "ah", "ao", "aw",
+                                              "ax", "ay", "eh", "er", "ey",
+                                              "ih", "iy", "ow", "oy", "uh",
+                                              "uw")}
+
+    # per-language phoneme mapping files (dictionary-en.txt: arpabet → bank)
+    phdict: dict[str, dict[str, str]] = {}
+    for f in {*d.glob("dictionary-*.txt"), *ac.parent.glob("dictionary-*.txt")}:
+        lang = f.stem.split("-", 1)[1]
+        mapping = {}
+        for line in f.read_text(encoding="utf-8").splitlines():
+            parts = line.split("\t") if "\t" in line else line.split()
+            if len(parts) >= 2:
+                mapping[parts[0].strip().lower()] = parts[1].strip()
+        if mapping:
+            phdict[lang] = mapping
+
+    # speaker embedding (multi-speaker banks REQUIRE spk_embed)
+    spk = None
+    embs = sorted(ac.parent.glob("*.emb")) + sorted(d.glob("*.emb"))
+    preferred = next((e for e in embs if "standard" in e.stem.lower()), None)
+    if preferred or embs:
+        spk = np.fromfile(preferred or embs[0], dtype=np.float32)
+
+    # vocoder: named in dsconfig → find its folder inside the bank
+    vocoder = None
+    want = str(cfg.get("vocoder", ""))
+    for vy in sorted(d.rglob("vocoder.yaml")):
+        v = Vocoder.load(vy.parent)
+        if v is None or v.model_path == ac:
+            continue
+        vcfg = _read_yaml(vy)
+        if not want or str(vcfg.get("name", "")) == want \
+                or want in v.model_path.name:
+            vocoder = v
+            break
+        vocoder = vocoder or v
+    name = str(cfg.get("name") or d.name)
+    return SvsBank(dir=d, name=name, cfg=cfg, tokens=tokens,
+                   languages=languages, dsdict=dsdict, phdict=phdict,
+                   vowels=vowels, acoustic_path=ac, spk_embed=spk,
+                   vocoder=vocoder), ""
 
 
 def shared_vocoder() -> Vocoder | None:
@@ -193,22 +268,40 @@ def shared_vocoder() -> Vocoder | None:
     return None
 
 
-def find_banks() -> list[SvsBank]:
+def _bank_config_dirs() -> list[Path]:
+    """Directories under voices/svs/ holding an ACOUSTIC dsconfig.yaml —
+    searched recursively so unzipped release folders work as dropped."""
     root = svs_dir()
-    if not root.exists() or not available():
+    if not root.exists():
+        return []
+    out = []
+    for cfgf in sorted(root.rglob("dsconfig.yaml")):
+        if len(cfgf.relative_to(root).parts) > 4:
+            continue
+        if "acoustic" in _read_yaml(cfgf):
+            out.append(cfgf.parent)
+    return out
+
+
+def find_banks(problems: dict[str, str] | None = None) -> list[SvsBank]:
+    if not available():
         return []
     banks = []
-    for d in sorted(root.iterdir()):
-        if not d.is_dir() or d.name == "nsf_hifigan":
+    for d in _bank_config_dirs():
+        bank, reason = _load_bank(d)
+        if bank is None:
+            if problems is not None:
+                problems[d.name] = reason
+            log.info("SVS bank %s not loadable: %s", d.name, reason)
             continue
-        bank = SvsBank.load(d)
-        if bank is not None:
-            if bank.vocoder is None:
-                bank.vocoder = shared_vocoder()
-            if bank.vocoder is not None:
-                banks.append(bank)
-            else:
-                log.info("SVS bank %s found but no vocoder installed", d.name)
+        if bank.vocoder is None:
+            bank.vocoder = shared_vocoder()
+        if bank.vocoder is None:
+            if problems is not None:
+                problems[d.name] = "no vocoder (bank has none embedded and " \
+                                   "the shared one is not installed)"
+            continue
+        banks.append(bank)
     return banks
 
 
@@ -218,22 +311,22 @@ def default_bank() -> SvsBank | None:
 
 
 def svs_status() -> dict:
-    """For the Voices screen: what's installed, what's missing."""
-    root = svs_dir()
-    bank_dirs = [d.name for d in root.iterdir()
-                 if d.is_dir() and d.name != "nsf_hifigan"] \
-        if root.exists() else []
-    banks = find_banks()
+    """For the Voices screen: what's installed, what's missing, and WHY a
+    dropped bank folder didn't load."""
+    problems: dict[str, str] = {}
+    banks = find_banks(problems)
     return {
         "runtime_available": available(),
-        "vocoder_installed": shared_vocoder() is not None
-        or any(b.vocoder and b.vocoder.dir != svs_dir() / "nsf_hifigan"
-               for b in banks),
-        "bank_dirs": bank_dirs,
+        "vocoder_installed": shared_vocoder() is not None,
+        "bank_dirs": [d.name for d in _bank_config_dirs()],
         "banks": [{"name": b.name, "dir": b.dir.name,
-                   "phonemes": len(b.tokens), "words": len(b.dsdict)}
+                   "phonemes": len(b.tokens),
+                   "languages": sorted(b.languages) or
+                   (["en"] if "en" in b.phdict else []),
+                   "words": len(b.dsdict)}
                   for b in banks],
-        "svs_dir": str(root),
+        "problems": problems,
+        "svs_dir": str(svs_dir()),
         "vocoder_url": VOCODER_URL,
     }
 
@@ -254,23 +347,35 @@ def install_vocoder() -> dict:
         data = r.read()
     with zipfile.ZipFile(io.BytesIO(data)) as z:
         z.extractall(dest)
-    # oudep zips may nest a folder — flatten one level if needed
     if not any(dest.glob("*.onnx")):
         sub = next((s for s in dest.iterdir() if s.is_dir()), None)
         if sub:
             for f in sub.iterdir():
                 f.rename(dest / f.name)
-    ok = shared_vocoder() is not None
-    return {"installed": ok}
+    return {"installed": shared_vocoder() is not None}
 
 
 # ---------------------------------------------------------------------------
 # phonemization: lyric line + per-note syllables -> phonemes per note
 # ---------------------------------------------------------------------------
 
-def _word_phonemes(bank: SvsBank, word: str) -> list[str] | None:
+def _word_phonemes(bank: SvsBank, word: str,
+                   lang: str = "en") -> list[str] | None:
     w = word.lower().strip("'")
-    return bank.dsdict.get(w) or bank.dsdict.get(word.lower())
+    direct = bank.dsdict.get(w) or bank.dsdict.get(word.lower())
+    if direct:
+        return direct
+    if lang == "en" or lang not in bank.languages and "en" in (
+            bank.phdict or {"en": None}):
+        arpa = _g2p_en(w)
+        if arpa is None:
+            return None
+        mapping = bank.phdict.get("en", {})
+        phs = [mapping.get(p, p) for p in arpa]
+        if bank.lang_prefixed:
+            phs = [p if p in bank.tokens else f"en/{p}" for p in phs]
+        return phs if all(p in bank.tokens for p in phs) else None
+    return None
 
 
 def _split_by_vowels(bank: SvsBank, phs: list[str],
@@ -280,7 +385,6 @@ def _split_by_vowels(bank: SvsBank, phs: list[str],
     v_idx = [i for i, p in enumerate(phs) if p in bank.vowels]
     if len(v_idx) == 0:
         return [phs] + [[] for _ in range(n_parts - 1)]
-    # merge/pad vowel groups to exactly n_parts
     while len(v_idx) > n_parts:
         v_idx.pop()           # extra vowels sing within the earlier notes
     groups: list[list[str]] = []
@@ -294,24 +398,22 @@ def _split_by_vowels(bank: SvsBank, phs: list[str],
     return groups
 
 
-def line_note_phonemes(bank: SvsBank, text: str,
-                       note_syls: list[str]) -> list[list[str]] | None:
+def line_note_phonemes(bank: SvsBank, text: str, note_syls: list[str],
+                       lang: str = "en") -> list[list[str]] | None:
     """Phonemes for each of the line's notes (1 note per syllable). None if
-    a word is missing from the bank's dictionary (caller falls back)."""
+    a word can't be phonemized (caller falls back)."""
     from .lyric_text import word_syllables
     words = _WORD_RE.findall(text)
     per_word: list[tuple[int, list[str]]] = []   # (syllable count, phonemes)
     for w in words:
-        phs = _word_phonemes(bank, w)
+        phs = _word_phonemes(bank, w, lang)
         if phs is None:
             return None
         per_word.append((max(len(word_syllables(w)), 1), phs))
     if sum(n for n, _ in per_word) != len(note_syls):
-        # melody split differs (edited lyrics) — distribute by totals
         total = sum(n for n, _ in per_word)
         if total == 0:
             return None
-        # simple proportional re-split: give each word its share of notes
         result: list[list[str]] = []
         remaining = len(note_syls)
         for k, (n, phs) in enumerate(per_word):
@@ -326,6 +428,12 @@ def line_note_phonemes(bank: SvsBank, text: str,
     for n, phs in per_word:
         out.extend(_split_by_vowels(bank, phs, n))
     return out
+
+
+def _token_language(bank: SvsBank, phoneme: str) -> int:
+    if "/" in phoneme:
+        return bank.languages.get(phoneme.split("/", 1)[0], 0)
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -351,22 +459,20 @@ class SvsSingingEngine(SingingVoiceEngine):
         self.profile = profile
 
     # -- one line ----------------------------------------------------------
-    def _sing_line(self, text: str, line_notes: list[dict],
-                   style: dict) -> tuple[np.ndarray, float] | None:
+    def _sing_line(self, text: str, line_notes: list[dict], style: dict,
+                   lang: str = "en") -> tuple[np.ndarray, float] | None:
         bank = self.bank
         voc = bank.vocoder
         frame = voc.frame_sec
-        sp = bank.tokens.get("SP")
-        if sp is None:
-            return None
+        sp = bank.tokens["SP"]
         note_phs = line_note_phonemes(
-            bank, text, [nd.get("syl") or "la" for nd in line_notes])
+            bank, text, [nd.get("syl") or "la" for nd in line_notes], lang)
         if note_phs is None:
             return None
 
         line_start = line_notes[0]["start"]
-        # phoneme sequence with frame durations + per-note vowel frame spans
         tokens: list[int] = [sp]
+        tok_names: list[str] = ["SP"]
         durs: list[int] = [max(int(_HEAD_SEC / frame), 1)]
         note_spans: list[tuple[int, int, float]] = []  # frame span + freq
         cursor = durs[0]
@@ -389,28 +495,30 @@ class SvsSingingEngine(SingingVoiceEngine):
             onset_frames = [max(int(_CONS_SEC / frame), 1) for _ in onset]
             body = max(int(note_len / frame), 2)
             if rest:
-                # vowel takes the note; trailing consonants borrow its end
                 coda = rest[1:]
                 coda_frames = [max(int(_CONS_SEC / frame), 1) for _ in coda]
                 vowel_frames = max(body - sum(coda_frames), 2)
                 seq: list[str] = onset + rest
                 fr = onset_frames + [vowel_frames] + coda_frames
-            else:   # no vowel matched: hold whatever there is
+            else:
                 seq = onset or ["SP"]
                 fr = onset_frames if onset else [body]
                 fr[-1] = max(body, fr[-1])
             for p, f in zip(seq, fr):
                 tokens.append(bank.tokens.get(p, sp))
+                tok_names.append(p)
                 durs.append(f)
             note_spans.append((cursor + sum(onset_frames),
                                cursor + sum(fr), float(nd["freq"])))
             cursor += sum(fr)
-            if rest_len > 0:   # explicit breath-length silence inside a line
+            if rest_len > 0:
                 rf = max(int(rest_len / frame), 1)
                 tokens.append(sp)
+                tok_names.append("SP")
                 durs.append(rf)
                 cursor += rf
         tokens.append(sp)
+        tok_names.append("SP")
         durs.append(max(int(_TAIL_SEC / frame), 1))
 
         total = sum(durs)
@@ -436,28 +544,47 @@ class SvsSingingEngine(SingingVoiceEngine):
         rng = np.random.default_rng(total)
         f0 *= 1 + np.cumsum(rng.standard_normal(total)) * 0.0006
 
-        # acoustic → mel → vocoder, probing what the model actually accepts
-        import onnxruntime  # noqa: F401
+        # acoustic → mel → vocoder, feeding exactly what the model declares
         sess = self.bank.session()
-        names = {i.name for i in sess.get_inputs()}
+        inputs = {i.name: i for i in sess.get_inputs()}
         feeds: dict = {
             "tokens": np.asarray([tokens], dtype=np.int64),
             "durations": np.asarray([durs], dtype=np.int64),
             "f0": f0[None, :].astype(np.float32),
         }
-        if "languages" in names:
-            feeds["languages"] = np.zeros((1, len(tokens)), dtype=np.int64)
-        if "depth" in names:
-            feeds["depth"] = np.asarray([1.0], dtype=np.float32)
-        if "steps" in names:
-            feeds["steps"] = np.asarray([20], dtype=np.int64)
-        if "speedup" in names:
-            feeds["speedup"] = np.asarray([50], dtype=np.int64)
-        for curve, dflt in (("gender", 0.0), ("velocity", 1.0)):
-            if curve in names:
-                feeds[curve] = np.full((1, total), dflt, dtype=np.float32)
-        feeds = {k: v for k, v in feeds.items() if k in names}
-        missing = names - set(feeds)
+        if "languages" in inputs:
+            feeds["languages"] = np.asarray(
+                [[_token_language(bank, p) for p in tok_names]],
+                dtype=np.int64)
+        if "spk_embed" in inputs:
+            if bank.spk_embed is None:
+                log.warning("bank %s wants spk_embed but no .emb found",
+                            bank.name)
+                return None
+            feeds["spk_embed"] = np.tile(
+                bank.spk_embed[None, None, :], (1, total, 1)).astype(
+                np.float32)
+        # neutral variance curves (0 = expression default in OpenUtau;
+        # velocity is log2-scaled, so 0 means 1×)
+        for curve in ("gender", "velocity", "energy", "breathiness",
+                      "voicing", "tension"):
+            if curve in inputs:
+                feeds[curve] = np.zeros((1, total), dtype=np.float32)
+
+        def scalar(name: str, value, dtype):
+            rank = len(inputs[name].shape)
+            arr = np.asarray(value, dtype=dtype)
+            return arr.reshape([1] * rank) if rank else arr
+
+        if "depth" in inputs:
+            feeds["depth"] = scalar("depth", float(
+                self.bank.cfg.get("max_depth", 1.0)), np.float32)
+        if "steps" in inputs:
+            feeds["steps"] = scalar("steps", 32, np.int64)
+        if "speedup" in inputs:
+            feeds["speedup"] = scalar("speedup", 50, np.int64)
+        feeds = {k: v for k, v in feeds.items() if k in inputs}
+        missing = set(inputs) - set(feeds)
         if missing:
             log.warning("SVS bank %s needs unsupported inputs %s",
                         self.bank.name, missing)
@@ -498,6 +625,7 @@ class SvsSingingEngine(SingingVoiceEngine):
         style_name = resolve_delivery(
             getattr(track, "vocal_style", "sing") or "sing", project.style)
         style = _STYLES.get(style_name, _STYLES["sing"])
+        lang = (project.lyrics.language or "en").lower()
 
         segments: list[tuple[int, np.ndarray]] = []
         sung = 0
@@ -505,7 +633,7 @@ class SvsSingingEngine(SingingVoiceEngine):
         prev_end = -10.0
         for text, line_notes in pairs:
             try:
-                r = self._sing_line(text, line_notes, style)
+                r = self._sing_line(text, line_notes, style, lang)
             except Exception as e:  # noqa: BLE001
                 log.warning("SVS line failed (%s) — %r", e, text[:40])
                 r = None

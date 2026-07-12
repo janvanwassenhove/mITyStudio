@@ -71,8 +71,10 @@ async function installEngine() {
 interface SvsStatus {
   runtime_available: boolean
   vocoder_installed: boolean
-  banks: { name: string; dir: string; phonemes: number; words: number }[]
+  banks: { name: string; dir: string; phonemes: number; words: number;
+           languages?: string[] }[]
   bank_dirs: string[]
+  problems?: Record<string, string>
   svs_dir: string
 }
 const svs = ref<SvsStatus | null>(null)
@@ -451,12 +453,13 @@ onMounted(load)
               {{ svs.vocoder_installed ? '✓ ' + t('voices.svsVocoderOk')
                 : vocoderBusy ? '⏳' : t('voices.svsVocoderInstall') }}</button>
           </div>
-          <div v-if="svs.bank_dirs.length && !svs.banks.length" class="warn-text">
-            {{ t('voices.svsBankNeedsVocoder', { n: svs.bank_dirs.length }) }}
-          </div>
         </div>
         <div v-for="b in svs.banks" :key="b.dir" class="dim small">
           🎵 {{ b.name }} — {{ t('voices.svsBankInfo', { ph: b.phonemes, w: b.words }) }}
+          <span v-if="b.languages?.length"> · {{ b.languages.join(', ') }}</span>
+        </div>
+        <div v-for="(reason, dir) in svs.problems" :key="dir" class="warn-text small">
+          ⚠ {{ t('voices.svsProblem', { dir, reason }) }}
         </div>
         <div v-if="svsMsg" class="dim small">{{ svsMsg }}</div>
       </div>

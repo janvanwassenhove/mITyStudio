@@ -314,7 +314,7 @@ export default {
     svsStep2: 'Installeer de gedeelde vocoder (eenmalig, ~50 MB):',
     svsVocoderInstall: 'Vocoder installeren', svsVocoderOk: 'vocoder geïnstalleerd',
     svsVocoderDone: 'Vocoder geïnstalleerd.', svsVocoderFailed: 'Vocoder-installatie mislukt.',
-    svsBankNeedsVocoder: '{n} voicebank-map(pen) gevonden — installeer de vocoder om te activeren',
+    svsProblem: 'map “{dir}” kon niet laden: {reason}',
     svsBankInfo: '{ph} fonemen · {w} woordenboekwoorden',
     showRecordings: 'toon de opnames in deze stem',
     recordingsUnavailable: '{n} bronopname(s) niet beschikbaar',
