@@ -322,6 +322,7 @@ export default {
     restrictions: 'Einschränkungen', noProfiles: 'Noch keine Stimmprofile.',
     svsTitle: 'Gesangs-Engine (SVS-Voicebank)',
     svsTestTip: 'die eigene Stimme dieser Voicebank anhören',
+    singTest: 'Gesangstest', singTestTip: 'die Voicebank singt eine Phrase, umgewandelt in diese Stimme (die echte Gesangskette)',
     svsPickHint: 'Weise im Reiter Spur einer Gesangsspur eine Voicebank zu („Gesangsstimme“), um mit ihrer eigenen Stimme zu singen; wähle deine trainierte Stimme, um sie in dein Timbre umzuwandeln.',
     svsActive: 'aktiv: {name} — Vocals werden wirklich GESUNGEN, deine trainierte Stimme liefert das Timbre',
     svsNone: 'keine Voicebank installiert — Vocals nutzen die Sprachklon-Engine',

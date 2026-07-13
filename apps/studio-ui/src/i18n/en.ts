@@ -322,6 +322,7 @@ export default {
     restrictions: 'restrictions', noProfiles: 'No voice profiles yet.',
     svsTitle: 'Singing engine (SVS voicebank)',
     svsTestTip: 'hear this voicebank’s own voice',
+    singTest: 'Sing test', singTestTip: 'the voicebank sings a phrase, converted to this voice (the production singing chain)',
     svsPickHint: 'Assign a voicebank to a vocal track in the Track tab (“Singing voice”) to sing in its own voice; pick your trained voice to convert it to your timbre.',
     svsActive: 'active: {name} — vocals are truly SUNG, your trained voice supplies the timbre',
     svsNone: 'no voicebank installed — vocals use the speech-clone engine',

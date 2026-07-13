@@ -148,6 +148,7 @@ class SvsBank:
     _phdict: dict | None = field(default=None, repr=False)
     _vowels: set | None = field(default=None, repr=False)
     _spk: object = field(default=0, repr=False)   # 0 = not loaded
+    _auxes: dict | None = field(default=None, repr=False)
 
     @property
     def lang_prefixed(self) -> bool:
@@ -225,6 +226,80 @@ class SvsBank:
             self._session = ort.InferenceSession(
                 str(self.acoustic_path), providers=["CPUExecutionProvider"])
         return self._session
+
+    def aux(self, kind: str) -> "AuxModel | None":
+        """The bank's own duration/pitch/variance predictor (lazy; None when
+        the bank doesn't ship it — heuristics take over per stage)."""
+        if self._auxes is None:
+            self._auxes = {}
+        if kind not in self._auxes:
+            self._auxes[kind] = _load_aux(self.dir, f"ds{kind}", kind)
+        return self._auxes[kind]
+
+
+@dataclass
+class AuxModel:
+    """One of the bank's auxiliary predictors (dsdur / dspitch /
+    dsvariance): a linguistic encoder + a predictor, in openvpi's two-stage
+    ONNX layout. These are the models that make DiffSinger sound HUMAN —
+    trained phoneme durations, expressive pitch and voice-quality curves.
+    Skipping them (early driver versions fed zeros) produces garbled,
+    non-human output on banks whose acoustic model expects them."""
+    dir: Path
+    cfg: dict
+    linguistic_path: Path
+    predictor_path: Path
+    spk_path: Path | None
+    _ling: object = field(default=None, repr=False)
+    _pred: object = field(default=None, repr=False)
+    _spk: object = field(default=0, repr=False)
+
+    def ling(self):
+        if self._ling is None:
+            import onnxruntime as ort
+            self._ling = ort.InferenceSession(
+                str(self.linguistic_path), providers=["CPUExecutionProvider"])
+        return self._ling
+
+    def pred(self):
+        if self._pred is None:
+            import onnxruntime as ort
+            self._pred = ort.InferenceSession(
+                str(self.predictor_path), providers=["CPUExecutionProvider"])
+        return self._pred
+
+    @property
+    def spk(self):
+        if self._spk is 0:  # noqa: F632 — sentinel identity check intended
+            self._spk = (np.fromfile(self.spk_path, dtype=np.float32)
+                         if self.spk_path and self.spk_path.exists() else None)
+        return self._spk
+
+
+def _load_aux(bank_dir: Path, sub: str, predictor_key: str) -> AuxModel | None:
+    """Load <bank>/<sub>/dsconfig.yaml (dsdur/dspitch/dsvariance). Model
+    paths are relative to that yaml (shared-model packs point at ../../)."""
+    d = bank_dir / sub
+    cfg = _read_yaml(d / "dsconfig.yaml") if (d / "dsconfig.yaml").exists() \
+        else {}
+    if not cfg:
+        return None
+    ling = d / str(cfg.get("linguistic", "linguistic.onnx"))
+    pred = d / str(cfg.get(predictor_key, f"{predictor_key}.onnx"))
+    if not ling.exists() or not pred.exists():
+        return None
+    spk = None
+    for sp in (cfg.get("speakers") or []):
+        cand = d / f"{sp}.emb"
+        if cand.exists():
+            spk = cand
+            break
+    if spk is None:
+        embs = sorted(d.glob("*.emb"))
+        pref = next((e for e in embs if "standard" in e.stem.lower()), None)
+        spk = pref or (embs[0] if embs else None)
+    return AuxModel(dir=d, cfg=cfg, linguistic_path=ling,
+                    predictor_path=pred, spk_path=spk)
 
 
 def _load_bank(d: Path) -> tuple[SvsBank | None, str]:
@@ -591,8 +666,32 @@ class SvsSingingEngine(SingingVoiceEngine):
         self.profile = profile
 
     # -- one line ----------------------------------------------------------
+    @staticmethod
+    def _run(sess, cand: dict) -> dict:
+        """Run an ONNX session feeding exactly its declared inputs from the
+        candidate dict (rank-aware scalars, dtype-cast). Returns outputs by
+        name. Raises if a declared input has no candidate."""
+        ins = {i.name: i for i in sess.get_inputs()}
+        feeds = {}
+        for name, spec in ins.items():
+            if cand.get(name) is None:
+                raise RuntimeError(f"no candidate for model input {name!r}")
+            v = np.asarray(cand[name])
+            rank = len(spec.shape)
+            if v.ndim == 0 and rank:
+                v = v.reshape([1] * rank)
+            feeds[name] = v.astype(_ONNX_DTYPES.get(spec.type, v.dtype))
+        outs = sess.run(None, feeds)
+        return {o.name: outs[k] for k, o in enumerate(sess.get_outputs())}
+
     def _sing_line(self, text: str, line_notes: list[dict], style: dict,
                    lang: str = "en") -> tuple[np.ndarray, float] | None:
+        """The full DiffSinger pipeline, exactly as OpenUtau drives it:
+        the bank's OWN models predict phoneme durations (dsdur), expressive
+        pitch (dspitch) and voice-quality curves (dsvariance) before the
+        acoustic model sings. Each stage falls back to a heuristic when the
+        bank doesn't ship that model — but when present they are what makes
+        the output sound like a human singer instead of garbled vowels."""
         bank = self.bank
         voc = bank.vocoder
         frame = voc.frame_sec
@@ -603,15 +702,22 @@ class SvsSingingEngine(SingingVoiceEngine):
             return None
 
         line_start = line_notes[0]["start"]
+        head_f = max(int(_HEAD_SEC / frame), 1)
+        tail_f = max(int(_TAIL_SEC / frame), 1)
+
         tokens: list[int] = [sp]
         tok_names: list[str] = ["SP"]
-        durs: list[int] = [max(int(_HEAD_SEC / frame), 1)]
-        note_spans: list[tuple[int, int, float]] = []  # frame span + freq
-        cursor = durs[0]
+        durs: list[int] = [head_f]                     # heuristic ph_dur
+        # words: (token count, frames, midi|None) — the dur model needs the
+        # word grid; notes: (midi, rest, frames) — the pitch model needs it
+        words: list[list] = [[1, head_f, None]]
+        notes_arr: list[list] = [[60.0, True, head_f]]
+        cursor = head_f
         for i, nd in enumerate(line_notes):
             phs = [p for p in note_phs[i] if p in bank.tokens]
-            # legato: a note holds until the next one starts (micro-gaps are
-            # sung through); real rests (>250 ms) become explicit SP silence
+            midi = 69.0 + 12.0 * float(np.log2(nd["freq"] / 440.0))
+            # legato: a note holds until the next starts (micro-gaps sung
+            # through); real rests (>250 ms) become explicit SP silence
             if i + 1 < len(line_notes):
                 gap = line_notes[i + 1]["start"] - nd["end"]
                 note_len = (line_notes[i + 1]["start"] - nd["start"]
@@ -621,134 +727,272 @@ class SvsSingingEngine(SingingVoiceEngine):
                 note_len = nd["end"] - nd["start"]
                 rest_len = 0.0
             note_len = max(note_len, 0.08)
+            body = max(int(note_len / frame), 2)
+            notes_arr.append([midi, False, body])
+            if not phs:
+                # melisma: this note re-sings the previous word's vowel —
+                # extend that word (and its last phoneme) instead of a gap
+                if len(words) > 1 and words[-1][2] is not None:
+                    words[-1][1] += body
+                    durs[-1] += body
+                    cursor += body
+                    continue
+                phs = ["SP"]
             vowel_pos = next((k for k, p in enumerate(phs)
                               if p in bank.vowels), len(phs))
             onset, rest = phs[:vowel_pos], phs[vowel_pos:]
             onset_frames = [max(int(_CONS_SEC / frame), 1) for _ in onset]
-            body = max(int(note_len / frame), 2)
             if rest:
                 coda = rest[1:]
                 coda_frames = [max(int(_CONS_SEC / frame), 1) for _ in coda]
-                vowel_frames = max(body - sum(coda_frames), 2)
+                vowel_frames = max(body - sum(onset_frames)
+                                   - sum(coda_frames), 2)
                 seq: list[str] = onset + rest
                 fr = onset_frames + [vowel_frames] + coda_frames
             else:
-                seq = onset or ["SP"]
-                fr = onset_frames if onset else [body]
-                fr[-1] = max(body, fr[-1])
+                seq = onset
+                fr = onset_frames
+                fr[-1] = max(body - sum(onset_frames[:-1]), fr[-1])
             for p, f in zip(seq, fr):
                 tokens.append(bank.tokens.get(p, sp))
                 tok_names.append(p)
                 durs.append(f)
-            note_spans.append((cursor + sum(onset_frames),
-                               cursor + sum(fr), float(nd["freq"])))
+            words.append([len(seq), sum(fr), midi])
             cursor += sum(fr)
             if rest_len > 0:
                 rf = max(int(rest_len / frame), 1)
                 tokens.append(sp)
                 tok_names.append("SP")
                 durs.append(rf)
+                words.append([1, rf, None])
+                notes_arr.append([midi, True, rf])
                 cursor += rf
         tokens.append(sp)
         tok_names.append("SP")
-        durs.append(max(int(_TAIL_SEC / frame), 1))
+        durs.append(tail_f)
+        words.append([1, tail_f, None])
+        notes_arr.append([notes_arr[-1][0], True, tail_f])
+
+        n_tok = len(tokens)
+        tokens_np = np.asarray([tokens], dtype=np.int64)
+        langs_np = np.asarray(
+            [[_token_language(bank, p) for p in tok_names]], dtype=np.int64)
+
+        def spk_tile(emb, n):
+            return np.tile(emb[None, None, :], (1, n, 1)).astype(np.float32)
+
+        # ---- stage 1: phoneme durations (dsdur) -------------------------
+        dur_aux = bank.aux("dur")
+        if dur_aux is not None:
+            try:
+                ling = self._run(dur_aux.ling(), {
+                    "tokens": tokens_np, "languages": langs_np,
+                    "word_div": np.asarray([[w[0] for w in words]],
+                                           dtype=np.int64),
+                    "word_dur": np.asarray([[w[1] for w in words]],
+                                           dtype=np.int64),
+                    "ph_dur": np.asarray([durs], dtype=np.int64),
+                })
+                # per-token midi: word midi, rests borrow their neighbour
+                ph_midi, k = [], 0
+                for w in words:
+                    ph_midi += [w[2]] * w[0]
+                    k += w[0]
+                last = next((m for m in ph_midi if m is not None), 60.0)
+                ph_midi = [(m if m is not None else last) for m in ph_midi]
+                emb = dur_aux.spk if dur_aux.spk is not None \
+                    else bank.spk_embed
+                pred = self._run(dur_aux.pred(), {
+                    "encoder_out": ling["encoder_out"],
+                    "x_masks": ling.get("x_masks",
+                                        np.zeros((1, n_tok), dtype=bool)),
+                    "ph_midi": np.asarray([[int(round(m)) for m in ph_midi]],
+                                          dtype=np.int64),
+                    "spk_embed": spk_tile(emb, n_tok)
+                    if emb is not None else None,
+                })
+                raw = np.maximum(
+                    np.asarray(pred["ph_dur_pred"], dtype=np.float64)
+                    .reshape(-1), 1e-3)
+                # rescale within each word so word timing stays EXACTLY on
+                # the notes; the model decides the consonant/vowel balance
+                new_durs: list[int] = []
+                pos = 0
+                for w in words:
+                    seg = raw[pos:pos + w[0]]
+                    pos += w[0]
+                    scaled = np.maximum(
+                        np.round(seg / seg.sum() * w[1]).astype(int), 1)
+                    scaled[int(np.argmax(scaled))] += w[1] - int(scaled.sum())
+                    new_durs += [int(x) for x in scaled]
+                if sum(new_durs) == sum(d for d in durs):
+                    durs = new_durs
+            except Exception as e:  # noqa: BLE001 — keep heuristic durations
+                log.debug("dsdur failed (%s) — heuristic durations", e)
 
         total = sum(durs)
-        # expressive f0 curve: continuous, portamento + delayed vibrato
-        f0 = np.full(total, note_spans[0][2], dtype=np.float32)
-        prev = None
-        for (a, b, freq) in note_spans:
-            t = (np.arange(total) - a) * frame
-            seg = slice(max(a - int(0.05 / frame), 0), b)
-            if prev is not None:
-                gl = np.exp(-np.maximum(t[seg], 0) / 0.05)
-                f0[seg] = freq + (prev - freq) * gl
-            else:
-                f0[seg] = freq
-            dur_s = (b - a) * frame
-            if dur_s > 0.35:
-                tt = np.maximum(t[a:b], 0)
-                on = np.clip((tt - 0.35 * dur_s) / (0.3 * dur_s), 0, 1)
-                f0[a:b] *= 1 + style.get("vib", 0.018) * on * np.sin(
-                    2 * np.pi * style.get("vib_rate", 5.3) * tt)
-            f0[b:] = freq
-            prev = freq
-        rng = np.random.default_rng(total)
-        f0 *= 1 + np.cumsum(rng.standard_normal(total)) * 0.0006
+        durs_np = np.asarray([durs], dtype=np.int64)
 
-        # acoustic → mel → vocoder, feeding exactly what the model declares
+        # base pitch grid in semitones (the pitch model refines it; the
+        # fallback curve is built from the same grid)
+        base_semi = np.zeros(total, dtype=np.float32)
+        pos = 0
+        last_midi = notes_arr[0][0]
+        for midi, rest, frames in notes_arr:
+            if not rest:
+                last_midi = midi
+            base_semi[pos:pos + frames] = last_midi
+            pos += frames
+
+        # ---- stage 2: expressive pitch (dspitch) ------------------------
+        f0 = None
+        pitch_aux = bank.aux("pitch")
+        if pitch_aux is not None:
+            try:
+                ling = self._run(pitch_aux.ling(), {
+                    "tokens": tokens_np, "languages": langs_np,
+                    "ph_dur": durs_np,
+                    "word_div": np.asarray([[w[0] for w in words]],
+                                           dtype=np.int64),
+                    "word_dur": np.asarray([[w[1] for w in words]],
+                                           dtype=np.int64),
+                })
+                emb = pitch_aux.spk if pitch_aux.spk is not None \
+                    else bank.spk_embed
+                pred = self._run(pitch_aux.pred(), {
+                    "encoder_out": ling["encoder_out"],
+                    "x_masks": ling.get("x_masks",
+                                        np.zeros((1, n_tok), dtype=bool)),
+                    "ph_dur": durs_np,
+                    "note_midi": np.asarray([[n[0] for n in notes_arr]],
+                                            dtype=np.float32),
+                    "note_rest": np.asarray([[n[1] for n in notes_arr]],
+                                            dtype=bool),
+                    "note_dur": np.asarray([[n[2] for n in notes_arr]],
+                                           dtype=np.int64),
+                    "pitch": base_semi[None, :],
+                    "expr": np.ones((1, total), dtype=np.float32),
+                    "retake": np.ones((1, total), dtype=bool),
+                    "spk_embed": spk_tile(emb, total)
+                    if emb is not None else None,
+                    "steps": np.asarray(10, dtype=np.int64),
+                })
+                semi = np.asarray(pred["pitch_pred"],
+                                  dtype=np.float32).reshape(-1)[:total]
+                f0 = (440.0 * np.power(2.0, (semi - 69.0) / 12.0)) \
+                    .astype(np.float32)
+            except Exception as e:  # noqa: BLE001 — fallback curve below
+                log.debug("dspitch failed (%s) — heuristic pitch", e)
+
+        if f0 is None:
+            # fallback: portamento + delayed vibrato on the note grid
+            f0 = 440.0 * np.power(2.0, (base_semi - 69.0) / 12.0)
+            pos = 0
+            prev = None
+            for midi, rest, frames in notes_arr:
+                if not rest:
+                    freq = 440.0 * 2 ** ((midi - 69.0) / 12.0)
+                    tt = np.arange(frames) * frame
+                    if prev is not None:
+                        f0[pos:pos + frames] = freq + (prev - freq) * np.exp(
+                            -tt / 0.05)
+                    dur_s = frames * frame
+                    if dur_s > 0.35:
+                        on = np.clip((tt - 0.35 * dur_s) / (0.3 * dur_s),
+                                     0, 1)
+                        f0[pos:pos + frames] *= 1 + style.get("vib", 0.018) \
+                            * on * np.sin(2 * np.pi
+                                          * style.get("vib_rate", 5.3) * tt)
+                    prev = freq
+                pos += frames
+            f0 = f0.astype(np.float32)
+        semi_final = (69.0 + 12.0 * np.log2(np.maximum(f0, 1.0) / 440.0)) \
+            .astype(np.float32)
+
+        # ---- stage 3: voice-quality curves (dsvariance) -----------------
         sess = self.bank.session()
         inputs = {i.name: i for i in sess.get_inputs()}
+        needed = [c for c in ("energy", "breathiness", "voicing", "tension")
+                  if c in inputs]
+        curves: dict[str, np.ndarray] = {}
+        var_aux = bank.aux("variance") if needed else None
+        if var_aux is not None:
+            try:
+                ling = self._run(var_aux.ling(), {
+                    "tokens": tokens_np, "languages": langs_np,
+                    "ph_dur": durs_np,
+                    "word_div": np.asarray([[w[0] for w in words]],
+                                           dtype=np.int64),
+                    "word_dur": np.asarray([[w[1] for w in words]],
+                                           dtype=np.int64),
+                })
+                emb = var_aux.spk if var_aux.spk is not None \
+                    else bank.spk_embed
+                vp = var_aux.pred()
+                n_var = sum(1 for o in vp.get_outputs()
+                            if o.name.endswith("_pred"))
+                pred = self._run(vp, {
+                    "encoder_out": ling["encoder_out"],
+                    "x_masks": ling.get("x_masks",
+                                        np.zeros((1, n_tok), dtype=bool)),
+                    "ph_dur": durs_np,
+                    "pitch": semi_final[None, :],
+                    "energy": np.zeros((1, total), dtype=np.float32),
+                    "breathiness": np.zeros((1, total), dtype=np.float32),
+                    "voicing": np.zeros((1, total), dtype=np.float32),
+                    "tension": np.zeros((1, total), dtype=np.float32),
+                    "retake": np.ones((1, total, max(n_var, 1)), dtype=bool),
+                    "spk_embed": spk_tile(emb, total)
+                    if emb is not None else None,
+                    "steps": np.asarray(10, dtype=np.int64),
+                })
+                for name, arr in pred.items():
+                    if name.endswith("_pred"):
+                        curves[name[:-5]] = np.asarray(
+                            arr, dtype=np.float32).reshape(1, -1)[:, :total]
+            except Exception as e:  # noqa: BLE001 — zeros below
+                log.debug("dsvariance failed (%s) — neutral curves", e)
+
+        # ---- stage 4: acoustic → mel → vocoder --------------------------
         feeds: dict = {
-            "tokens": np.asarray([tokens], dtype=np.int64),
-            "durations": np.asarray([durs], dtype=np.int64),
-            "f0": f0[None, :].astype(np.float32),
+            "tokens": tokens_np,
+            "durations": durs_np,
+            "f0": f0[None, :],
+            "languages": langs_np,
         }
-        if "languages" in inputs:
-            feeds["languages"] = np.asarray(
-                [[_token_language(bank, p) for p in tok_names]],
-                dtype=np.int64)
         if "spk_embed" in inputs:
             if bank.spk_embed is None:
                 log.warning("bank %s wants spk_embed but no .emb found",
                             bank.name)
                 return None
-            feeds["spk_embed"] = np.tile(
-                bank.spk_embed[None, None, :], (1, total, 1)).astype(
-                np.float32)
-        # neutral variance curves (0 = expression default in OpenUtau;
-        # velocity is log2-scaled, so 0 means 1×)
+            feeds["spk_embed"] = spk_tile(bank.spk_embed, total)
         for curve in ("gender", "velocity", "energy", "breathiness",
                       "voicing", "tension"):
             if curve in inputs:
-                feeds[curve] = np.zeros((1, total), dtype=np.float32)
-
-        def scalar(name: str, value, dtype):
-            rank = len(inputs[name].shape)
-            arr = np.asarray(value, dtype=dtype)
-            return arr.reshape([1] * rank) if rank else arr
-
-        if "depth" in inputs:
-            feeds["depth"] = scalar("depth", float(
-                self.bank.cfg.get("max_depth", 1.0)), np.float32)
-        if "steps" in inputs:
-            feeds["steps"] = scalar("steps", 32, np.int64)
-        if "speedup" in inputs:
-            feeds["speedup"] = scalar("speedup", 50, np.int64)
-        feeds = {k: v for k, v in feeds.items() if k in inputs}
-        missing = set(inputs) - set(feeds)
-        if missing:
-            log.warning("SVS bank %s needs unsupported inputs %s",
-                        self.bank.name, missing)
+                feeds[curve] = curves.get(
+                    curve, np.zeros((1, total), dtype=np.float32))
+        feeds["depth"] = np.asarray(
+            float(self.bank.cfg.get("max_depth", 1.0)), dtype=np.float32)
+        feeds["steps"] = np.asarray(32, dtype=np.int64)
+        feeds["speedup"] = np.asarray(50, dtype=np.int64)
+        try:
+            mel = self._run(sess, feeds)["mel"]
+        except RuntimeError as e:
+            log.warning("SVS bank %s: %s", self.bank.name, e)
             return None
-        # cast every feed to the dtype the model actually declares — banks
-        # differ (steps/speedup int64 in some, variance float, etc.)
-        feeds = {k: v.astype(_ONNX_DTYPES.get(inputs[k].type, v.dtype))
-                 for k, v in feeds.items()}
-        mel = sess.run(None, feeds)[0]
 
         vsess = voc.session()
         vnames = {i.name for i in vsess.get_inputs()}
-        vfeeds = {"mel": mel.astype(np.float32),
-                  "f0": f0[None, :].astype(np.float32)}
+        vfeeds = {"mel": mel.astype(np.float32), "f0": f0[None, :]}
         vfeeds = {k: v for k, v in vfeeds.items() if k in vnames}
         wav = vsess.run(None, vfeeds)[0].astype(np.float32).squeeze()
 
         if voc.sample_rate != SAMPLE_RATE:
             wav = resample_linear(wav[:, None], voc.sample_rate,
                                   SAMPLE_RATE)[:, 0]
-        # trim the head SP so the first VOWEL lands on the beat — its onset
-        # consonants (sung inside the head pad) lead the beat like a singer
-        head = int(_HEAD_SEC / frame) * int(round(frame * SAMPLE_RATE))
-        onset0 = 0
-        for p in note_phs[0]:
-            if p in self.bank.vowels:
-                break
-            if p in self.bank.tokens:
-                onset0 += 1
-        lead = int(onset0 * _CONS_SEC * SAMPLE_RATE)
-        start = max(head - lead, 0)
-        return wav[start:], max(line_start - lead / SAMPLE_RATE, 0.0)
+        # trim the head SP: the first word starts exactly on the beat
+        head = head_f * int(round(frame * SAMPLE_RATE))
+        return wav[head:], line_start
 
     # -- whole track ---------------------------------------------------------
     def render(self, project: SongProject, track: Track,

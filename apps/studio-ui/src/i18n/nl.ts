@@ -322,6 +322,7 @@ export default {
     restrictions: 'beperkingen', noProfiles: 'Nog geen stemprofielen.',
     svsTitle: 'Zang-engine (SVS-voicebank)',
     svsTestTip: 'beluister de eigen stem van deze voicebank',
+    singTest: 'Zangtest', singTestTip: 'de voicebank zingt een frase, omgezet naar deze stem (de echte zangketen)',
     svsPickHint: 'Wijs een voicebank toe aan een zangspoor in het tabblad Spoor (“Zangstem”) om in de eigen stem te zingen; kies je getrainde stem om naar jouw timbre om te zetten.',
     svsActive: 'actief: {name} — vocalen worden echt GEZONGEN, jouw getrainde stem levert het timbre',
     svsNone: 'geen voicebank geïnstalleerd — vocalen gebruiken de spraakkloon-engine',

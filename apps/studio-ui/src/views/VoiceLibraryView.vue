@@ -359,14 +359,14 @@ onUnmounted(() => {
   if (engineTimer) clearInterval(engineTimer)
 })
 
-async function testVoice(p: VoiceProfile) {
-  testingId.value = p.id
+async function testVoice(p: VoiceProfile, mode: 'speak' | 'sing' = 'speak') {
+  testingId.value = p.id + mode
   error.value = ''
   try {
     const res = await fetch(`/api/voice/profiles/${p.id}/test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
+      body: JSON.stringify({ mode }),
     })
     if (!res.ok) throw new Error((await res.json()).detail ?? res.statusText)
     const rvc = res.headers.get('X-RVC-Applied') === 'True'
@@ -512,11 +512,18 @@ onMounted(load)
           </button>
           <div class="fname">{{ p.name }} <span class="dim small">({{ p.status }})</span></div>
           <div class="profile-actions">
-            <button class="small-btn" :disabled="testingId === p.id || !cloneAvailable"
+            <button class="small-btn" :disabled="testingId === p.id + 'speak' || !cloneAvailable"
                     :title="cloneAvailable ? t('voices.testTip') : t('voices.engineMissingTitle')"
-                    @click="testVoice(p)">
-              <template v-if="testingId === p.id">⏳ {{ t('voices.synthesizing') }}</template>
+                    @click="testVoice(p, 'speak')">
+              <template v-if="testingId === p.id + 'speak'">⏳ {{ t('voices.synthesizing') }}</template>
               <template v-else><Play class="icon" :size="11" /> {{ t('voices.testVoice') }}</template>
+            </button>
+            <button v-if="svs?.banks?.length" class="small-btn"
+                    :disabled="testingId === p.id + 'sing'"
+                    :title="t('voices.singTestTip')"
+                    @click="testVoice(p, 'sing')">
+              <template v-if="testingId === p.id + 'sing'">⏳ {{ t('voices.synthesizing') }}</template>
+              <template v-else>🎵 {{ t('voices.singTest') }}</template>
             </button>
             <button class="small-btn" :title="t('voices.exportTip')"
                     @click="exportVoice(p)"><Download class="icon" :size="12" /></button>

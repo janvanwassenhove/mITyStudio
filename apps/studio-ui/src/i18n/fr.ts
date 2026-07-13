@@ -322,6 +322,7 @@ export default {
     restrictions: 'restrictions', noProfiles: 'Pas encore de profils vocaux.',
     svsTitle: 'Moteur de chant (voicebank SVS)',
     svsTestTip: 'écouter la voix propre de cette voicebank',
+    singTest: 'Test chanté', singTestTip: 'la voicebank chante une phrase, convertie vers cette voix (la chaîne de chant réelle)',
     svsPickHint: 'Assignez une voicebank à une piste vocale dans l’onglet Piste (« Voix chantée ») pour chanter avec sa voix ; choisissez votre voix entraînée pour la convertir vers votre timbre.',
     svsActive: 'actif : {name} — les voix sont vraiment CHANTÉES, votre voix entraînée fournit le timbre',
     svsNone: 'aucune voicebank installée — les voix utilisent le moteur de clonage vocal',

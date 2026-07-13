@@ -215,17 +215,50 @@ from pydantic import BaseModel
 
 class VoiceTestRequest(BaseModel):
     text: str = "This is my studio voice. One two three, let's sing something beautiful."
+    mode: str = "speak"    # "speak" (XTTS sentence) | "sing" (SVS + RVC)
 
 
 @router.post("/profiles/{profile_id}/test")
 def test_voice(profile_id: str, req: VoiceTestRequest) -> FileResponse:
-    """Synthesize a short sentence in this voice through the full fidelity
-    chain (XTTS clone → trained RVC model when ready). Returns a WAV."""
+    """Synthesize a short test in this voice. mode 'speak': XTTS sentence
+    through the clone chain. mode 'sing': a DiffSinger voicebank SINGS a
+    phrase and the trained RVC model converts it to this voice — exactly
+    the production singing chain, one click from the Voices screen."""
     profile = voice_profiles.get_profile(profile_id)
     if profile is None:
         raise HTTPException(404, "voice profile not found")
     if not profile.consent_confirmed:
         raise HTTPException(403, "profile has no confirmed consent")
+
+    if req.mode == "sing":
+        from ..services import svs_engine
+        from ..services.rvc_convert import rvc_model_ready
+        from ..services.vocal_clone import rvc_convert_segments
+        from ..services.vocal_engine import VocalRenderResult
+        bank = svs_engine.default_bank()
+        if bank is None:
+            raise HTTPException(422, "no SVS voicebank installed — drop one "
+                                "into voices/svs/ first")
+        out = svs_engine.preview_bank(
+            bank.dir.name, text="la la la la la")
+        if out is None:
+            raise HTTPException(422, "the voicebank could not sing the "
+                                "test phrase")
+        rvc_used = False
+        if rvc_model_ready(profile):
+            from ..services.audio_io import read_audio, write_wav
+            data, rate = read_audio(out)
+            res = VocalRenderResult(stem_path=None)
+            conv = rvc_convert_segments([(0, data[:, 0])], profile, res)
+            if conv is not None:
+                cfg = get_config()
+                out = cfg.analysis_cache_dir / "svs" \
+                    / f"singtest_{profile_id[:8]}.wav"
+                write_wav(out, conv[0][1][:, None], rate)
+                rvc_used = True
+        return FileResponse(out, media_type="audio/wav",
+                            filename="voice_sing_test.wav",
+                            headers={"X-RVC-Applied": str(rvc_used)})
     from ..services.vocal_clone import (CloneSingingEngine, _tts_line,
                                         clone_engine_available)
     if not clone_engine_available():
