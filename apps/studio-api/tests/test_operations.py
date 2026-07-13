@@ -100,6 +100,43 @@ def test_chat_edits(client):
     assert any(t["track_type"] == "lead_vocal" for t in project["tracks"])
 
 
+def test_write_notes_operation(client, workspace):
+    """The LLM can compose parts note-by-note; junk notes are dropped and a
+    fully-invalid list is rejected."""
+    from app.models.operations import ChatOperation
+    from app.models.song import Section, SongProject
+    from app.services import operation_applier
+
+    project = SongProject(title="t", bpm=120, key="C major")
+    project.sections = [Section(name="Verse", start_bar=0, length_bars=2)]
+
+    results = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="write_notes", params={
+            "section": "Verse", "track": "AI Drums", "track_type": "drums",
+            "notes": [
+                {"midi_note": 36, "start_beat": 0, "duration_beats": 0.5,
+                 "velocity": 110},
+                {"midi_note": 38, "start_beat": 4, "duration_beats": 0.5},
+                {"midi_note": 42, "start_beat": 999, "duration_beats": 0.5},
+                {"midi_note": 300, "start_beat": 1, "duration_beats": 0.5},
+                {"midi_note": 46, "start_beat": 7.5,
+                 "duration_beats": 4.0},          # clamped to section end
+            ]})])
+    assert results[0].applied, results[0].error
+    track = next(t for t in project.tracks if t.name == "AI Drums")
+    notes = track.clips[0].note_events
+    assert len(notes) == 3                # 2 junk notes dropped
+    assert notes[-1].start_beat + notes[-1].duration_beats <= 8.0001
+
+    # all-invalid notes → clean rejection, nothing added
+    r2 = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="write_notes", params={
+            "section": "Verse", "track": "AI Drums",
+            "notes": [{"midi_note": 999, "start_beat": 0,
+                       "duration_beats": 1}]})])
+    assert not r2[0].applied
+
+
 def test_invalid_operations_rejected(client, workspace):
     from app.models.operations import ChatOperation
     from app.models.song import SongProject

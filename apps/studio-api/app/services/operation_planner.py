@@ -75,6 +75,7 @@ Key params per operation:
 - select_sample: sample_asset_id, track?, section?, start_beat?, duration_beats?, loop?
 - generate_drums/generate_bassline/generate_chords/generate_melody: section (name, id, or "all" for every section), track? (created if missing)
   → to create a FULL SONG: create_song, then add_section per section, then generate_* with section "all" (or per section) for each instrument, then rewrite_lyrics + generate_melody with track_type lead_vocal
+- write_notes: COMPOSE the part yourself, note by note — section (name/id, one section per op), track, track_type, notes: [{{"midi_note": 36, "start_beat": 0, "duration_beats": 0.5, "velocity": 100}}, …]. start_beat is RELATIVE to the section start; keep notes inside the section (length_bars × beats/bar). Use this when you can write something more fitting than generate_* (a genre-true drum groove, a signature riff, a specific bass line); GM drums on midi 35-59 (36 kick, 38 snare, 42 closed hat, 46 open hat, 49 crash). Stay in the song's key for pitched parts.
 - rewrite_lyrics: lines (list of strings), section?, language?
 - change_key: key; change_tempo: bpm (number, or "+10"/"-10")
 - add_effect: track, effect_type (gain|pan|eq|compressor|reverb|delay|distortion), params

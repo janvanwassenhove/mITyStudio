@@ -29,8 +29,16 @@ def _read_chunk_header(f) -> tuple[bytes, int]:
     return cid, size
 
 
+# INFO sub-chunks worth surfacing (SoundFont spec §5): they often carry the
+# only provenance a downloaded .sf2 has — author, copyright, comments
+_INFO_FIELDS = {b"INAM": "name", b"IENG": "author", b"ICOP": "copyright",
+                b"ICMT": "comments", b"IPRD": "product", b"ICRD": "date",
+                b"ISFT": "tool"}
+
+
 def parse_sf2(path: Path) -> dict:
-    """Returns {"name": str, "presets": [{"name", "bank", "program"}]}."""
+    """Returns {"name", "presets": [{"name","bank","program"}], "info": {…}}
+    — info holds the INFO-chunk metadata (author/copyright/…) when present."""
     with open(path, "rb") as f:
         cid, _ = _read_chunk_header(f)
         if cid != b"RIFF":
@@ -39,6 +47,7 @@ def parse_sf2(path: Path) -> dict:
             raise Sf2ParseError("not a SoundFont (sfbk) file")
 
         bank_name = ""
+        info: dict[str, str] = {}
         presets: list[dict] = []
         while True:
             try:
@@ -54,9 +63,13 @@ def parse_sf2(path: Path) -> dict:
                 while f.tell() < list_end:
                     sub_id, sub_size = _read_chunk_header(f)
                     data = f.read(sub_size + (sub_size & 1))[:sub_size]
-                    if sub_id == b"INAM":
-                        bank_name = data.split(b"\0")[0].decode("latin-1",
-                                                                "replace").strip()
+                    field = _INFO_FIELDS.get(sub_id)
+                    if field:
+                        text = data.split(b"\0")[0].decode(
+                            "latin-1", "replace").strip()
+                        if text:
+                            info[field] = text[:300]
+                bank_name = info.get("name", "")
                 f.seek(list_end)
             elif list_type == b"pdta":
                 while f.tell() < list_end:
@@ -78,13 +91,14 @@ def parse_sf2(path: Path) -> dict:
                 f.seek(list_end)
             else:
                 f.seek(list_end)
-        return {"name": bank_name, "presets": presets}
+        return {"name": bank_name, "presets": presets, "info": info}
 
 
 # --- preset inventory cache (SQLite settings table) ------------------------
 
 def get_preset_inventory(asset_id: str, path: Path) -> dict | None:
-    key = f"sf2_presets:{asset_id}"
+    # v2: cache key versioned — older entries lack the INFO metadata
+    key = f"sf2_presets2:{asset_id}"
     row = get_db().execute("SELECT value FROM settings WHERE key=?",
                            (key,)).fetchone()
     if row:
@@ -272,10 +286,21 @@ def tag_soundfonts() -> int:
         tags = [c.lower() for c, _ in ranked[:4]]
         if len(cats) >= 6 and len(presets) >= 60:
             tags.insert(0, "gm-bank")
+        info = (inv or {}).get("info", {})
+        desc = f"{len(presets)} presets: " \
+            + ", ".join(f"{c} ({n})" for c, n in ranked[:5])
+        # provenance straight from the file's INFO chunk — author/copyright
+        # is often the only license signal a downloaded .sf2 carries
+        extra = " · ".join(x for x in (
+            info.get("name") if info.get("name", "").lower()
+            not in asset.filename.lower() else "",
+            f"by {info['author']}" if info.get("author") else "",
+            f"© {info['copyright']}" if info.get("copyright") else "",
+        ) if x)
+        if extra:
+            desc += f" — {extra}"
         asset_repo.update_metadata(
-            asset.id, tags=tags,
-            generated_description=f"{len(presets)} presets: "
-            + ", ".join(f"{c} ({n})" for c, n in ranked[:5]))
+            asset.id, tags=tags, generated_description=desc[:400])
         tagged += 1
     return tagged
 

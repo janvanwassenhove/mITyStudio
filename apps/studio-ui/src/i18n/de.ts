@@ -169,7 +169,7 @@ export default {
     },
     writeForMe: 'Schreib den Part für mich',
     genVocalBlurb: 'Songtext und Melodie werden erstellt — keine Musiktheorie nötig.',
-    genInstBlurb: 'Ein {name}-Part wird für den ganzen Song generiert, passend zu Tonart, Tempo und Stil. Du musst nie Akkorde oder Tabs eingeben.',
+    genInstBlurb: 'Ein {name}-Part wird für den ganzen Song generiert, passend zu Tonart, Tempo und Stil — und mit aktivem KI-Anbieter komponiert die KI danach im Hintergrund eine verfeinerte Version (wird automatisch eingetauscht). Du musst nie Akkorde oder Tabs eingeben.',
     style: 'Stil', styleSing: 'Gesang — Melodie mit Vibrato',
     styleSoft: 'Sanft — luftig, hauchig, leichtes Vibrato',
     stylePowerful: 'Kraftvoll — voll gesungen, tiefes Vibrato',
@@ -280,6 +280,9 @@ export default {
     tags: 'Tags (kommagetrennt)', description: 'Beschreibung', license: 'Lizenzhinweise',
     saveMeta: 'Metadaten speichern', analyse: 'Analysieren', reading: 'lese…',
     turnIntoSong: 'In Song umwandeln', autoDesc: 'automatische Beschreibung:',
+    sfBankName: 'Bankname', sfAuthor: 'Autor', sfCopyright: 'Copyright',
+    sfDate: 'erstellt', sfComments: 'Kommentare',
+    sfCopyLicense: 'als Lizenznotiz übernehmen',
   },
   voices: {
     modelReady: 'High-Fidelity-Modell bereit',

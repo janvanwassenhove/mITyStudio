@@ -169,7 +169,7 @@ export default {
     },
     writeForMe: 'Écrire la partie pour moi',
     genVocalBlurb: 'Les paroles et une mélodie sont créées — aucune théorie musicale requise.',
-    genInstBlurb: 'Une partie de {name} est générée pour toute la chanson, en accord avec la tonalité, le tempo et le style. Vous n’avez jamais à saisir d’accords ni de tablatures.',
+    genInstBlurb: 'Une partie de {name} est générée pour toute la chanson, en accord avec la tonalité, le tempo et le style — et avec un fournisseur IA actif, l’IA compose ensuite une partie affinée en arrière-plan (remplacée automatiquement). Vous n’avez jamais à saisir d’accords ni de tablatures.',
     style: 'Style', styleSing: 'Chant — mélodie avec vibrato',
     styleSoft: 'Doux — aérien, soufflé, vibrato léger',
     stylePowerful: 'Puissant — voix pleine, vibrato profond',
@@ -280,6 +280,9 @@ export default {
     tags: 'Étiquettes (séparées par des virgules)', description: 'Description', license: 'Notes de licence',
     saveMeta: 'Enregistrer les métadonnées', analyse: 'Analyser', reading: 'lecture…',
     turnIntoSong: 'Transformer en chanson', autoDesc: 'description auto :',
+    sfBankName: 'nom de la banque', sfAuthor: 'auteur', sfCopyright: 'copyright',
+    sfDate: 'créé', sfComments: 'commentaires',
+    sfCopyLicense: 'utiliser comme note de licence',
   },
   voices: {
     modelReady: 'modèle haute fidélité prêt',

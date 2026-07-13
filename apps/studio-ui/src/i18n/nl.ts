@@ -169,7 +169,7 @@ export default {
     },
     writeForMe: 'Schrijf de partij voor mij',
     genVocalBlurb: 'Songtekst en melodie worden gemaakt — geen muziektheorie nodig.',
-    genInstBlurb: 'Een {name}-partij wordt voor het hele nummer gegenereerd, passend bij toonsoort, tempo en stijl. Je hoeft nooit akkoorden of tabs in te voeren.',
+    genInstBlurb: 'Een {name}-partij wordt direct voor het hele nummer gegenereerd, passend bij toonsoort, tempo en stijl — en met een actieve AI-provider componeert de AI daarna op de achtergrond een verfijnde partij (die automatisch wordt ingewisseld). Je hoeft nooit akkoorden of tabs in te voeren.',
     style: 'Stijl', styleSing: 'Zingen — melodie met vibrato',
     styleSoft: 'Zacht — luchtig, ademend, licht vibrato',
     stylePowerful: 'Krachtig — vol aangezet, diep vibrato',
@@ -280,6 +280,9 @@ export default {
     tags: 'Tags (kommagescheiden)', description: 'Beschrijving', license: 'Licentienotities',
     saveMeta: 'Metadata opslaan', analyse: 'Analyseren', reading: 'lezen…',
     turnIntoSong: 'Omzetten naar nummer', autoDesc: 'automatische beschrijving:',
+    sfBankName: 'banknaam', sfAuthor: 'auteur', sfCopyright: 'copyright',
+    sfDate: 'gemaakt', sfComments: 'opmerkingen',
+    sfCopyLicense: 'gebruik dit als licentienotitie',
   },
   voices: {
     modelReady: 'high-fidelity model klaar',

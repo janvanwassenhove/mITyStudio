@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException, UploadFile
 
 from ..config import get_config
@@ -8,6 +10,8 @@ from pydantic import BaseModel, Field
 from ..models.song import SongProject
 from ..services import playback_manifest, project_repo
 from ..services.project_repo import ProjectNotFound
+
+log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -174,6 +178,9 @@ def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
                                              "preset": req.preset}))
         gen = _GENERATOR_FOR_TYPE.get(req.track_type)
         if req.generate and gen:
+            # instant part from the procedural generator; when an AI provider
+            # is configured it REFINES this part in the background (an LLM
+            # takes minutes to compose — the button must stay instant)
             ops.append(ChatOperation(op_type=gen,
                                      params={"section": "all", "track": name,
                                              "track_type": req.track_type}))
@@ -184,16 +191,96 @@ def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
             op.params.pop("section")
 
     results = operation_applier.apply_operations(project, ops)
+
+    # AI-path safety net: if the LLM's ops left the new track without clips,
+    # the procedural generator rescues it — the button must never no-op
+    if not is_vocal and req.generate:
+        gen = _GENERATOR_FOR_TYPE.get(req.track_type)
+        trk = next((t for t in project.tracks if t.name == name), None)
+        if gen and trk is not None and not trk.clips:
+            results.extend(operation_applier.apply_operations(
+                project, [ChatOperation(op_type=gen,
+                                        params={"section": "all",
+                                                "track": name,
+                                                "track_type": req.track_type})]))
+
     errors = [r.error for r in results if not r.applied and r.error]
+    ai_refining = False
     if any(r.applied for r in results):
         ref_errors = project_repo.validate_references(project)
         if ref_errors:
             raise HTTPException(422, ref_errors)
         project_repo.save_project(project)
+        if not is_vocal and req.generate:
+            trk = next((t for t in project.tracks if t.name == name), None)
+            if trk is not None:
+                ai_refining = _refine_part_in_background(
+                    project.id, trk.id, req.track_type)
     return {"track_name": name,
             "applied": [r.summary for r in results if r.applied],
             "errors": errors,
+            "ai_refining": ai_refining,
             "project": project.model_dump()}
+
+
+def _refine_part_in_background(project_id: str, track_id: str,
+                               track_type: str) -> bool:
+    """When a real LLM provider is configured, have it COMPOSE the new
+    track's part (write_notes — actual notes matched to style/key/tempo) and
+    replace the instant procedural part when it responds. Runs detached: a
+    reasoning model takes minutes, the add-track button stays instant.
+    Returns True when a refinement was scheduled."""
+    import threading
+
+    from ..services import operation_applier, operation_planner
+    from ..services.llm.settings import load_settings
+    if load_settings().provider == "mock":
+        return False
+
+    def worker() -> None:
+        try:
+            project = project_repo.load_project(project_id)
+            track = next((t for t in project.tracks if t.id == track_id),
+                         None)
+            if track is None:
+                return
+            sections = ", ".join(s.name for s in project.sections)
+            msg = (f"Compose the {track_type} part for track {track.name!r} "
+                   f"(replace its current placeholder part). Song: style "
+                   f"{project.style or 'pop'!r}, key {project.key}, "
+                   f"{project.bpm:g} bpm; sections: {sections}. Write one op "
+                   f"per section and PREFER write_notes with a genre-true "
+                   f"pattern (variation and fills welcome, stay in key). Do "
+                   f"not modify any other track and do not add sections.")
+            _reply, llm_ops, _warnings, usage = operation_planner.plan(
+                project, msg)
+            allowed = {"write_notes", "generate_drums", "generate_bassline",
+                       "generate_chords", "generate_melody"}
+            safe = []
+            for op in llm_ops:
+                if op.op_type not in allowed:
+                    continue
+                op.params["track"] = track_id   # rename-proof, other-track-proof
+                op.params.setdefault("track_type", track_type)
+                safe.append(op)
+            if not any(op.op_type == "write_notes" for op in safe):
+                return   # the LLM added nothing beyond what we already have
+            # freshest project state — the user may have edited meanwhile
+            project = project_repo.load_project(project_id)
+            if not any(t.id == track_id for t in project.tracks):
+                return   # track was deleted while the AI was thinking
+            results = operation_applier.apply_operations(project, safe)
+            if any(r.applied for r in results):
+                project_repo.save_project(project)
+                log.info("AI refined the %s part for track %s (%s)",
+                         track_type, track_id,
+                         (usage or {}).get("model", "llm"))
+        except Exception as e:  # noqa: BLE001 — refinement is best-effort
+            log.warning("AI part refinement failed: %s", e)
+
+    threading.Thread(target=worker, daemon=True,
+                     name=f"ai-part-{track_id[:8]}").start()
+    return True
 
 
 @router.delete("/{project_id}")

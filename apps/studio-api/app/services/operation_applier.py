@@ -304,6 +304,52 @@ def op_generate_chords(project: SongProject, p: dict) -> str:
     return _generate(project, p, "chords", default, music_gen.generate_chords)
 
 
+def op_write_notes(project: SongProject, p: dict) -> str:
+    """LLM-composed part: explicit notes for one section on one track —
+    the AI writes the actual pattern instead of a procedural template.
+    notes: [{midi_note, start_beat (relative to the section), duration_beats,
+    velocity?}], validated and clamped so a hallucinated note can't corrupt
+    the project."""
+    from ..models.song import NoteEvent
+
+    raw = p.get("notes")
+    if not isinstance(raw, list) or not raw:
+        raise OperationError("write_notes needs a non-empty 'notes' list")
+    if len(raw) > 400:
+        raise OperationError("write_notes: too many notes (max 400)")
+
+    track_type = str(p.get("track_type", "synth"))
+
+    def gen(proj: SongProject, section) -> Clip:
+        bpb = proj.beats_per_bar
+        length = section.length_bars * bpb
+        events: list[NoteEvent] = []
+        for n in raw:
+            try:
+                midi = int(n.get("midi_note", n.get("midi", 0)))
+                start = float(n.get("start_beat", 0.0))
+                dur = float(n.get("duration_beats", 0.5))
+                vel = int(n.get("velocity", 96))
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if not 12 <= midi <= 120 or dur <= 0 or start < 0 \
+                    or start >= length:
+                continue
+            events.append(NoteEvent(
+                pitch="", midi_note=midi,
+                start_beat=round(start, 4),
+                duration_beats=round(min(dur, length - start), 4),
+                velocity=max(1, min(vel, 127)), lyric_syllable=""))
+        if not events:
+            raise OperationError("write_notes: no valid notes after "
+                                 "validation")
+        return Clip(section_id=section.id, clip_type="midi",
+                    start_beat=section.start_bar * bpb,
+                    duration_beats=length, note_events=events)
+
+    return _generate(project, p, "written part", track_type, gen)
+
+
 def op_generate_melody(project: SongProject, p: dict) -> str:
     if str(p.get("section", "")).lower() in ("all", "*"):
         if not project.sections:
@@ -592,6 +638,7 @@ _HANDLERS: dict[str, Callable[[SongProject, dict], str]] = {
     "generate_chords": op_generate_chords,
     "generate_melody": op_generate_melody,
     "generate_drums": op_generate_drums,
+    "write_notes": op_write_notes,
     "generate_bassline": op_generate_bassline,
     "rewrite_lyrics": op_rewrite_lyrics,
     "change_key": op_change_key,

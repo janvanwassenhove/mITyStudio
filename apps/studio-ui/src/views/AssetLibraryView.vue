@@ -1,9 +1,28 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Music, RefreshCw, Tag, Upload } from 'lucide-vue-next'
+import { Bell, Drum, Guitar, Layers, Mic, Music, Music2, Piano, RefreshCw,
+         Sparkles, Tag, Upload, Waves, Wind, Zap } from 'lucide-vue-next'
 import { api } from '../api/client'
 import type { Asset } from '../api/types'
+import { CATEGORY_COLORS } from '../lib/trackColors'
+
+// instrument icon + color per soundfont category tag (tags are lowercase
+// category names from the preset scan)
+const CAT_ICONS: Record<string, unknown> = {
+  'piano & keys': Piano, organ: Piano, guitar: Guitar, bass: Guitar,
+  strings: Music2, brass: Music2, 'sax & winds': Wind,
+  'voice & choir': Mic, 'synth lead': Zap, 'synth pad': Waves,
+  'drum kits': Drum, percussion: Bell, fx: Sparkles, 'gm-bank': Layers,
+}
+function catIcon(tag: string) {
+  return CAT_ICONS[tag.toLowerCase()] ?? Music
+}
+function catColor(tag: string): string {
+  const hit = Object.entries(CATEGORY_COLORS)
+    .find(([k]) => k.toLowerCase() === tag.toLowerCase())
+  return hit ? hit[1] : CATEGORY_COLORS.Other
+}
 
 const { t } = useI18n()
 const TABS = ['score', 'soundfont', 'sample', 'voice_recording'] as const
@@ -41,12 +60,45 @@ const filtered = computed(() => {
   })
 })
 
+// category chips (soundfont tab): every tag with its asset count — one
+// click filters the list, click again clears
+const tagCounts = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const a of assets.value) {
+    for (const tg of a.tags) counts[tg] = (counts[tg] ?? 0) + 1
+  }
+  return Object.entries(counts).sort((x, y) => y[1] - x[1])
+})
+function toggleTagChip(tg: string) {
+  tagFilter.value = tagFilter.value === tg ? '' : tg
+}
+
+// soundfont detail: preset inventory + file metadata (author/copyright/…)
+interface SfInfo {
+  name?: string
+  presets?: unknown[]
+  info?: Record<string, string>
+  categories?: { category: string; count: number }[]
+}
+const sfInfo = ref<SfInfo | null>(null)
+
 function select(a: Asset) {
   selected.value = a
   editTags.value = a.tags.join(', ')
   editDesc.value = a.user_description
   editLicense.value = a.license_notes
   analysis.value = null
+  sfInfo.value = null
+  if (tab.value === 'soundfont' && !a.is_missing) {
+    void api.get<SfInfo>(`/assets/${a.id}/soundfont-presets`)
+      .then((r) => { if (selected.value?.id === a.id) sfInfo.value = r })
+      .catch(() => { /* unparsable font — pane just stays basic */ })
+  }
+}
+
+function copyrightToLicense() {
+  const c = sfInfo.value?.info?.copyright
+  if (c) editLicense.value = c
 }
 
 async function saveMetadata() {
@@ -195,6 +247,16 @@ onMounted(load)
     </div>
     <div class="content">
       <div class="list panel">
+        <div v-if="tab === 'soundfont' && tagCounts.length" class="cat-chips">
+          <button v-for="[tg, n] in tagCounts" :key="tg" class="cat-chip"
+                  :class="{ on: tagFilter === tg }"
+                  :style="{ borderColor: catColor(tg) }"
+                  @click="toggleTagChip(tg)">
+            <component :is="catIcon(tg)" :size="11"
+                       :style="{ color: catColor(tg) }" />
+            {{ tg }} <span class="dim">{{ n }}</span>
+          </button>
+        </div>
         <div class="dim small count">{{ t('assets.count', { shown: filtered.length, total: assets.length }) }}</div>
         <div v-if="!assets.length" class="dim empty-hint">
           <template v-if="tab === 'score'">{{ t('assets.emptyScores') }}</template>
@@ -207,7 +269,12 @@ onMounted(load)
           :class="{ active: selected?.id === a.id, missing: a.is_missing }"
           @click="select(a)"
         >
-          <div class="fname">{{ a.filename }} <span v-if="a.is_missing" class="err-text">({{ t('assets.missing') }})</span></div>
+          <div class="fname">
+            <component :is="catIcon(a.tags[0] ?? '')" v-if="tab === 'soundfont'"
+                       :size="14" class="cat-ic"
+                       :style="{ color: catColor(a.tags[0] ?? '') }" />
+            {{ a.filename }} <span v-if="a.is_missing" class="err-text">({{ t('assets.missing') }})</span>
+          </div>
           <div class="dim small">
             {{ fmtSize(a.file_size) }} · {{ a.analysis_status }}
             <span v-for="tg in a.tags.slice(0, 4)" :key="tg" class="tag">{{ tg }}</span>
@@ -229,6 +296,30 @@ onMounted(load)
             <img v-else-if="['.jpg', '.jpeg', '.png'].includes(selected.extension)"
                  class="score-view img" :src="`/api/assets/${selected.id}/file`" />
           </template>
+
+          <!-- soundfont: what's inside + provenance from the file itself -->
+          <div v-if="tab === 'soundfont' && sfInfo" class="sf-info">
+            <div v-if="sfInfo.categories?.length" class="sf-cats">
+              <span v-for="c in sfInfo.categories" :key="c.category" class="sf-cat"
+                    :style="{ borderColor: catColor(c.category) }">
+                <component :is="catIcon(c.category)" :size="11"
+                           :style="{ color: catColor(c.category) }" />
+                {{ c.category }} × {{ c.count }}
+              </span>
+            </div>
+            <table v-if="sfInfo.info && Object.keys(sfInfo.info).length" class="sf-meta">
+              <tr v-if="sfInfo.info.name && !selected.filename.toLowerCase().includes(sfInfo.info.name.toLowerCase())">
+                <td>{{ t('assets.sfBankName') }}</td><td>{{ sfInfo.info.name }}</td></tr>
+              <tr v-if="sfInfo.info.author"><td>{{ t('assets.sfAuthor') }}</td><td>{{ sfInfo.info.author }}</td></tr>
+              <tr v-if="sfInfo.info.copyright"><td>{{ t('assets.sfCopyright') }}</td>
+                <td>{{ sfInfo.info.copyright }}
+                  <button class="mini-btn" :title="t('assets.sfCopyLicense')"
+                          @click="copyrightToLicense">→ {{ t('assets.license') }}</button></td></tr>
+              <tr v-if="sfInfo.info.date"><td>{{ t('assets.sfDate') }}</td><td>{{ sfInfo.info.date }}</td></tr>
+              <tr v-if="sfInfo.info.comments"><td>{{ t('assets.sfComments') }}</td>
+                <td class="sf-comments">{{ sfInfo.info.comments }}</td></tr>
+            </table>
+          </div>
 
           <label class="field">{{ t('assets.tags') }}
             <input v-model="editTags" />
@@ -284,6 +375,25 @@ h3 { margin: 0; font-size: 15px; word-break: break-all; }
 .gen-desc { font-size: 12px; }
 .analysis { font-size: 11px; background: var(--bg); border-radius: 6px; padding: 8px; overflow-x: auto; }
 .err-text { color: var(--err); }
+.cat-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px 2px; }
+.cat-chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; padding: 2px 8px; border-radius: 10px;
+  background: transparent; border: 1px solid var(--border);
+}
+.cat-chip.on { background: var(--bg-elevated); font-weight: 600; }
+.cat-ic { vertical-align: -2px; margin-right: 3px; }
+.sf-info { display: flex; flex-direction: column; gap: 8px; }
+.sf-cats { display: flex; flex-wrap: wrap; gap: 4px; }
+.sf-cat {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+  border: 1px solid var(--border); border-radius: 10px; padding: 1px 8px;
+}
+.sf-meta { font-size: 12px; border-collapse: collapse; }
+.sf-meta td { padding: 2px 8px 2px 0; vertical-align: top; }
+.sf-meta td:first-child { color: var(--text-dim); white-space: nowrap; }
+.sf-comments { white-space: pre-line; max-height: 90px; overflow-y: auto; display: block; }
+.mini-btn { font-size: 10px; padding: 0 6px; margin-left: 6px; }
 .score-view { width: 100%; height: 420px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
 .score-view.img { height: auto; max-height: 480px; object-fit: contain; background: transparent; }
 </style>

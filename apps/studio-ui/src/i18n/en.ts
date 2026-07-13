@@ -169,7 +169,7 @@ export default {
     },
     writeForMe: 'Write the part for me',
     genVocalBlurb: 'Lyrics and a melody are created — no music theory needed.',
-    genInstBlurb: 'A {name} part is generated for the whole song, matching key, tempo and style. You never have to enter chords or tabs.',
+    genInstBlurb: 'A {name} part is generated instantly for the whole song, matching key, tempo and style — and when an AI provider is active, the AI then composes a refined part in the background (it swaps in automatically). You never have to enter chords or tabs.',
     style: 'Style', styleSing: 'Singing — melody with vibrato',
     styleSoft: 'Soft — airy, breathy, light vibrato',
     stylePowerful: 'Powerful — belted, deep vibrato',
@@ -280,6 +280,9 @@ export default {
     tags: 'Tags (comma-separated)', description: 'Description', license: 'License notes',
     saveMeta: 'Save metadata', analyse: 'Analyse', reading: 'reading…',
     turnIntoSong: 'Turn into song', autoDesc: 'auto description:',
+    sfBankName: 'bank name', sfAuthor: 'author', sfCopyright: 'copyright',
+    sfDate: 'created', sfComments: 'comments',
+    sfCopyLicense: 'use this as the license note',
   },
   voices: {
     modelReady: 'high-fidelity model ready',

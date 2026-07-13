@@ -143,14 +143,23 @@ def serve_file(asset_id: str) -> FileResponse:
 
 @router.get("/{asset_id}/soundfont-presets")
 def soundfont_presets(asset_id: str) -> dict:
-    """Preset inventory (name/bank/program) of a SoundFont asset."""
+    """Preset inventory of a SoundFont asset + file metadata (INFO chunk:
+    author/copyright/…) + per-category counts for the library detail pane."""
     asset = asset_repo.get_asset(asset_id)
     if asset is None:
         raise HTTPException(404, "asset not found")
     if asset.asset_type != "soundfont":
         raise HTTPException(400, "not a soundfont")
-    from ..services.sf2_parser import get_preset_inventory
-    return get_preset_inventory(asset.id, Path(asset.original_path)) or {}
+    from ..services.sf2_parser import _categorize_preset, get_preset_inventory
+    inv = dict(get_preset_inventory(asset.id, Path(asset.original_path)) or {})
+    cats: dict[str, int] = {}
+    for p in inv.get("presets", []):
+        c = _categorize_preset(p.get("name", ""), p["bank"], p["program"])
+        cats[c] = cats.get(c, 0) + 1
+    inv["categories"] = sorted(
+        ({"category": c, "count": n} for c, n in cats.items()),
+        key=lambda x: -x["count"])
+    return inv
 
 
 @router.post("/{asset_id}/analyse")
