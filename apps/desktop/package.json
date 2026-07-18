@@ -6,7 +6,7 @@
   "author": "Jan Vanwassenhove",
   "repository": {
     "type": "git",
-    "url": "https://github.com/janvanwassenhove/mITyStudio2.git"
+    "url": "https://github.com/janvanwassenhove/mITyStudio.git"
   },
   "main": "electron/main.js",
   "scripts": {
