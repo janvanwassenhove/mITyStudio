@@ -48,3 +48,7 @@ tools/Applio
 tools/rvc-datasets/
 tools/rvc-training*.log
 tools/logs/
+
+# Blog/website drafts for mityjohn.com — content, not code. Never commit.
+docs/website/
+*.blogpost.md

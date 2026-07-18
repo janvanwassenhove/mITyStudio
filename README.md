@@ -63,8 +63,8 @@ extras install on demand.
 
 ### From source
 ```powershell
-git clone https://github.com/janvanwassenhove/mITyStudio2.git
-cd mITyStudio2
+git clone https://github.com/janvanwassenhove/mITyStudio.git
+cd mITyStudio
 .\run-backend.ps1     # FastAPI on http://127.0.0.1:8000  (API docs at /docs)
 .\run-frontend.ps1    # Vue studio on http://localhost:5173
 .\run-tests.ps1       # pytest + vue-tsc
