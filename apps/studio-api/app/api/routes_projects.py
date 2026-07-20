@@ -76,6 +76,7 @@ class QuickAddTrackRequest(BaseModel):
     bank: int | None = None
     program: int | None = None
     preset: str = ""
+    synth_patch: str = ""                 # built-in synth patch (no SoundFont)
 
 
 _GENERATOR_FOR_TYPE = {
@@ -169,7 +170,15 @@ def quick_add_track(project_id: str, req: QuickAddTrackRequest) -> dict:
         ops.append(ChatOperation(op_type="add_track",
                                  params={"name": name,
                                          "track_type": req.track_type}))
-        if req.soundfont_asset_id and req.bank is not None and req.program is not None:
+        # a "synth:<id>" asset id from the catalog picks the built-in synth
+        synth_patch = req.synth_patch or (
+            (req.soundfont_asset_id or "").split("synth:")[-1]
+            if (req.soundfont_asset_id or "").startswith("synth:") else "")
+        if synth_patch:
+            ops.append(ChatOperation(op_type="assign_synth",
+                                     params={"track": name,
+                                             "synth_patch": synth_patch}))
+        elif req.soundfont_asset_id and req.bank is not None and req.program is not None:
             ops.append(ChatOperation(op_type="assign_soundfont",
                                      params={"track": name,
                                              "soundfont_asset_id": req.soundfont_asset_id,

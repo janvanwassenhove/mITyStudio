@@ -132,17 +132,35 @@ def _keys_compatible(song_key: str | None, sample_key: str | None) -> bool:
     return False
 
 
+def _merged_catalog() -> list[dict]:
+    """Built-in synth patches + SoundFont presets, merged per category. The
+    built-in synth always comes first in each category so it is visible even
+    when the user has no SoundFonts installed."""
+    from .render.synth_engine import synth_catalog
+    from .sf2_parser import instrument_catalog
+    by_cat: dict[str, list[dict]] = {}
+    order: list[str] = []
+    for cat in synth_catalog() + instrument_catalog():
+        name = cat["category"]
+        if name not in by_cat:
+            by_cat[name] = []
+            order.append(name)
+        by_cat[name].extend(cat["presets"])
+    return [{"category": c, "presets": by_cat[c]} for c in order]
+
+
 def summary() -> dict:
     """Global inventory shape — cheap, lets the model reason about what
     exists beyond the retrieved slice."""
-    from .sf2_parser import instrument_catalog
+    from .render.synth_engine import PATCHES
     cats = [{"category": c["category"], "presets": len(c["presets"])}
-            for c in instrument_catalog()]
+            for c in _merged_catalog()]
     samples = asset_repo.list_assets("sample", include_missing=False)
     analysed = sum(1 for a in samples if a.analysis_status == "analysed")
     return {
         "instrument_categories": cats,
         "total_presets": sum(c["presets"] for c in cats),
+        "built_in_synths": len(PATCHES),
         "total_samples": len(samples),
         "analysed_samples": analysed,
         "total_scores": len(asset_repo.list_assets(
@@ -151,23 +169,30 @@ def summary() -> dict:
 
 
 def retrieve_instruments(message: str, project: SongProject,
-                         limit: int = 40) -> list[dict]:
+                         limit: int = 48) -> list[dict]:
     """Top presets scored against the request, with guaranteed coverage of
-    the core band categories so full-song orchestration always has options."""
-    from .sf2_parser import instrument_catalog
+    the core band categories so full-song orchestration always has options.
+    Every built-in synth patch is ALWAYS included (they work with zero setup)
+    alongside the top-scored SoundFont presets."""
+    from .render.synth_engine import synth_catalog
     words = _hint_words(message, project)
+
+    def _entry(cat_name: str, p: dict) -> dict:
+        e = {"category": cat_name, "preset": p["label"],
+             "soundfont_asset_id": p["asset_id"],
+             "bank": p["bank"], "program": p["program"]}
+        if p.get("synth_patch"):
+            e["synth_patch"] = p["synth_patch"]
+        return e
 
     scored: list[tuple[float, dict]] = []
     per_cat: dict[str, list[dict]] = {}
-    for cat in instrument_catalog():
-        cat_l = cat["category"].lower()
-        cat_words = _tokens(cat_l)
+    for cat in _merged_catalog():
+        cat_words = _tokens(cat["category"].lower())
         for p in cat["presets"]:
-            label_words = _tokens(p["label"])
-            score = 2.0 * len(words & label_words) + len(words & cat_words)
-            entry = {"category": cat["category"], "preset": p["label"],
-                     "soundfont_asset_id": p["asset_id"],
-                     "bank": p["bank"], "program": p["program"]}
+            score = 2.0 * len(words & _tokens(p["label"])) \
+                + len(words & cat_words)
+            entry = _entry(cat["category"], p)
             if score > 0:
                 scored.append((score, entry))
             per_cat.setdefault(cat["category"], [])
@@ -178,11 +203,18 @@ def retrieve_instruments(message: str, project: SongProject,
     out: list[dict] = []
     seen: set[tuple] = set()
 
-    def add(e: dict):
+    def add(e: dict) -> bool:
         k = (e["soundfont_asset_id"], e["bank"], e["program"])
-        if k not in seen:
-            seen.add(k)
-            out.append(e)
+        if k in seen:
+            return False
+        seen.add(k)
+        out.append(e)
+        return True
+
+    # the built-in synth is always known to the agent, whatever the request
+    for cat in synth_catalog():
+        for p in cat["presets"]:
+            add(_entry(cat["category"], p))
 
     for _s, e in scored[:limit // 2]:
         add(e)

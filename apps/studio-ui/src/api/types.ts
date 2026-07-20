@@ -53,7 +53,7 @@ export interface Track {
   id: string
   name: string
   track_type: string
-  instrument_config: { soundfont_asset_id: string | null; program: number; is_drum_kit: boolean; bank: number }
+  instrument_config: { soundfont_asset_id: string | null; program: number; is_drum_kit: boolean; bank: number; synth_patch?: string }
   clips: Clip[]
   effects: { effects: Effect[] }
   volume: number

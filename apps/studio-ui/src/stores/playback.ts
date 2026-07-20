@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { api } from '../api/client'
 import type { PlaybackManifest } from '../api/types'
+import * as synth from '../lib/synth'
 import { useStudioStore } from './studio'
 
 /**
@@ -180,6 +181,41 @@ export const usePlaybackStore = defineStore('playback', () => {
   function stopSources() {
     for (const s of sources) { try { s.stop() } catch { /* already stopped */ } }
     sources = []
+    stopLiveSynth()
+  }
+
+  // --- live synth: instrument tracks with no rendered stem yet play through
+  //     the built-in WebAudio synth so there is sound before/without a render
+  let liveVoices: synth.Voice[] = []
+
+  function stopLiveSynth() {
+    if (!ctx) { liveVoices = []; return }
+    const now = ctx.currentTime
+    for (const v of liveVoices) { try { v.stop(now) } catch { /* done */ } }
+    liveVoices = []
+  }
+
+  async function scheduleLiveSynth(m: PlaybackManifest) {
+    const p = studio.project
+    if (!ctx || !p) return
+    await synth.loadPatches()
+    const spb = 60 / m.bpm
+    for (const track of p.tracks) {
+      if (!synth.isSynthTrack(track) || buffers.has(track.id)) continue
+      const spec = synth.getPatch(synth.patchIdForTrack(track))
+      if (!spec) continue
+      const gain = ensureChain(track.id).gain
+      for (const clip of track.clips) {
+        if (clip.clip_type !== 'midi') continue
+        for (const note of clip.note_events) {
+          const songT = (clip.start_beat + note.start_beat) * spb
+          if (songT < playhead.value - 0.01) continue
+          const when = startedAtCtxTime + (songT - startedAtSongTime)
+          liveVoices.push(synth.playVoice(ctx, gain, spec, note.midi_note,
+            when, note.duration_beats * spb, note.velocity))
+        }
+      }
+    }
   }
 
   function tick() {
@@ -195,27 +231,29 @@ export const usePlaybackStore = defineStore('playback', () => {
   }
 
   async function play() {
-    let m = studio.manifest
+    const m = studio.manifest
     if (!m || playing.value || preparing.value) return
-    // auto-render: make sure every stem is fresh before playing, so the user
-    // never has to render manually
+    // start INSTANTLY: existing stems play, and any instrument track without a
+    // fresh stem sounds live via the built-in synth — no wait for a render
+    await startPlayback(m)
+    // then refresh stems in the background and hand off to them when ready, so
+    // the final sound is the true render without ever blocking playback
     if (m.clips.length > 0) {
       preparing.value = true
       try {
         const res = await api.post<{ changed: boolean; errors: string[]; warnings: string[] }>(
           `/projects/${m.project_id}/render/auto`)
         renderWarnings.value = [...(res.errors ?? []), ...(res.warnings ?? [])]
-        if (res.changed) {
+        if (res.changed && playing.value) {
           buffers = new Map()
           stemsLoaded.value = 0
           await studio.reloadCurrent()
+          const m2 = studio.manifest
+          if (playing.value && m2) await startPlayback(m2)  // swap to stems
         }
-      } catch { /* rendering unavailable — the clock still runs */ }
+      } catch { /* rendering unavailable — the live synth keeps playing */ }
       finally { preparing.value = false }
-      m = studio.manifest!
-      if (!m) return
     }
-    await startPlayback(m)
   }
 
   /** Start WebAudio playback from the current playhead WITHOUT the
@@ -240,6 +278,8 @@ export const usePlaybackStore = defineStore('playback', () => {
     startedAtCtxTime = ctx.currentTime
     startedAtSongTime = playhead.value
     playing.value = true
+    // instrument tracks lacking a rendered stem sound live via the synth
+    void scheduleLiveSynth(m)
     if (metronome.value) startMetronome()
     raf = requestAnimationFrame(tick)
   }

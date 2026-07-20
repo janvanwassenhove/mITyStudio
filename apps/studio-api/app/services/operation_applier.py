@@ -96,7 +96,11 @@ def op_add_track(project: SongProject, p: dict) -> str:
     track_type = p.get("track_type", "keys")
     name = p.get("name") or track_type.replace("_", " ").title()
     track = Track(name=name, track_type=track_type)
-    if p.get("soundfont_asset_id"):
+    if p.get("synth_patch"):
+        from .render import synth_engine
+        if synth_engine.get_patch(str(p["synth_patch"])) is not None:
+            track.instrument_config.synth_patch = str(p["synth_patch"])
+    elif p.get("soundfont_asset_id"):
         _require_asset(p["soundfont_asset_id"], "soundfont")
         track.instrument_config.soundfont_asset_id = p["soundfont_asset_id"]
     if "program" in p:
@@ -265,7 +269,28 @@ def op_assign_soundfont(project: SongProject, p: dict) -> str:
             t.instrument_config.program = program
         label = p.get("preset") or asset.filename
     t.instrument_config.is_drum_kit = t.instrument_config.bank == 128
+    # a real SoundFont was chosen — drop any prior built-in synth override
+    t.instrument_config.synth_patch = ""
     return f"assigned instrument {label!r} to track {t.name!r}"
+
+
+def op_assign_synth(project: SongProject, p: dict) -> str:
+    """Route a track to a built-in synth patch (works with zero setup, no
+    SoundFont/FluidSynth needed). The patch id is validated against the
+    engine; assigning a synth clears any SoundFont so the synth wins."""
+    from .render import synth_engine
+
+    t = _find_track(project, p.get("track", ""))
+    patch_id = str(p.get("synth_patch", "")).strip()
+    patch = synth_engine.get_patch(patch_id)
+    if patch is None:
+        raise OperationError(
+            f"unknown synth patch {patch_id!r}; valid ids: "
+            + ", ".join(sorted(synth_engine.PATCHES)))
+    t.instrument_config.synth_patch = patch.id
+    t.instrument_config.soundfont_asset_id = None
+    t.instrument_config.is_drum_kit = patch.id == "drum_kit"
+    return f"assigned built-in synth {patch.label!r} to track {t.name!r}"
 
 
 def op_select_sample(project: SongProject, p: dict) -> str:
@@ -680,6 +705,7 @@ _HANDLERS: dict[str, Callable[[SongProject, dict], str]] = {
     "duplicate_clip": op_duplicate_clip,
     "delete_clip": op_delete_clip,
     "assign_soundfont": op_assign_soundfont,
+    "assign_synth": op_assign_synth,
     "select_sample": op_select_sample,
     "generate_chords": op_generate_chords,
     "generate_melody": op_generate_melody,

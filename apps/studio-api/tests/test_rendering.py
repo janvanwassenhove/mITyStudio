@@ -65,15 +65,24 @@ def test_instrument_stem_rendering(client, workspace):
     assert f.status_code == 200
 
 
-def test_instrument_render_without_soundfont_fails_gracefully(client):
+def test_instrument_render_falls_back_to_builtin_synth(client):
+    """With no SoundFont in the workspace the built-in synth renders every
+    instrument track — batteries-included, never a silent/failed stem."""
     p = build_song(client)
     r = client.post(f"/api/projects/{p['id']}/render/instrument-stems")
-    assert r.status_code == 200  # no crash
+    assert r.status_code == 200
     body = r.json()
-    assert body["rendered"] == []
-    assert body["errors"]
-    assert any("soundfont" in e.lower() or "fluidsynth" in e.lower()
-               for e in body["errors"])
+    assert body["errors"] == []
+    assert len(body["rendered"]) == 2          # Keys + Drums, both via synth
+    assert any("synth" in w.lower() for w in body["warnings"])
+
+    proj = client.get(f"/api/projects/{p['id']}").json()
+    assert len(proj["stems"]) == 2
+    # stem files exist and carry real audio
+    for stem in proj["stems"]:
+        f = client.get(
+            f"/api/projects/{p['id']}/stems/{stem['track_id']}/file")
+        assert f.status_code == 200 and len(f.content) > 1000
 
 
 def test_sample_stem_rendering(client, workspace):

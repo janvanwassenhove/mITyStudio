@@ -59,10 +59,18 @@ def search(text: str | None = None, tags: str | None = None,
 
 @router.get("/instruments")
 def instruments() -> list[dict]:
-    """Categorized catalog of every instrument preset across all SoundFonts —
-    proper instrument names, grouped for browsing."""
-    from ..services.sf2_parser import instrument_catalog
-    return instrument_catalog()
+    """Categorized instrument catalog: the built-in synth patches (always
+    available) merged with every SoundFont preset, grouped for browsing."""
+    from ..services.asset_retrieval import _merged_catalog
+    return _merged_catalog()
+
+
+@router.get("/synth-patches")
+def synth_patches() -> list[dict]:
+    """DSP parameters of every built-in synth patch — the single source of
+    truth the browser's real-time WebAudio synth reads so both engines match."""
+    from ..services.render.synth_engine import synth_patch_specs
+    return synth_patch_specs()
 
 
 @router.post("/analyse-batch")

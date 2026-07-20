@@ -103,15 +103,50 @@ class InstrumentPreviewRequest(BaseModel):
     bank: int = 0
     program: int = Field(default=0, ge=0, le=127)
     is_drum_kit: bool = False
+    synth_patch: str = ""          # built-in synth patch id (bypasses FluidSynth)
     bpm: float = Field(default=120, gt=20, lt=400)
     notes: list[PreviewNote] = Field(max_length=512)
 
 
+def _preview_with_synth(req: "InstrumentPreviewRequest") -> FileResponse:
+    """Audition a built-in synth patch — no FluidSynth/SoundFont required."""
+    import uuid as _uuid
+
+    import numpy as np
+
+    from ..services.audio_io import write_wav
+    from ..services.render import synth_engine
+
+    patch_id = req.synth_patch or (req.soundfont_asset_id or "").split("synth:")[-1]
+    if req.is_drum_kit:
+        patch_id = "drum_kit"
+    patch = synth_engine.get_patch(patch_id) or synth_engine.get_patch("keys_piano")
+    sr = synth_engine.SAMPLE_RATE
+    spb = 60.0 / req.bpm
+    end_beat = max((n.start_beat + n.duration_beats for n in req.notes), default=1)
+    total = int((end_beat * spb + 2.0) * sr)
+    out = np.zeros(total, dtype=np.float32)
+    for n in req.notes:
+        start = int(n.start_beat * spb * sr)
+        mono = synth_engine.render_note(patch, n.midi_note,
+                                        n.duration_beats * spb, n.velocity, sr)
+        hi = min(start + len(mono), total)
+        out[start:hi] += mono[:hi - start]
+    peak = float(np.max(np.abs(out))) if out.size else 0.0
+    if peak > 1.0:
+        out /= peak
+    cache = get_config().analysis_cache_dir / "previews"
+    cache.mkdir(parents=True, exist_ok=True)
+    wav_path = cache / f"{_uuid.uuid4().hex[:12]}.wav"
+    write_wav(wav_path, out.reshape(-1, 1), sr)
+    return FileResponse(wav_path, media_type="audio/wav", filename="preview.wav")
+
+
 @router.post("/preview/instrument")
 def preview_instrument(req: InstrumentPreviewRequest) -> FileResponse:
-    """Render a short pattern with a REAL instrument (FluidSynth + the exact
-    SoundFont preset) — used by the play surfaces to audition kits/instruments
-    with their true sound, loopable in the browser."""
+    """Render a short pattern to audition an instrument, loopable in the
+    browser. Built-in synth patches render directly (no FluidSynth needed);
+    SoundFont presets render through FluidSynth with the exact preset."""
     import subprocess
     import uuid as _uuid
 
@@ -121,6 +156,11 @@ def preview_instrument(req: InstrumentPreviewRequest) -> FileResponse:
     from ..services.capabilities import fluidsynth_path
     from ..services.render.soundfont_renderer import SAMPLE_RATE, _resolve_soundfont
     from ..models.song import Track
+
+    if not req.notes:
+        raise HTTPException(422, "no notes to preview")
+    if req.synth_patch or (req.soundfont_asset_id or "").startswith("synth:"):
+        return _preview_with_synth(req)
 
     fs = fluidsynth_path()
     if fs is None:

@@ -95,6 +95,10 @@ class InstrumentConfig(BaseModel):
     bank: int = 0
     program: int = Field(default=0, ge=0, le=127)  # General MIDI program
     is_drum_kit: bool = False                       # route to MIDI channel 10
+    # built-in synth patch id (see render/synth_engine.PATCHES). When set, the
+    # track renders on the baked-in synth instead of a SoundFont. "" = auto
+    # (SoundFont if one fits, else the default synth patch for the track type).
+    synth_patch: str = ""
 
 
 class Track(BaseModel):

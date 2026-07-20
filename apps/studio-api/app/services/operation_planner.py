@@ -66,12 +66,13 @@ Allowed op_type values: {json.dumps(_OP_TYPES)}
 Key params per operation:
 - create_song: title, style, bpm, key, time_signature
 - add_section: name, start_bar?, length_bars, energy (0-1), description?
-- add_track: name, track_type (drums|bass|guitar|keys|synth|strings|brass|sample|lead_vocal|backing_vocal|fx), soundfont_asset_id?, program?
+- add_track: name, track_type (drums|bass|guitar|keys|synth|strings|brass|sample|lead_vocal|backing_vocal|fx), soundfont_asset_id?, program?, synth_patch? (built-in synth id)
 - update_track: track (name or id), name? (rename), volume? (0-2), pan? (-1..1), mute?, solo?
 - split_clip: track, at_bar (1-based bar where the cut falls)
 - duplicate_clip: track, at_bar? (clip covering that bar; omit = last clip)
 - delete_clip: track, at_bar? (omit = last clip)
 - assign_soundfont: track (name or id), soundfont_asset_id, bank, program, preset (label, for the summary)
+- assign_synth: track (name or id), synth_patch (a built-in synth id from the instruments list, e.g. "synth_saw_lead", "bass_pluck", "drum_kit")
 - select_sample: sample_asset_id, track?, section?, start_beat?, duration_beats?, loop?
 - generate_drums/generate_bassline/generate_chords/generate_melody: section (name, id, or "all" for every section), track? (created if missing)
   → to create a FULL SONG: create_song, then add_section per section, then generate_* with section "all" (or per section) for each instrument, then rewrite_lyrics + generate_melody with track_type lead_vocal
@@ -90,17 +91,21 @@ STRICT RULES:
 - Prefer generate_* operations for musical content; you may add explicit lyrics.
 
 COMPOSE LIKE A PRODUCER (use the asset data):
-- INSTRUMENTS: after add_track/generate_*, pick a fitting preset from the
-  instruments list and assign it with assign_soundfont, copying its
-  soundfont_asset_id + bank + program + preset EXACTLY from that list. Do NOT
-  invent bank/program numbers or preset names — only entries in the
-  instruments list are real; the backend verifies bank/program against the
-  font and will swap in a fitting real preset if you guess wrong, but picking
-  a listed one gets you the instrument you actually want. Match genre: punk →
+- INSTRUMENTS: after add_track/generate_*, give every instrument track a sound.
+  Two kinds appear in the instruments list:
+  • SoundFont presets (richer, sampled) — assign with assign_soundfont, copying
+    soundfont_asset_id + bank + program + preset EXACTLY from the list. Do NOT
+    invent bank/program numbers or preset names.
+  • Built-in synth patches (carry a "synth_patch" field, soundfont "Built-in
+    synth") — assign with assign_synth using that synth_patch id. These ALWAYS
+    work, with zero setup, even when the user has no SoundFonts installed.
+  Prefer a fitting SoundFont preset when one is listed; use a synth patch when
+  no preset fits, for a deliberately synthy sound, or when the instruments list
+  has only built-in synths. The backend verifies SoundFont bank/program and
+  swaps in a fitting real preset if you guess wrong. Match genre: punk →
   overdriven guitar, jazz/bossa → nylon or clean guitar + upright bass + soft
-  kit, pop → clean keys/pads. Drums need a "Drum Kits" preset. If no listed
-  preset fits an instrument (e.g. no sax in the list), still add the track and
-  assign the closest listed soundfont — the backend finds the best real match.
+  kit, pop → clean keys/pads. Drums need a "Drum Kits" preset (or the
+  "drum_kit" synth patch).
 - SAMPLES: when a sample fits the vibe, place it with select_sample — but
   ONLY if its bpm is within ±3 of the song bpm (or it's a one-shot) and its
   key is compatible (same key, relative major/minor, or unpitched type like

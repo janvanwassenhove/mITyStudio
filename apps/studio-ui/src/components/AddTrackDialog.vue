@@ -28,7 +28,7 @@ const picked = ref<InstrumentCard | null>(null)
 const generate = ref(true)
 
 // ---- sound variant: real presets from the SoundFont catalog ---------------
-interface CatalogPreset { label: string; asset_id: string; soundfont: string; bank: number; program: number }
+interface CatalogPreset { label: string; asset_id: string; soundfont: string; bank: number; program: number; synth_patch?: string }
 const TYPE_CATEGORIES: Record<string, string[]> = {
   drums: ['Drum Kits'], bass: ['Bass'], guitar: ['Guitar'],
   keys: ['Piano & Keys', 'Organ'], synth: ['Synth Lead', 'Synth Pad'],
@@ -61,8 +61,8 @@ async function auditionPreset() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ soundfont_asset_id: pc.asset_id, bank: pc.bank,
-                             program: pc.program, is_drum_kit: isKit,
-                             bpm: 110, notes }),
+                             program: pc.program, synth_patch: pc.synth_patch ?? '',
+                             is_drum_kit: isKit, bpm: 110, notes }),
     })
     if (!res.ok) throw new Error((await res.json()).detail ?? res.statusText)
     auditionAudio?.pause()
@@ -117,6 +117,7 @@ async function add() {
         bank: presetChoice.value?.bank ?? null,
         program: presetChoice.value?.program ?? null,
         preset: presetChoice.value?.label ?? '',
+        synth_patch: presetChoice.value?.synth_patch ?? '',
         voice_profile_id: isVocal.value && voiceProfileId.value ? voiceProfileId.value : null,
         lyrics: isVocal.value && lines.length ? lines : null,
         vocal_style: vocalStyle.value,
@@ -176,7 +177,7 @@ async function add() {
                     @change="presetChoice = presetOptions.find(o => o.label + '|' + o.bank + '|' + o.program === ($event.target as HTMLSelectElement).value) ?? null">
               <option value="">{{ t('addTrack.soundAuto') }}</option>
               <option v-for="(o, i) in presetOptions" :key="i" :value="o.label + '|' + o.bank + '|' + o.program">
-                {{ o.label }}
+                {{ o.label }}{{ o.synth_patch ? ` · ${t('addTrack.builtIn')}` : '' }}
               </option>
             </select>
             <button v-if="presetChoice" type="button" :disabled="auditioning"

@@ -32,7 +32,7 @@ class InstrumentRenderer(ABC):
 
 
 # bump when a rendering engine changes so cached stems re-render
-ENGINE_VERSION = "7"
+ENGINE_VERSION = "8"
 
 
 def track_fingerprint(project: SongProject, track: Track) -> str:
@@ -81,8 +81,11 @@ def auto_assign_soundfonts(project: SongProject) -> list[str]:
     log_msgs: list[str] = []
     for track in project.tracks:
         cfg = track.instrument_config
-        if cfg.soundfont_asset_id or track.track_type in ("sample", "lead_vocal",
-                                                          "backing_vocal"):
+        # an explicit built-in synth choice must never be shadowed by SF2
+        # auto-assign — the synth renderer owns that track
+        if cfg.soundfont_asset_id or cfg.synth_patch \
+                or track.track_type in ("sample", "lead_vocal",
+                                        "backing_vocal"):
             continue
         match = find_best_soundfont(track.track_type)
         if match is None:
@@ -122,6 +125,20 @@ class SoundFontRenderer(InstrumentRenderer):
         return warnings
 
 
+def _select_renderer(track: Track) -> InstrumentRenderer:
+    """Per-track engine choice. Priority (confirmed product decision):
+    explicit synth patch → built-in synth; else a resolvable SoundFont +
+    FluidSynth → SoundFont; else → built-in synth (guaranteed default)."""
+    from .synth_renderer import SynthRenderer
+    if track.instrument_config.synth_patch:
+        return SynthRenderer()
+    if fluidsynth_path() is not None:
+        soundfont, _ = _resolve_soundfont(track)
+        if soundfont is not None:
+            return SoundFontRenderer()
+    return SynthRenderer()
+
+
 class RenderUnavailable(Exception):
     pass
 
@@ -133,7 +150,6 @@ class RenderFailed(Exception):
 def render_instrument_stems(project: SongProject) -> dict:
     """Render all eligible instrument tracks to WAV stems."""
     cfg = get_config()
-    renderer = SoundFontRenderer()
     results: dict = {"rendered": [], "skipped": [], "errors": [], "warnings": []}
 
     # smart preset matching happens BEFORE MIDI export so bank/program land
@@ -160,6 +176,7 @@ def render_instrument_stems(project: SongProject) -> dict:
             results["skipped"].append(f"{track.name}: up to date")
             continue
         out_path = stems_dir / f"{midi_export._safe_name(track.name)}_{track.id[:8]}.wav"
+        renderer = _select_renderer(track)
         try:
             warnings = renderer.render_track(project, track,
                                              cfg.root / midi_rel, out_path)

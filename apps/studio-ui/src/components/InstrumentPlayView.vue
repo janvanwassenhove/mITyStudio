@@ -5,6 +5,7 @@ import { api } from '../api/client'
 import type { Clip, NoteEvent, Track } from '../api/types'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
+import * as synth from '../lib/synth'
 import { DRUM_SVG } from '../lib/drumIcons'
 import BeatSequencer from './BeatSequencer.vue'
 
@@ -19,10 +20,21 @@ const uid = () => crypto.randomUUID().replace(/-/g, '')
 // ---------------- shared synth preview ----------------
 let ctx: AudioContext | null = null
 function ensureCtx() {
-  if (!ctx) ctx = new AudioContext()
+  if (!ctx) { ctx = new AudioContext(); void synth.loadPatches() }
   return ctx
 }
+// tap-to-hear through the track's actual synth patch when available, so
+// auditioning matches what the timeline/render will sound like
+function synthTap(midi: number, dur: number, delay: number,
+                  patchId?: string): boolean {
+  const c = ensureCtx()
+  const spec = synth.getPatch(patchId ?? synth.patchIdForTrack(props.track))
+  if (!spec) return false
+  synth.playVoice(c, c.destination, spec, midi, c.currentTime + delay, dur, 104)
+  return true
+}
 function playTone(midi: number, dur = 0.5, delay = 0, gainVal = 0.16) {
+  if (synthTap(midi, dur, delay)) return
   const c = ensureCtx()
   const t = c.currentTime + delay
   const g = c.createGain()
@@ -41,6 +53,7 @@ function playTone(midi: number, dur = 0.5, delay = 0, gainVal = 0.16) {
   }
 }
 function playDrum(midi: number) {
+  if (synthTap(midi, 0.3, 0, 'drum_kit')) return
   const c = ensureCtx()
   const t = c.currentTime
   const g = c.createGain()

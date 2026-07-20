@@ -137,6 +137,62 @@ def test_write_notes_operation(client, workspace):
     assert not r2[0].applied
 
 
+def test_assign_synth_operation(client, workspace):
+    """Assigning a built-in synth patch sets it, clears any SoundFont, and an
+    unknown patch id is rejected."""
+    from app.models.operations import ChatOperation
+    from app.models.song import InstrumentConfig, SongProject, Track
+    from app.services import operation_applier
+
+    project = SongProject(title="t")
+    project.tracks = [Track(name="Lead", track_type="synth",
+                            instrument_config=InstrumentConfig(
+                                soundfont_asset_id="old-font"))]
+
+    r = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="assign_synth",
+                      params={"track": "Lead", "synth_patch": "synth_saw_lead"})])
+    assert r[0].applied, r[0].error
+    cfg = project.tracks[0].instrument_config
+    assert cfg.synth_patch == "synth_saw_lead"
+    assert cfg.soundfont_asset_id is None       # synth wins over the SoundFont
+
+    # drum_kit patch flags the track as a kit
+    project.tracks.append(Track(name="Beat", track_type="drums"))
+    operation_applier.apply_operations(project, [
+        ChatOperation(op_type="assign_synth",
+                      params={"track": "Beat", "synth_patch": "drum_kit"})])
+    assert project.tracks[1].instrument_config.is_drum_kit
+
+    # unknown patch → clean rejection
+    r2 = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="assign_synth",
+                      params={"track": "Lead", "synth_patch": "nope"})])
+    assert not r2[0].applied and "nope" in (r2[0].error or "")
+
+
+def test_render_selection_prefers_synth_and_soundfont(client, workspace,
+                                                      monkeypatch):
+    """Explicit synth patch → SynthRenderer; no FluidSynth → SynthRenderer;
+    FluidSynth + a resolvable SoundFont → SoundFontRenderer."""
+    from app.models.song import InstrumentConfig, Track
+    from app.services.render import soundfont_renderer as sr
+    from app.services.render.synth_renderer import SynthRenderer
+
+    explicit = Track(name="S", track_type="synth",
+                     instrument_config=InstrumentConfig(synth_patch="bass_synth"))
+    plain = Track(name="K", track_type="keys")
+
+    monkeypatch.setattr(sr, "fluidsynth_path", lambda: None)
+    assert isinstance(sr._select_renderer(explicit), SynthRenderer)
+    assert isinstance(sr._select_renderer(plain), SynthRenderer)
+
+    monkeypatch.setattr(sr, "fluidsynth_path", lambda: "/usr/bin/fluidsynth")
+    monkeypatch.setattr(sr, "_resolve_soundfont", lambda t: (object(), []))
+    assert isinstance(sr._select_renderer(explicit), SynthRenderer)   # still synth
+    assert isinstance(sr._select_renderer(plain), sr.SoundFontRenderer)
+
+
 def test_invalid_operations_rejected(client, workspace):
     from app.models.operations import ChatOperation
     from app.models.song import SongProject
