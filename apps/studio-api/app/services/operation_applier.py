@@ -211,14 +211,60 @@ def op_remove_track(project: SongProject, p: dict) -> str:
 
 
 def op_assign_soundfont(project: SongProject, p: dict) -> str:
+    """Assign a SoundFont preset to a track. The LLM may name a preset the
+    font doesn't contain (it can't see every bank/program), so the bank +
+    program are VERIFIED against the font's real inventory. If the pair isn't
+    a real preset, snap to the best-fitting preset for the track type — in
+    that font, else anywhere in the library. The label always reflects the
+    preset that is actually loaded, never the model's claim."""
+    from pathlib import Path
+
+    from .sf2_parser import (find_best_soundfont, get_preset_inventory,
+                             score_soundfont_for_track)
+
     t = _find_track(project, p.get("track", ""))
     asset = _require_asset(p.get("soundfont_asset_id", ""), "soundfont")
+    bank = int(p["bank"]) if "bank" in p else None
+    program = int(p["program"]) if "program" in p else None
+
+    inv = get_preset_inventory(asset.id, Path(asset.original_path)) or {}
+    presets = inv.get("presets", [])
+    real = None
+    if bank is not None and program is not None:
+        real = next((pr for pr in presets
+                     if pr["bank"] == bank and pr["program"] == program), None)
+
+    if real is None and presets:
+        # the model's bank/program isn't in this font — pick a preset that
+        # genuinely suits the track type instead of a phantom sound
+        _score, real = score_soundfont_for_track(inv, t.track_type,
+                                                  asset.filename)
+    if real is None:
+        # this font has nothing tagged for the track — search the whole
+        # library for a font that does
+        match = find_best_soundfont(t.track_type)
+        if match is not None:
+            asset, real = match
+    if real is None:
+        # last resort: SOME real preset from the assigned font, so a track
+        # never ends up pointing at a bank/program that doesn't exist
+        inv2 = get_preset_inventory(asset.id, Path(asset.original_path)) or {}
+        p2 = inv2.get("presets")
+        real = p2[0] if p2 else None
+
     t.instrument_config.soundfont_asset_id = asset.id
-    if "program" in p:
-        t.instrument_config.program = int(p["program"])
-    if "bank" in p:
-        t.instrument_config.bank = int(p["bank"])
-    label = p.get("preset") or asset.filename
+    if real is not None:
+        t.instrument_config.bank = int(real["bank"])
+        t.instrument_config.program = int(real["program"])
+        label = real["name"] or asset.filename
+    else:
+        # font is unreadable — keep the model's numbers, nothing better exists
+        if bank is not None:
+            t.instrument_config.bank = bank
+        if program is not None:
+            t.instrument_config.program = program
+        label = p.get("preset") or asset.filename
+    t.instrument_config.is_drum_kit = t.instrument_config.bank == 128
     return f"assigned instrument {label!r} to track {t.name!r}"
 
 

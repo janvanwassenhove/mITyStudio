@@ -308,28 +308,55 @@ def test_composition_aware_context(client, workspace):
     assert ctx["library_summary"]["total_samples"] >= 1
 
 
-def test_assign_soundfont_with_bank(client, workspace):
+def test_assign_soundfont_validates_against_real_presets(client, workspace):
+    """A real preset (bank/program that the font contains) is kept and its
+    true name is used; a preset the model INVENTED is snapped to a real one
+    for the track type — the app never loads a phantom bank/program."""
     import shutil
     from pathlib import Path
+
+    import pytest
     repo_fonts = Path(__file__).resolve().parents[3] / "soundfonts"
-    fonts = sorted(repo_fonts.glob("*.sf2"), key=lambda f: f.stat().st_size)
+    # a big GM-style font so it has presets for several track types
+    fonts = sorted(repo_fonts.glob("*.sf2"), key=lambda f: -f.stat().st_size)
     if not fonts:
-        import pytest
         pytest.skip("no soundfonts")
     shutil.copy2(fonts[0], workspace.soundfonts_dir / fonts[0].name)
     client.post("/api/assets/rescan")
     sf = client.get("/api/assets/soundfonts").json()[0]
+    inv = client.get(f"/api/assets/{sf['id']}/soundfont-presets").json()
+    presets = inv["presets"]
+    if not presets:
+        pytest.skip("font has no readable presets")
 
     from app.models.operations import ChatOperation
     from app.models.song import SongProject, Track
     from app.services import operation_applier
-    project = SongProject(title="t", tracks=[Track(name="D", track_type="drums")])
-    results = operation_applier.apply_operations(project, [
+
+    # 1. a REAL preset is honoured, and its actual name becomes the label
+    real = presets[0]
+    project = SongProject(title="t",
+                          tracks=[Track(name="K", track_type="keys")])
+    r = operation_applier.apply_operations(project, [
         ChatOperation(op_type="assign_soundfont",
-                      params={"track": "D", "soundfont_asset_id": sf["id"],
-                              "bank": 128, "program": 7,
-                              "preset": "TR-808 Drumset"})])
-    assert results[0].applied, results[0].error
-    assert "TR-808 Drumset" in results[0].summary
+                      params={"track": "K", "soundfont_asset_id": sf["id"],
+                              "bank": real["bank"], "program": real["program"],
+                              "preset": "Totally Made Up Name"})])
+    assert r[0].applied, r[0].error
     cfg = project.tracks[0].instrument_config
-    assert (cfg.bank, cfg.program) == (128, 7)
+    assert (cfg.bank, cfg.program) == (real["bank"], real["program"])
+    assert real["name"] in r[0].summary          # true name, not the claim
+    assert "Totally Made Up Name" not in r[0].summary
+
+    # 2. an INVENTED bank/program is snapped to a preset that really exists
+    project2 = SongProject(title="t2",
+                           tracks=[Track(name="B", track_type="bass")])
+    operation_applier.apply_operations(project2, [
+        ChatOperation(op_type="assign_soundfont",
+                      params={"track": "B", "soundfont_asset_id": sf["id"],
+                              "bank": 77, "program": 119,   # phantom
+                              "preset": "Phantom Bass"})])
+    cfg2 = project2.tracks[0].instrument_config
+    loaded = (cfg2.bank, cfg2.program)
+    assert any((p["bank"], p["program"]) == loaded for p in presets), \
+        f"snapped to a phantom preset {loaded}"

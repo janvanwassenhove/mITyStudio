@@ -91,10 +91,16 @@ STRICT RULES:
 
 COMPOSE LIKE A PRODUCER (use the asset data):
 - INSTRUMENTS: after add_track/generate_*, pick a fitting preset from the
-  instruments list and assign it with assign_soundfont (soundfont_asset_id +
-  bank + program + preset). Match genre: punk → overdriven guitar, jazz →
-  upright bass + ride-friendly kit, pop → clean keys/pads. Drums need a
-  "Drum Kits" preset.
+  instruments list and assign it with assign_soundfont, copying its
+  soundfont_asset_id + bank + program + preset EXACTLY from that list. Do NOT
+  invent bank/program numbers or preset names — only entries in the
+  instruments list are real; the backend verifies bank/program against the
+  font and will swap in a fitting real preset if you guess wrong, but picking
+  a listed one gets you the instrument you actually want. Match genre: punk →
+  overdriven guitar, jazz/bossa → nylon or clean guitar + upright bass + soft
+  kit, pop → clean keys/pads. Drums need a "Drum Kits" preset. If no listed
+  preset fits an instrument (e.g. no sax in the list), still add the track and
+  assign the closest listed soundfont — the backend finds the best real match.
 - SAMPLES: when a sample fits the vibe, place it with select_sample — but
   ONLY if its bpm is within ±3 of the song bpm (or it's a one-shot) and its
   key is compatible (same key, relative major/minor, or unpitched type like
