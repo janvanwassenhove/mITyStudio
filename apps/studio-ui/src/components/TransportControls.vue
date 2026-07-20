@@ -128,7 +128,10 @@ async function commitTitle() {
   await studio.refreshProjects()
 }
 
-// --- editable BPM: the whole song (stems re-render at the new tempo) -------
+// --- BPM control: whole-song tempo (stems re-render at the new tempo). ------
+// Steppers, type-to-edit, drag-to-scrub and tap-tempo — a proper DAW widget.
+const MIN_BPM = 30
+const MAX_BPM = 300
 const editingBpm = ref(false)
 const bpmDraft = ref(120)
 
@@ -139,11 +142,60 @@ function startBpmEdit() {
 }
 async function commitBpm() {
   editingBpm.value = false
-  const p = studio.project
   const v = Math.round(Number(bpmDraft.value))
-  if (!p || !Number.isFinite(v) || v < 30 || v > 300 || v === p.bpm) return
+  if (!Number.isFinite(v)) return
+  await applyBpm(v)
+}
+
+async function applyBpm(v: number) {
+  const p = studio.project
+  v = Math.round(Math.min(Math.max(v, MIN_BPM), MAX_BPM))
+  if (!p || v === p.bpm) return
   p.bpm = v
   await studio.saveProject()   // fingerprints change → re-render on next ▶
+}
+
+// step ±1, or ±5 with Shift held
+function nudgeBpm(dir: number, e?: MouseEvent) {
+  if (!studio.project) return
+  void applyBpm(studio.project.bpm + dir * (e?.shiftKey ? 5 : 1))
+}
+
+// drag the value up/down (or left/right) to scrub the tempo, DAW-style
+function startBpmDrag(e: PointerEvent) {
+  if (!studio.project || editingBpm.value) return
+  const startY = e.clientY
+  const startX = e.clientX
+  const start = studio.project.bpm
+  let moved = false
+  const move = (ev: PointerEvent) => {
+    const d = Math.round(((startY - ev.clientY) + (ev.clientX - startX)) / 4)
+    if (d !== 0) moved = true
+    const v = Math.min(Math.max(start + d, MIN_BPM), MAX_BPM)
+    if (studio.project && v !== studio.project.bpm) studio.project.bpm = v
+  }
+  const up = () => {
+    window.removeEventListener('pointermove', move)
+    if (moved && studio.project) void applyBpm(studio.project.bpm)
+    else startBpmEdit()          // a plain click opens type-to-edit
+  }
+  window.addEventListener('pointermove', move)
+  window.addEventListener('pointerup', up, { once: true })
+}
+
+// tap tempo: average the interval of the last few taps
+let tapTimes: number[] = []
+let tapReset: ReturnType<typeof setTimeout> | null = null
+function tapTempo() {
+  const now = performance.now()
+  if (tapReset) clearTimeout(tapReset)
+  tapReset = setTimeout(() => { tapTimes = [] }, 2000)
+  tapTimes.push(now)
+  if (tapTimes.length > 6) tapTimes.shift()
+  if (tapTimes.length < 2) return
+  const gaps = tapTimes.slice(1).map((t, i) => t - tapTimes[i])
+  const avg = gaps.reduce((a, b) => a + b, 0) / gaps.length
+  if (avg > 0) void applyBpm(60000 / avg)
 }
 
 // --- editable key + time signature (click the chips next to the BPM) -------
@@ -198,11 +250,23 @@ async function setTimeSig(ts: string) {
              @blur="commitTitle" @keyup.enter="($event.target as HTMLInputElement).blur()" />
       <button v-else class="title-btn" :title="t('transport.renameTip')" @click="startTitleEdit">
         <span class="title">{{ studio.project.title }}</span></button>
-      <input v-if="editingBpm" v-model.number="bpmDraft" type="number" min="30" max="300"
-             class="bpm-input" autofocus
-             @blur="commitBpm" @keyup.enter="($event.target as HTMLInputElement).blur()" />
-      <button v-else class="bpm-btn dim" :title="t('transport.bpmTip')" @click="startBpmEdit">
-        {{ studio.project.bpm }} BPM</button>
+      <div class="bpm" :title="t('transport.bpmTip')">
+        <button class="bpm-step" :disabled="studio.project.bpm <= MIN_BPM"
+                :title="t('transport.bpmDown')"
+                @click="nudgeBpm(-1, $event)">−</button>
+        <input v-if="editingBpm" v-model.number="bpmDraft" type="number"
+               :min="MIN_BPM" :max="MAX_BPM" class="bpm-input" autofocus
+               @blur="commitBpm" @keyup.enter="($event.target as HTMLInputElement).blur()" />
+        <button v-else class="bpm-val" @pointerdown="startBpmDrag">
+          <span class="bpm-num">{{ studio.project.bpm }}</span>
+          <span class="bpm-unit">BPM</span>
+        </button>
+        <button class="bpm-step" :disabled="studio.project.bpm >= MAX_BPM"
+                :title="t('transport.bpmUp')"
+                @click="nudgeBpm(1, $event)">+</button>
+        <button class="bpm-tap" :title="t('transport.bpmTapTip')"
+                @click="tapTempo">{{ t('transport.bpmTap') }}</button>
+      </div>
       <select class="meta-select" :value="studio.project.key"
               :title="t('transport.keyTip')"
               @change="setKey(($event.target as HTMLSelectElement).value)">
@@ -238,9 +302,37 @@ async function setTimeSig(ts: string) {
 .title-btn { border: none; background: transparent; padding: 2px 4px; }
 .title-btn:hover .title { color: var(--accent); }
 .title-input { width: 180px; padding: 2px 6px; font-size: 13px; font-weight: 600; }
-.bpm-btn { border: none; background: transparent; padding: 2px 4px; font-size: 13px; }
-.bpm-btn:hover { color: var(--accent); border: none; }
-.bpm-input { width: 64px; padding: 2px 6px; font-size: 13px; }
+.bpm {
+  display: inline-flex; align-items: stretch; gap: 0;
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  overflow: hidden; height: 26px;
+}
+.bpm-step {
+  border: none; background: var(--bg-elevated); color: var(--text-dim);
+  padding: 0 8px; font-size: 15px; line-height: 1; border-radius: 0;
+}
+.bpm-step:hover:not(:disabled) { color: var(--accent); background: var(--bg); }
+.bpm-step:disabled { opacity: 0.35; }
+.bpm-val {
+  display: flex; align-items: baseline; gap: 3px; border: none;
+  background: transparent; padding: 0 8px; cursor: ns-resize;
+  border-left: 1px solid var(--border); border-right: 1px solid var(--border);
+}
+.bpm-val:hover { background: var(--bg-elevated); }
+.bpm-num { font-size: 14px; font-weight: 600; font-family: 'Consolas', monospace; color: var(--text); }
+.bpm-unit { font-size: 9px; letter-spacing: 0.05em; color: var(--text-dim); }
+.bpm-input {
+  width: 52px; padding: 0 6px; font-size: 14px; text-align: center;
+  border: none; border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border); border-radius: 0;
+  font-family: 'Consolas', monospace;
+}
+.bpm-tap {
+  border: none; background: var(--bg-elevated); color: var(--text-dim);
+  padding: 0 9px; font-size: 10px; font-weight: 600; letter-spacing: 0.06em;
+  border-radius: 0; border-left: 1px solid var(--border);
+}
+.bpm-tap:hover { color: var(--accent); background: var(--bg); }
 .meta-select {
   border: none; background: transparent; color: var(--text-dim);
   font-size: 13px; padding: 2px 2px; cursor: pointer;
