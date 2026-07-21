@@ -247,13 +247,19 @@ deterministic path stays offline-capable and the LLM only adds nuance.
    themselves (`genre`, bpm, key, sections+energies) — auditable via the
    pipeline ledger entry per run.
 
-## 10. Follow-up (not yet built)
+## 10. Follow-up
 
-- UI: "Generate full song" button + job progress panel; i18n keys x4.
-- Chat routing: let the planner hand a full-song request to the pipeline
-  (today chat still runs its Layer-1 flow, which the autofill + metrics
-  passes also guard).
+Built since:
+- ✅ UI: `GenerateSongDialog.vue` (starter card + timeline toolbar button;
+  prompt → background job → live stage/progress/log → metrics summary).
+- ✅ Vocals stage in the pipeline: producer spec carries `vocals` +
+  `lyrics_theme`, prompt intent detected in 4 languages; LLM writes lyrics
+  and the lead sings every lyric section; offline sings existing lyrics.
+  Live-verified: real-LLM run composed a 217s bossa (completeness 100%,
+  key 99.6%, 7 LLM calls / 41.9k tokens, critic correctly skipped).
+
+Still open (deliberate):
+- Chat routing: chat keeps its Layer-1 flow (autofill + metrics passes
+  guard it); the pipeline's entry point is the UI button.
 - Critic access to per-stem peaks requires a render first — today it runs
   pre-render (clipping data appears once stems exist).
-- Vocals in the pipeline: reuse `sing-lyrics` flow after the skeleton when
-  the prompt asks for vocals.
