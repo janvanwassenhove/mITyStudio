@@ -258,8 +258,12 @@ Built since:
   Live-verified: real-LLM run composed a 217s bossa (completeness 100%,
   key 99.6%, 7 LLM calls / 41.9k tokens, critic correctly skipped).
 
-Still open (deliberate):
-- Chat routing: chat keeps its Layer-1 flow (autofill + metrics passes
-  guard it); the pipeline's entry point is the UI button.
-- Critic access to per-stem peaks requires a render first — today it runs
-  pre-render (clipping data appears once stems exist).
+- ✅ Chat routing: a full-song request (make-verb + song-noun in 4 languages,
+  incl. Dutch/German compounds like "popnummer") on an EMPTY project with a
+  real LLM configured hands off to the pipeline; chat shows a localized ack
+  plus a live progress message polled from the job. Mock provider and
+  projects with content keep the synchronous Layer-1 flow. Live-verified:
+  chat-routed reggae song completed with Lead Vocal + 44 lyric lines.
+- ✅ Critic stem peaks: the pipeline renders instrument stems before the
+  metrics stage, so the critic sees real per-stem peaks/clipping — and the
+  song is playable the moment the job finishes.

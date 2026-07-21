@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 import threading
 import time
 import uuid
@@ -48,6 +49,27 @@ _jobs_lock = threading.Lock()
 
 def _llm_available() -> bool:
     return load_settings().provider != "mock"
+
+
+# chat handoff: "make/write/generate ... a song" in the four app languages.
+# Both orders ("maak een nummer", "een nummer maken") are matched.
+_MAKE = (r"(?:maak|schrijf|genereer|componeer|bouw|creëer|make|create|write|"
+         r"generate|compose|build|crée|creer|écris|ecris|génère|genere|"
+         r"erstelle|schreib|generiere|komponiere)")
+# \w* prefixes catch the Dutch/German compound forms that are the NORMAL
+# phrasing: "popnummer", "punksong", "zomerliedje", "Sommerlied"
+_SONG = r"(?:\w*song|\w*nummer|\w*lied(?:je)?|track|chanson|morceau)"
+_FULL_SONG_RE = re.compile(
+    rf"\b{_MAKE}\w*\b.{{0,80}}?\b{_SONG}\b"
+    rf"|\b{_SONG}\b.{{0,40}}?\b{_MAKE}\w*\b",
+    re.IGNORECASE | re.DOTALL)
+
+
+def detect_full_song_intent(message: str) -> bool:
+    """Does this chat message ask for a whole song? Used by routes_chat to
+    hand an empty project over to the pipeline instead of the one-shot
+    Layer-1 plan (which is where truncated half-songs came from)."""
+    return bool(_FULL_SONG_RE.search(message or ""))
 
 
 # --------------------------------------------------------------------------
@@ -330,7 +352,19 @@ def _run(job: dict, project_id: str, prompt: str, language: str) -> None:
                 _vocals_stage(project_id, spec, language, job))
             project = project_repo.load_project(project_id)
 
-        _set(job, stage="metrics", progress=0.7)
+        # render the instrument stems NOW: the waveform cache this fills is
+        # what gives the critic real per-stem peaks/clipping to judge, and
+        # the user can press ▶ the moment the job finishes
+        _set(job, stage="rendering", progress=0.68)
+        try:
+            from .render.soundfont_renderer import render_instrument_stems
+            r = render_instrument_stems(project)
+            job.setdefault("log", []).extend(r["errors"])
+            project_repo.save_project(project)
+        except Exception as e:  # noqa: BLE001 — metrics still work unrendered
+            log.warning("pipeline render stage failed: %s", e)
+
+        _set(job, stage="metrics", progress=0.78)
         metrics = arrangement_metrics.analyse(project)
         job["metrics_before"] = arrangement_metrics.summary_line(metrics)
 

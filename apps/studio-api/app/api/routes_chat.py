@@ -9,12 +9,46 @@ from ..services.project_repo import ProjectNotFound
 router = APIRouter(prefix="/api/projects", tags=["chat"])
 
 
+# pipeline handoff acknowledgement, in the four app languages
+_GEN_REPLY = {
+    "en": "On it — I'm generating the full song in the background. You'll "
+          "see the progress below; the tracks appear when it's done.",
+    "nl": "Ik ben ermee bezig — het volledige nummer wordt in de achtergrond "
+          "gegenereerd. Hieronder zie je de voortgang; de sporen verschijnen "
+          "zodra het klaar is.",
+    "fr": "C'est parti — je génère la chanson complète en arrière-plan. La "
+          "progression s'affiche ci-dessous ; les pistes apparaîtront une "
+          "fois terminé.",
+    "de": "Bin dran — der komplette Song wird im Hintergrund generiert. "
+          "Unten siehst du den Fortschritt; die Spuren erscheinen, sobald "
+          "er fertig ist.",
+}
+
+
 @router.post("/{project_id}/chat")
 def chat(project_id: str, req: ChatRequest) -> ChatResponse:
     try:
         project = project_repo.load_project(project_id)
     except ProjectNotFound:
         raise HTTPException(404, "project not found")
+
+    # a full-song request on an EMPTY project goes to the pipeline (producer
+    # → skeleton → parallel composers → metrics → critic): complete by
+    # construction, with per-part token budgets — the one-shot plan below is
+    # where truncated half-songs came from. Projects with content keep the
+    # normal chat flow (edits must stay conversational and instant), and the
+    # MOCK provider keeps the synchronous planner too: it is instant and
+    # deterministic, so the pipeline's async machinery buys nothing there.
+    from ..services import song_pipeline
+    if song_pipeline.detect_full_song_intent(req.message) \
+            and song_pipeline._llm_available() \
+            and not any(t.clips for t in project.tracks):
+        job = song_pipeline.start(project_id, req.message,
+                                  language=req.language)
+        return ChatResponse(
+            reply=_GEN_REPLY.get(req.language, _GEN_REPLY["en"]),
+            operations=[], project=project.model_dump(), usage=None,
+            job={"kind": "generate_song", "job_id": job["id"]})
 
     reply, operations, warnings, usage = operation_planner.plan(
         project, req.message, language=req.language)

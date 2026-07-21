@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Mic } from 'lucide-vue-next'
 import { api } from '../api/client'
@@ -7,7 +7,7 @@ import type { ChatResponse } from '../api/types'
 import { currentLocale } from '../i18n'
 import { useStudioStore } from '../stores/studio'
 
-const { t } = useI18n()
+const { t, te } = useI18n()
 const studio = useStudioStore()
 
 // --- inline provider/model selection (mirrors Settings, saved on change) ----
@@ -125,6 +125,44 @@ function sendExample(key: string) {
   void send()
 }
 
+// --- full-song pipeline progress: one assistant message that live-updates --
+interface GenJob {
+  status: 'running' | 'done' | 'error'
+  stage: string
+  progress: number
+  summary?: string
+  error?: string
+}
+let genTimer: ReturnType<typeof setInterval> | null = null
+
+function trackGenerateJob(projectId: string, jobId: string) {
+  // reactive(): the interval mutates msg.text later — a raw object pushed
+  // into the array would update silently without re-rendering
+  const msg = reactive<ChatMsg>({ role: 'assistant', text: '♪ …' })
+  messages.value.push(msg)
+  if (genTimer) clearInterval(genTimer)
+  genTimer = setInterval(async () => {
+    try {
+      const j = await api.get<GenJob>(
+        `/projects/${projectId}/generate-song/${jobId}`)
+      const key = `genSong.stage.${j.stage}`
+      const stage = te(key) ? t(key) : j.stage
+      msg.text = `♪ ${stage} ${Math.round((j.progress ?? 0) * 100)}%`
+      if (j.status === 'done') {
+        if (genTimer) clearInterval(genTimer)
+        genTimer = null
+        msg.text = t('genSong.done') + (j.summary ? ` (${j.summary})` : '')
+        await studio.reloadCurrent()
+      } else if (j.status === 'error') {
+        if (genTimer) clearInterval(genTimer)
+        genTimer = null
+        msg.text = t('genSong.failed') + (j.error ? `: ${j.error}` : '')
+      }
+    } catch { /* transient — keep polling */ }
+  }, 1200)
+}
+onUnmounted(() => { if (genTimer) clearInterval(genTimer) })
+
 async function send() {
   const text = input.value.trim()
   if (!text || busy.value) return
@@ -145,6 +183,10 @@ async function send() {
     messages.value.push({ role: 'assistant', text: res.reply,
                           operations: res.operations, usage })
     if (usage) sessionTokens.value += (usage.input_tokens + usage.output_tokens)
+    if (res.job?.kind === 'generate_song') {
+      // full-song pipeline started in the background: live progress here
+      trackGenerateJob(studio.project.id, res.job.job_id)
+    }
     await studio.reloadCurrent()
   } catch (e) {
     messages.value.push({ role: 'assistant', text: `Error: ${String(e)}` })

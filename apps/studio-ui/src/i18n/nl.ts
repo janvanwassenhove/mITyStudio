@@ -43,6 +43,7 @@ export default {
       starting: 'Starten…', producer: 'Het nummer ontwerpen (AI-producer)…',
       skeleton: 'Structuur en partijen neerzetten…',
       composing: 'AI componeert de partijen…', vocals: 'Teksten schrijven en inzingen…',
+      rendering: 'Audio renderen…',
       metrics: 'Arrangement controleren…', critic: 'Polijstronde (fades, niveaus, effecten)…',
       done: 'Klaar',
     },

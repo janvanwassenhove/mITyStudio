@@ -50,6 +50,72 @@ def test_offline_pipeline_builds_a_complete_song(client, workspace):
     assert ledger.exists() and "bossa" in ledger.read_text(encoding="utf-8")
 
 
+def test_pipeline_renders_stems_for_the_critic(client, workspace):
+    """The render stage fills the waveform cache so metrics carry real
+    per-stem peaks — and the song is playable the moment the job ends."""
+    p = make_project(client)
+    r = client.post(f"/api/projects/{p['id']}/generate-song",
+                    json={"prompt": "funk instrumental"})
+    job = _wait_done(client, p["id"], r.json()["job_id"], timeout=60)
+    assert job["status"] == "done", job.get("error")
+
+    from app.services import arrangement_metrics, project_repo
+    project = project_repo.load_project(p["id"])
+    assert project.stems, "no stems rendered by the pipeline"
+    m = arrangement_metrics.analyse(project)
+    assert m["stems"], "metrics carry no per-stem peaks"
+    assert all(0 < s["peak"] <= 1.0 for s in m["stems"])
+
+
+def test_chat_hands_full_song_requests_to_the_pipeline(client, workspace,
+                                                       monkeypatch):
+    """docs/song-quality.md §10: chat routing. With a real LLM configured, a
+    make-a-song message on an empty project starts the pipeline; edits (and
+    the mock provider) keep the normal synchronous chat flow."""
+    from app.services import song_pipeline
+    from app.services.song_pipeline import detect_full_song_intent
+    assert detect_full_song_intent("maak een vrolijk bossa nova nummer")
+    assert detect_full_song_intent("create a punk song about summer")
+    assert detect_full_song_intent("écris une chanson douce")
+    assert detect_full_song_intent("erstelle einen kompletten Song")
+    assert detect_full_song_intent("ik wil een nummer maken over de zee")
+    # compound song nouns (the normal Dutch/German phrasing)
+    assert detect_full_song_intent(
+        "Maak een vrolijk popnummer over zomeravonden, met drums en zang")
+    assert detect_full_song_intent("create a punksong about the city")
+    assert detect_full_song_intent("erstelle ein Sommerlied")
+    assert not detect_full_song_intent("add a guitar track")
+    assert not detect_full_song_intent("make it faster")
+
+    # mock provider (the default in tests) → NO handoff, planner flow runs
+    p0 = make_project(client)
+    r0 = client.post(f"/api/projects/{p0['id']}/chat",
+                     json={"message": "maak een reggae nummer",
+                           "language": "nl"})
+    assert r0.json().get("job") is None
+
+    # "real LLM" → handoff (plan() still resolves to the mock under test,
+    # which every pipeline stage tolerates)
+    monkeypatch.setattr(song_pipeline, "_llm_available", lambda: True)
+    p = make_project(client)
+    r = client.post(f"/api/projects/{p['id']}/chat",
+                    json={"message": "maak een reggae nummer", "language": "nl"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["job"] and body["job"]["kind"] == "generate_song"
+    assert "achtergrond" in body["reply"]          # localized ack
+    job = _wait_done(client, p["id"], body["job"]["job_id"], timeout=60)
+    assert job["status"] == "done", job.get("error")
+    proj = client.get(f"/api/projects/{p['id']}").json()
+    assert proj["genre"] == "reggae"
+    assert any(t["clips"] for t in proj["tracks"])
+
+    # a project WITH content never gets hijacked by the pipeline
+    r2 = client.post(f"/api/projects/{p['id']}/chat",
+                     json={"message": "maak een punk nummer", "language": "nl"})
+    assert r2.json().get("job") is None
+
+
 def test_pipeline_refuses_to_clobber_content(client, workspace):
     """R1: a project with clips requires force=true."""
     p = make_project(client)

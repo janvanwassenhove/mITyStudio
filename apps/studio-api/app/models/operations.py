@@ -169,3 +169,7 @@ class ChatResponse(BaseModel):
     # token usage of this turn (model, input_tokens, output_tokens,
     # error_kind?) — cost/rate-limit visibility in the chat panel
     usage: dict | None = None
+    # background work started for this request (e.g. the full-song
+    # pipeline): {"kind": "generate_song", "job_id": ...} — the chat panel
+    # polls the job and shows live progress
+    job: dict | None = None

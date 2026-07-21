@@ -43,6 +43,7 @@ export default {
       starting: 'Starten…', producer: 'Song entwerfen (KI-Producer)…',
       skeleton: 'Struktur und Parts anlegen…',
       composing: 'KI komponiert die Parts…', vocals: 'Texte schreiben und einsingen…',
+      rendering: 'Audio wird gerendert…',
       metrics: 'Arrangement prüfen…', critic: 'Feinschliff (Fades, Pegel, Effekte)…',
       done: 'Fertig',
     },

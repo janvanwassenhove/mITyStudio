@@ -43,6 +43,7 @@ export default {
       starting: 'Démarrage…', producer: 'Conception de la chanson (producteur IA)…',
       skeleton: 'Mise en place de la structure et des parties…',
       composing: 'L’IA compose les parties…', vocals: 'Écriture et chant des voix…',
+      rendering: 'Rendu de l’audio…',
       metrics: 'Vérification de l’arrangement…', critic: 'Passe de finition (fades, niveaux, effets)…',
       done: 'Terminé',
     },

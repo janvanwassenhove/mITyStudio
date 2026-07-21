@@ -238,4 +238,5 @@ export interface ChatResponse {
   reply: string
   operations: { op_type: string; summary: string; applied: boolean; error: string | null }[]
   project: SongProject
+  job?: { kind: string; job_id: string } | null
 }

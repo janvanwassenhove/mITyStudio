@@ -43,6 +43,7 @@ export default {
       starting: 'Starting…', producer: 'Designing the song (AI producer)…',
       skeleton: 'Laying down structure and parts…',
       composing: 'AI is composing the parts…', vocals: 'Writing and singing the vocals…',
+      rendering: 'Rendering the audio…',
       metrics: 'Checking the arrangement…', critic: 'Polish pass (fades, levels, effects)…',
       done: 'Done',
     },
