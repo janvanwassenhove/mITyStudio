@@ -66,6 +66,14 @@ def create_app() -> FastAPI:
             },
         }
 
+    @app.get("/api/updates/check")
+    def updates_check() -> dict:
+        """Is a newer release published on GitHub? Cached (1h). The desktop
+        shell updates itself via electron-updater; this feeds the in-app
+        banner for browser/dev use and the About box."""
+        from .services.update_check import check
+        return check()
+
     from .api import (routes_assets, routes_projects, routes_settings,
                       routes_scores, routes_chat, routes_render,
                       routes_vocals, routes_export, routes_voice)

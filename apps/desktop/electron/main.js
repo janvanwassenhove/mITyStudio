@@ -167,7 +167,7 @@ async function boot() {
   mainWin.show()
   if (splash && !splash.isDestroyed()) splash.close()
 
-  if (!DEV) initUpdater()
+  if (!DEV) initUpdater(mainWin)
 }
 
 const gotLock = app.requestSingleInstanceLock()

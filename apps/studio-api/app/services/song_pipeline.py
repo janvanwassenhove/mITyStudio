@@ -89,7 +89,9 @@ def _producer_spec(project: SongProject, prompt: str, language: str,
         "genre, bpm (inside the genre's tempo range), key, and an extra "
         "param \"plan\" = {\"sections\": [{\"name\", \"length_bars\", "
         "\"energy\" (0-1, shape a real dynamic arc: calm intro, big "
-        "choruses)}...], \"instrumentation\": [track types]}. "
+        "choruses)}...], \"instrumentation\": [track types], "
+        "\"vocals\": true|false (should this song be sung?), "
+        "\"lyrics_theme\": \"one line\"}. "
         f"Request: {prompt}")
     reply, ops, _warn, usage = operation_planner.plan(project, ask,
                                                       language=language)
@@ -126,6 +128,8 @@ def _producer_spec(project: SongProject, prompt: str, language: str,
                          "strings", "brass")]
         if band:
             spec["instrumentation"] = list(dict.fromkeys(band))[:6]
+        spec["vocals"] = bool(plan.get("vocals"))
+        spec["lyrics_theme"] = str(plan.get("lyrics_theme") or "")[:200]
         break
     return spec
 
@@ -187,6 +191,62 @@ def _compose_track(project_id: str, track_id: str, language: str,
         return (f"{track.name}: AI-composed "
                 f"{sum(1 for _ in applied)} section part(s)")
     return None
+
+
+# --------------------------------------------------------------------------
+# 3b. vocals (when the song wants singing)
+# --------------------------------------------------------------------------
+
+_VOCAL_HINT = ("vocal", "vocals", "sing", "singer", "sung", "lyric",
+               "zang", "zing", "gezongen", "songtekst",
+               "chant", "chante", "paroles",
+               "gesang", "singen", "songtext")
+
+
+def _wants_vocals(spec: dict, prompt: str) -> bool:
+    if spec.get("vocals"):
+        return True
+    low = prompt.lower()
+    return any(h in low for h in _VOCAL_HINT)
+
+
+_VOCAL_OPS = {"rewrite_lyrics", "create_vocal_track", "generate_melody",
+              "assign_voice_profile"}
+
+
+def _vocals_stage(project_id: str, spec: dict, language: str,
+                  job: dict) -> list[str]:
+    """LLM writes the lyrics and sets up a singing lead; the existing
+    vocal autofill then guarantees every lyric section gets a melody.
+    Offline: only sings lyrics the project already has (imported scores)."""
+    from .vocal_autofill import ensure_vocal_melodies
+
+    project = project_repo.load_project(project_id)
+    lines: list[str] = []
+    if _llm_available():
+        theme = spec.get("lyrics_theme") or spec.get("title") or ""
+        ask = (f"Write the full lyrics for this song (theme: {theme}) with "
+               f"rewrite_lyrics per lyric section (set the language param), "
+               f"then create_vocal_track (track_type lead_vocal) and "
+               f"generate_melody with track_type lead_vocal for the lyric "
+               f"sections. Lyrics only — no instrument changes.")
+        _reply, ops, _warn, usage = operation_planner.plan(project, ask,
+                                                           language=language)
+        _count_usage(job, usage)
+        ops = [op for op in ops if op.op_type in _VOCAL_OPS]
+        results = operation_applier.apply_operations(project, ops)
+        lines += [r.summary for r in results if r.applied]
+    elif not project.lyrics.lines:
+        return []          # nothing to sing offline
+    if not any(t.track_type == "lead_vocal" for t in project.tracks) \
+            and project.lyrics.lines:
+        results = operation_applier.apply_operations(project, [ChatOperation(
+            op_type="create_vocal_track",
+            params={"name": "Lead Vocal", "track_type": "lead_vocal"})])
+        lines += [r.summary for r in results if r.applied]
+    lines += ensure_vocal_melodies(project)
+    project_repo.save_project(project)
+    return lines
 
 
 # --------------------------------------------------------------------------
@@ -262,6 +322,12 @@ def _run(job: dict, project_id: str, prompt: str, language: str) -> None:
                                                    language, job), tracks):
                     if line:
                         job.setdefault("log", []).append(line)
+            project = project_repo.load_project(project_id)
+
+        if _wants_vocals(spec, prompt):
+            _set(job, stage="vocals", progress=0.6)
+            job.setdefault("log", []).extend(
+                _vocals_stage(project_id, spec, language, job))
             project = project_repo.load_project(project_id)
 
         _set(job, stage="metrics", progress=0.7)

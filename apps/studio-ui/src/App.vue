@@ -6,6 +6,9 @@ import { LOCALES, currentLocale, setLocale, type LocaleCode } from './i18n'
 import { useStudioStore } from './stores/studio'
 import { isDesktop, showBottomPanel, showLeftPanel, showRightPanel,
          theme, toggleTheme } from './composables/uiPrefs'
+import { canSelfUpdate, dismissUpdate, initUpdateWatcher, installUpdate,
+         startUpdate, updateError, updatePercent, updatePhase, updateVersion }
+  from './composables/updates'
 import OnboardingGuide from './components/OnboardingGuide.vue'
 import CountdownOverlay from './components/CountdownOverlay.vue'
 import AboutBox from './components/AboutBox.vue'
@@ -60,6 +63,7 @@ async function checkHealth() {
 onMounted(() => {
   void checkHealth()
   pollTimer = setInterval(checkHealth, POLL_MS)
+  initUpdateWatcher()
 })
 onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 </script>
@@ -105,6 +109,27 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
     </div>
     <div v-else-if="reconnected" class="reconnected-banner">
       ✓ {{ $t('nav.reconnected') }}
+    </div>
+    <div v-if="updatePhase !== 'idle'" class="update-banner">
+      <template v-if="updatePhase === 'available'">
+        <span>{{ $t('nav.updateAvailable', { v: updateVersion }) }}</span>
+        <button class="up-btn" @click="startUpdate">
+          {{ canSelfUpdate() ? $t('nav.updateInstall') : $t('nav.updateView') }}
+        </button>
+        <button class="up-btn ghost" @click="dismissUpdate">{{ $t('nav.updateLater') }}</button>
+      </template>
+      <template v-else-if="updatePhase === 'downloading'">
+        <span>{{ $t('nav.updateDownloading', { p: updatePercent }) }}</span>
+      </template>
+      <template v-else-if="updatePhase === 'downloaded'">
+        <span>{{ $t('nav.updateReady', { v: updateVersion }) }}</span>
+        <button class="up-btn" @click="installUpdate">{{ $t('nav.updateRestart') }}</button>
+        <button class="up-btn ghost" @click="dismissUpdate">{{ $t('nav.updateLater') }}</button>
+      </template>
+      <template v-else-if="updatePhase === 'error'">
+        <span :title="updateError">{{ $t('nav.updateFailed') }}</span>
+        <button class="up-btn ghost" @click="dismissUpdate">✕</button>
+      </template>
     </div>
     <main class="main">
       <RouterView />
@@ -162,4 +187,17 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   flex: none; text-align: center; background: rgba(62, 207, 142, 0.12);
   border-bottom: 1px solid var(--ok); color: var(--ok); font-size: 12px; padding: 4px;
 }
+.update-banner {
+  flex: none; display: flex; align-items: center; justify-content: center;
+  gap: 12px; font-size: 13px; padding: 6px 12px;
+  background: var(--bg-elevated); border-bottom: 1px solid var(--accent);
+  color: var(--text);
+}
+.update-banner .up-btn {
+  padding: 2px 12px; font-size: 12px; border: 1px solid var(--accent);
+  color: var(--accent); background: transparent; border-radius: 6px;
+}
+.update-banner .up-btn:hover { background: var(--accent); color: var(--bg); }
+.update-banner .up-btn.ghost { border-color: var(--border); color: var(--text-dim); }
+.update-banner .up-btn.ghost:hover { background: var(--bg); color: var(--text); }
 </style>

@@ -9,6 +9,7 @@ import { categoryColor, TRACK_COLORS, TYPE_ABBR } from '../lib/trackColors'
 import { useStudioStore } from '../stores/studio'
 import { usePlaybackStore } from '../stores/playback'
 import AddTrackDialog from './AddTrackDialog.vue'
+import GenerateSongDialog from './GenerateSongDialog.vue'
 import ContextMenu, { type MenuItem } from './ContextMenu.vue'
 import type { Clip, Track, VoiceProfile } from '../api/types'
 
@@ -535,6 +536,7 @@ async function clipResizeEnd() {
 
 // ------- editing: add track, select clip, split / duplicate / delete -------
 const showAddTrack = ref(false)
+const showGenerateSong = ref(false)
 const selectedClip = computed({
   get: () => studio.selectedClip,
   set: (v) => { studio.selectedClip = v },
@@ -684,6 +686,7 @@ function laneMenu(e: MouseEvent, mtrack: { track_id: string; track_type: string 
       <input type="range" min="4" max="48" v-model.number="pxPerBeat" style="width: 100px" />
       <span class="sep" />
       <button class="tb primary" :disabled="saving" @click="showAddTrack = true"><Plus class="icon" :size="13" /> {{ $t('timeline.addTrack') }}</button>
+      <button class="tb" :disabled="saving" @click="showGenerateSong = true"><Sparkles class="icon" :size="13" /> {{ $t('genSong.button') }}</button>
       <span class="sep" />
       <button class="tb" :disabled="!selectedClip || saving" :title="$t('timeline.splitTip')" @click="splitClip"><Scissors class="icon" :size="13" /> {{ $t('timeline.split') }}</button>
       <button class="tb" :disabled="!selectedClip || saving" :title="$t('timeline.duplicateTip')" @click="duplicateClip"><Copy class="icon" :size="13" /> {{ $t('timeline.duplicate') }}</button>
@@ -694,6 +697,11 @@ function laneMenu(e: MouseEvent, mtrack: { track_id: string; track_type: string 
     <div v-if="!hasTracks" class="starter">
       <p class="dim">{{ $t('timeline.emptySong') }}</p>
       <div class="starter-btns">
+        <button class="starter-card" @click="showGenerateSong = true">
+          <Sparkles class="starter-icon" :size="30" />
+          <strong>{{ $t('genSong.button') }}</strong>
+          <span class="dim small">{{ $t('genSong.placeholder') }}</span>
+        </button>
         <button class="starter-card" @click="showAddTrack = true">
           <Piano class="starter-icon" :size="30" />
           <strong>{{ $t('timeline.addInstrument') }}</strong>
@@ -873,6 +881,7 @@ function laneMenu(e: MouseEvent, mtrack: { track_id: string; track_type: string 
       </div>
     </div>
     <AddTrackDialog v-if="showAddTrack" @close="showAddTrack = false" />
+    <GenerateSongDialog v-if="showGenerateSong" @close="showGenerateSong = false" />
     <ContextMenu v-if="ctxMenu" :x="ctxMenu.x" :y="ctxMenu.y" :items="ctxMenu.items"
                  @close="ctxMenu = null" />
   </div>
