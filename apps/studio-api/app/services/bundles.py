@@ -184,6 +184,12 @@ def _import_voice_from(zf: zipfile.ZipFile, prefix: str,
         return None
     pdump = meta["profile"]
     old_id = pdump["id"]
+    # face templates are deliberately NOT part of a bundle (biometric data
+    # must not travel with a shared voice), so an imported profile must not
+    # claim to be enrolled — and its face consent does not transfer either
+    pdump["face_enrolled"] = False
+    pdump["face_consent"] = False
+    pdump["photo_path"] = ""
 
     id_map: dict[str, str] = {}
     for adump in meta.get("assets", []):

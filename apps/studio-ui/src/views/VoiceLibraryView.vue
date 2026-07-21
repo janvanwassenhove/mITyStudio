@@ -1,16 +1,80 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ChevronDown, ChevronRight, Download, Dumbbell, Mic, PackageOpen, Play, Trash2, Wand2 } from 'lucide-vue-next'
+import { ChevronDown, ChevronRight, Download, Dumbbell, Mic, PackageOpen, Play, ScanFace, Trash2, Wand2 } from 'lucide-vue-next'
 import { api, getHealth } from '../api/client'
 import type { Asset, VoiceProfile } from '../api/types'
 import VoiceWizard from '../components/VoiceWizard.vue'
+import FaceIdPanel from '../components/FaceIdPanel.vue'
 import { runCountdown } from '../composables/countdown'
 
 const { t } = useI18n()
 
 const recordings = ref<Asset[]>([])
 const profiles = ref<VoiceProfile[]>([])
+
+// --- face identification (local, consent-gated per profile) ----------------
+interface FaceStatus { available: boolean; models_installed: boolean
+                       runtime_available: boolean }
+const faceStatus = ref<FaceStatus | null>(null)
+const faceInstalling = ref(false)
+const identifying = ref(false)
+const identifyMsg = ref('')
+const anyEnrolled = computed(() => profiles.value.some((p) => p.face_enrolled))
+
+async function loadFaceStatus() {
+  try { faceStatus.value = await api.get<FaceStatus>('/voice/face/status') }
+  catch { faceStatus.value = null }
+}
+
+async function installFaceModels() {
+  faceInstalling.value = true
+  try {
+    await api.post('/voice/face/install-models', {})
+    await loadFaceStatus()
+  } catch (e) {
+    identifyMsg.value = String(e)
+  } finally { faceInstalling.value = false }
+}
+
+function onProfileChanged(updated: VoiceProfile) {
+  const i = profiles.value.findIndex((x) => x.id === updated.id)
+  if (i >= 0) profiles.value[i] = { ...profiles.value[i], ...updated }
+}
+
+/** Grab one webcam frame and ask the backend who it is. An unconfident
+ *  match returns no profile — we say so rather than guess a person. */
+async function identifyMe() {
+  identifying.value = true
+  identifyMsg.value = ''
+  let stream: MediaStream | null = null
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: true })
+    const v = document.createElement('video')
+    v.srcObject = stream; v.muted = true; v.playsInline = true
+    await v.play()
+    await new Promise((r) => setTimeout(r, 400))    // let exposure settle
+    const c = document.createElement('canvas')
+    c.width = v.videoWidth; c.height = v.videoHeight
+    c.getContext('2d')?.drawImage(v, 0, 0)
+    const blob: Blob | null = await new Promise((res) =>
+      c.toBlob((b) => res(b), 'image/jpeg', 0.92))
+    if (!blob) throw new Error('no frame')
+    const fd = new FormData()
+    fd.append('file', blob, 'frame.jpg')
+    const r = await fetch('/api/voice/identify', { method: 'POST', body: fd })
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(body.detail ?? r.statusText)
+    identifyMsg.value = body.profile_id
+      ? t('voices.face.identified', { name: body.name })
+      : t('voices.face.notRecognised')
+  } catch (e) {
+    identifyMsg.value = String(e instanceof Error ? e.message : e)
+  } finally {
+    stream?.getTracks().forEach((tr) => tr.stop())
+    identifying.value = false
+  }
+}
 const error = ref('')
 const showWizard = ref(false)
 
@@ -245,6 +309,7 @@ async function createProfile() {
 async function load() {
   recordings.value = await api.get<Asset[]>('/assets/voice-recordings')
   profiles.value = await api.get<VoiceProfile[]>('/voice/profiles')
+  void loadFaceStatus()
 }
 
 const testingId = ref('')
@@ -424,6 +489,20 @@ onMounted(load)
       <p class="dim small">
         {{ t('voices.profilesBlurb') }}
       </p>
+      <div class="face-bar">
+        <button v-if="faceStatus && !faceStatus.models_installed"
+                class="small-btn" :disabled="faceInstalling"
+                :title="t('voices.face.installTip')" @click="installFaceModels">
+          <ScanFace class="icon" :size="12" />
+          {{ faceInstalling ? t('voices.face.installing') : t('voices.face.install') }}
+        </button>
+        <button v-if="faceStatus?.available && anyEnrolled" class="small-btn"
+                :disabled="identifying" @click="identifyMe">
+          <ScanFace class="icon" :size="12" />
+          {{ identifying ? t('voices.face.identifying') : t('voices.face.whoAmI') }}
+        </button>
+        <span v-if="identifyMsg" class="dim small">{{ identifyMsg }}</span>
+      </div>
       <div v-if="!cloneAvailable" class="engine-note">
         <strong>{{ t('voices.engineMissingTitle') }}</strong>
         <span class="dim small">{{ t('voices.engineMissingBody') }}</span>
@@ -548,6 +627,8 @@ onMounted(load)
           <span v-if="p.performer_alias"> · {{ p.performer_alias }}</span>
         </div>
         <div v-if="p.usage_restrictions" class="dim small">{{ t('voices.restrictions') }}: {{ p.usage_restrictions }}</div>
+        <FaceIdPanel :profile="p" :models-ready="!!faceStatus?.available"
+                     @changed="onProfileChanged" />
         <div v-if="expandedProfiles.has(p.id)" class="profile-recordings">
           <div v-for="r in profileRecordings(p)" :key="r.id" class="pr-item">
             <div class="fname small">{{ r.filename }}</div>

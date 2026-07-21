@@ -19,6 +19,13 @@ class VoiceProfile(BaseModel):
     # wizard was used, the recorded verbal consent clip
     consent_recorded_at: str = ""
     consent_recording_id: str | None = None
+    # optional photo of the performer, shown next to the profile
+    photo_path: str = ""
+    # face identification is SEPARATE consent: agreeing to voice cloning is
+    # not agreeing to be recognised by camera. The face template itself is
+    # never stored here — see services/face_id (kept out of exports).
+    face_consent: bool = False
+    face_enrolled: bool = False
     performer_alias: str = ""
     vocal_range: str = ""
     language_notes: str = ""

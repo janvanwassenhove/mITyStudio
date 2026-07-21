@@ -410,5 +410,144 @@ def update_profile_notes(profile_id: str, body: dict) -> VoiceProfile:
                   "performer_alias", "status"):
         if field in body:
             setattr(p, field, body[field])
+    if "face_consent" in body:
+        p.face_consent = bool(body["face_consent"])
+        # withdrawing consent must actually erase the biometric template,
+        # not just flip a flag
+        if not p.face_consent and p.face_enrolled:
+            from ..services import face_id
+            face_id.delete_template(p.id)
+            p.face_enrolled = False
     voice_profiles.update_profile(p)
     return p
+
+
+# --- face identification ---------------------------------------------------
+# A photo is optional decoration; face RECOGNITION is biometric and gated
+# behind its own consent flag (agreeing to voice cloning is not agreeing to
+# be recognised by camera). Everything runs locally — a face image is never
+# sent to the vision LLM. See services/face_id for the full rationale.
+
+_PHOTO_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def _photo_path(profile_id: str) -> Path:
+    return get_config().voices_dir / "profiles" / f"{profile_id}.photo.jpg"
+
+
+@router.get("/face/status")
+def face_status() -> dict:
+    from ..services import face_id
+    return face_id.status()
+
+
+@router.post("/face/install-models")
+def face_install_models() -> dict:
+    """One-time download of the YuNet detector + SFace recognizer (~37 MB)."""
+    from ..services import face_id
+    try:
+        out = face_id.install_models()
+    except face_id.FaceIdError as e:
+        raise HTTPException(502, str(e))
+    face_id.reset_engines()
+    return out
+
+
+@router.post("/profiles/{profile_id}/photo")
+async def set_profile_photo(profile_id: str,
+                            file: UploadFile = File(...)) -> VoiceProfile:
+    """Attach a photo to a profile (avatar only — no recognition here)."""
+    p = voice_profiles.get_profile(profile_id)
+    if p is None:
+        raise HTTPException(404, "voice profile not found")
+    ext = Path(file.filename or "photo.jpg").suffix.lower()
+    if ext not in _PHOTO_EXTENSIONS:
+        raise HTTPException(415, f"unsupported image type {ext!r}")
+    data = await file.read()
+    if not data:
+        raise HTTPException(422, "empty image")
+    dest = _photo_path(profile_id)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    p.photo_path = dest.relative_to(get_config().root).as_posix()
+    voice_profiles.update_profile(p)
+    return p
+
+
+@router.get("/profiles/{profile_id}/photo")
+def get_profile_photo(profile_id: str) -> FileResponse:
+    path = _photo_path(profile_id)
+    if not path.exists():
+        raise HTTPException(404, "no photo for this profile")
+    return FileResponse(path, media_type="image/jpeg")
+
+
+@router.delete("/profiles/{profile_id}/photo")
+def delete_profile_photo(profile_id: str) -> VoiceProfile:
+    p = voice_profiles.get_profile(profile_id)
+    if p is None:
+        raise HTTPException(404, "voice profile not found")
+    _photo_path(profile_id).unlink(missing_ok=True)
+    p.photo_path = ""
+    voice_profiles.update_profile(p)
+    return p
+
+
+@router.post("/profiles/{profile_id}/face-enroll")
+async def face_enroll(profile_id: str,
+                      file: UploadFile = File(...)) -> dict:
+    """Store a face template so this performer can be recognised by camera.
+    Requires face_consent on the profile — 403 otherwise, mirroring how
+    voice profiles gate on consent_confirmed."""
+    from ..services import face_id
+    p = voice_profiles.get_profile(profile_id)
+    if p is None:
+        raise HTTPException(404, "voice profile not found")
+    if not p.face_consent:
+        raise HTTPException(
+            403, "face recognition needs explicit consent for this profile")
+    if not face_id.available():
+        raise HTTPException(503, "face models are not installed")
+    try:
+        res = face_id.detect_and_embed(await file.read())
+    except face_id.FaceIdError as e:
+        raise HTTPException(422, str(e))
+    face_id.save_template(profile_id, res.embedding)
+    p.face_enrolled = True
+    voice_profiles.update_profile(p)
+    return {"profile_id": profile_id, "enrolled": True, "box": res.box}
+
+
+@router.delete("/profiles/{profile_id}/face-enroll")
+def face_unenroll(profile_id: str) -> dict:
+    """Delete the biometric template (the photo, if any, is kept)."""
+    from ..services import face_id
+    p = voice_profiles.get_profile(profile_id)
+    if p is None:
+        raise HTTPException(404, "voice profile not found")
+    removed = face_id.delete_template(profile_id)
+    p.face_enrolled = False
+    voice_profiles.update_profile(p)
+    return {"profile_id": profile_id, "removed": removed}
+
+
+@router.post("/identify")
+async def identify_face(file: UploadFile = File(...)) -> dict:
+    """Which enrolled performer is this? Only matches profiles that were
+    explicitly enrolled; an unconfident match returns profile_id=null so the
+    caller asks instead of silently picking the wrong person's voice."""
+    from ..services import face_id
+    if not face_id.available():
+        raise HTTPException(503, "face models are not installed")
+    templates = face_id.enrolled_templates()
+    if not templates:
+        return {"profile_id": None, "confident": False,
+                "reason": "no profiles are enrolled for face recognition"}
+    try:
+        res = face_id.detect_and_embed(await file.read())
+    except face_id.FaceIdError as e:
+        raise HTTPException(422, str(e))
+    out = face_id.match(res.embedding, templates)
+    named = voice_profiles.get_profile(out.get("best_profile_id") or "")
+    out["name"] = named.name if named else None
+    return out

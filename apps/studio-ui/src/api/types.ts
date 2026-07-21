@@ -214,6 +214,9 @@ export interface VoiceProfile {
   source_recording_ids: string[]
   consent_confirmed: boolean
   consent_notes: string
+  photo_path?: string
+  face_consent?: boolean
+  face_enrolled?: boolean
   performer_alias: string
   vocal_range: string
   language_notes: string

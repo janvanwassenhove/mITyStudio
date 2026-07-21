@@ -28,7 +28,18 @@ def detect_capabilities() -> dict:
         # cheaply (find_spec does NOT import torch) so the UI can explain its
         # absence instead of hard-failing "voice engine not installed".
         "voice_clone": voice_clone_available(),
+        # local face identification for voice profiles (OpenCV YuNet+SFace);
+        # false until the ~37 MB models are downloaded on demand
+        "face_id": face_id_available(),
     }
+
+
+def face_id_available() -> bool:
+    try:
+        from .face_id import available
+        return available()
+    except Exception:  # noqa: BLE001 — a missing model must not 500 /health
+        return False
 
 
 @lru_cache(maxsize=1)

@@ -52,3 +52,6 @@ tools/logs/
 # Blog/website drafts for mityjohn.com — content, not code. Never commit.
 docs/website/
 *.blogpost.md
+
+# downloaded ML models (face detection/recognition ~37MB) — fetched on demand
+models/

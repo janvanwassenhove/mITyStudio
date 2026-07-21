@@ -71,6 +71,9 @@ def delete_profile(profile_id: str) -> bool:
     """Remove a voice profile (and its asset-library mirror). Source
     recordings are never touched. Tracks referencing it fall back to the
     default voice at render time."""
+    # biometric data must not outlive the profile it belongs to
+    from . import face_id
+    face_id.delete_template(profile_id)
     cur = get_db().execute("DELETE FROM voice_profiles WHERE id=?",
                            (profile_id,))
     get_db().execute("DELETE FROM assets WHERE id=? AND asset_type='voice_profile'",
