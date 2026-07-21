@@ -81,6 +81,7 @@ export interface SongProject {
   id: string
   title: string
   style: string
+  genre?: string
   bpm: number
   key: string
   time_signature: string

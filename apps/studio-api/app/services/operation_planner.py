@@ -7,15 +7,28 @@ import logging
 
 from pydantic import ValidationError
 
-from ..models.operations import ChatOperation, OperationType
+from ..models.operations import OP_REGISTRY, ChatOperation, OperationType
 from ..models.song import SongProject
-from . import asset_repo
+from . import asset_repo, genres
 from .llm.provider import LlmProviderError, classify_llm_error, get_provider
 from .llm.settings import load_settings
 
 log = logging.getLogger(__name__)
 
 _OP_TYPES = list(OperationType.__args__)  # type: ignore[attr-defined]
+
+
+def _ops_block() -> str:
+    """The operations reference, GENERATED from the capability registry so
+    the model always sees every studio capability (never hand-maintained)."""
+    lines = []
+    for op in _OP_TYPES:
+        doc = OP_REGISTRY.get(op, {})
+        line = f"- {op}: {doc.get('params', '')}"
+        if doc.get("use"):
+            line += f" — {doc['use']}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def _asset_context(message: str, project: SongProject) -> dict:
@@ -61,28 +74,17 @@ that the studio backend validates and applies to the current song project.
 Return exactly one JSON object:
 {{"reply": "<short human summary>", "operations": [{{"op_type": "...", "params": {{...}}}}]}}
 
-Allowed op_type values: {json.dumps(_OP_TYPES)}
+OPERATIONS (the complete studio capability set — params, then when to use):
+{_ops_block()}
 
-Key params per operation:
-- create_song: title, style, bpm, key, time_signature
-- add_section: name, start_bar?, length_bars, energy (0-1), description?
-- add_track: name, track_type (drums|bass|guitar|keys|synth|strings|brass|sample|lead_vocal|backing_vocal|fx), soundfont_asset_id?, program?, synth_patch? (built-in synth id)
-- update_track: track (name or id), name? (rename), volume? (0-2), pan? (-1..1), mute?, solo?
-- split_clip: track, at_bar (1-based bar where the cut falls)
-- duplicate_clip: track, at_bar? (clip covering that bar; omit = last clip)
-- delete_clip: track, at_bar? (omit = last clip)
-- assign_soundfont: track (name or id), soundfont_asset_id, bank, program, preset (label, for the summary)
-- assign_synth: track (name or id), synth_patch (a built-in synth id from the instruments list, e.g. "synth_saw_lead", "bass_pluck", "drum_kit")
-- select_sample: sample_asset_id, track?, section?, start_beat?, duration_beats?, loop?
-- generate_drums/generate_bassline/generate_chords/generate_melody: section (name, id, or "all" for every section), track? (created if missing)
-  → to create a FULL SONG: create_song, then add_section per section, then generate_* with section "all" (or per section) for each instrument, then rewrite_lyrics + generate_melody with track_type lead_vocal
-- write_notes: COMPOSE the part yourself, note by note — section (name/id, one section per op), track, track_type, notes: [{{"midi_note": 36, "start_beat": 0, "duration_beats": 0.5, "velocity": 100}}, …]. start_beat is RELATIVE to the section start; keep notes inside the section (length_bars × beats/bar). Use this when you can write something more fitting than generate_* (a genre-true drum groove, a signature riff, a specific bass line); GM drums on midi 35-59 (36 kick, 38 snare, 42 closed hat, 46 open hat, 49 crash). Stay in the song's key for pitched parts.
-- rewrite_lyrics: lines (list of strings), section?, language?
-- change_key: key; change_tempo: bpm (number, or "+10"/"-10")
-- add_effect: track, effect_type (gain|pan|eq|compressor|reverb|delay|distortion), params
-- create_vocal_track: name?, track_type, voice_profile_id?, vocal_style? (sing|rap)
-- generate_melody with style: "rap" produces a rap flow instead of a sung melody
-- assign_voice_profile: track, voice_profile_id
+→ to create a FULL SONG: create_song, then add_section per section, then
+  generate_* with section "all" (or per section) for each instrument, then
+  rewrite_lyrics + generate_melody with track_type lead_vocal. Finish with
+  polish where it serves the song: set_clip_fades on the intro/outro,
+  update_track levels, at most a few well-chosen effects.
+
+TEMPO — typical bpm per genre; pick create_song's bpm inside the range:
+{genres.tempo_table_text()}
 
 STRICT RULES:
 - Only reference asset ids that appear in AVAILABLE ASSETS below. Never invent ids.

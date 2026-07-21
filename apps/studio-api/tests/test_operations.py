@@ -193,6 +193,60 @@ def test_render_selection_prefers_synth_and_soundfont(client, workspace,
     assert isinstance(sr._select_renderer(plain), sr.SoundFontRenderer)
 
 
+def test_capability_registry_covers_every_operation(client, workspace):
+    """The agent must be fully aware of every studio capability: registry,
+    dispatch table and OperationType stay in three-way sync, and the prompt
+    carries every op (docs/song-quality.md F6/F7)."""
+    from app.models.operations import OP_REGISTRY, OperationType
+    from app.models.song import EffectType, SongProject
+    from app.services import operation_applier, operation_planner
+
+    ops = set(OperationType.__args__)
+    assert set(OP_REGISTRY) == ops, "registry drifted from OperationType"
+    assert set(operation_applier._HANDLERS) == ops, \
+        "dispatch table drifted from OperationType"
+
+    prompt = operation_planner.build_system_prompt(
+        SongProject(title="t"), "en", "hi")
+    for op in ops:
+        assert f"- {op}:" in prompt, f"{op} missing from the prompt"
+    # the full effect palette and the tempo table are in there too
+    for eff in EffectType.__args__:
+        assert eff in prompt, f"effect {eff} not offered to the model"
+    assert "TEMPO" in prompt and "Bossa" in prompt
+
+
+def test_set_clip_fades_and_update_mix(client, workspace):
+    from app.models.operations import ChatOperation
+    from app.models.song import Clip, SongProject, Track
+    from app.services import operation_applier
+
+    project = SongProject(title="t")
+    project.tracks = [Track(name="Keys", track_type="keys", clips=[
+        Clip(clip_type="midi", start_beat=0, duration_beats=16)])]
+
+    r = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="set_clip_fades",
+                      params={"track": "Keys", "fade_in_seconds": 2.0,
+                              "fade_out_seconds": 99.0}),   # clamped
+        ChatOperation(op_type="update_mix",
+                      params={"master_volume": 0.8, "limiter": False}),
+    ])
+    assert all(x.applied for x in r), [x.error for x in r]
+    clip = project.tracks[0].clips[0]
+    assert clip.fade_in_seconds == 2.0
+    assert clip.fade_out_seconds == 15.0          # clamp cap
+    assert project.mix_settings.master_volume == 0.8
+    assert project.mix_settings.limiter is False
+
+    # no-field calls are rejected cleanly
+    r2 = operation_applier.apply_operations(project, [
+        ChatOperation(op_type="set_clip_fades", params={"track": "Keys"}),
+        ChatOperation(op_type="update_mix", params={}),
+    ])
+    assert not r2[0].applied and not r2[1].applied
+
+
 def test_invalid_operations_rejected(client, workspace):
     from app.models.operations import ChatOperation
     from app.models.song import SongProject

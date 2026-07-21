@@ -187,6 +187,9 @@ class SongProject(BaseModel):
     id: str = Field(default_factory=new_id)
     title: str
     style: str = ""
+    # canonical genre family (services/genres.py) pinned by the producer pass
+    # or the user; "" = derive from `style` text lexicon-first
+    genre: str = ""
     bpm: float = Field(default=120.0, gt=20, lt=400)
     key: str = "C major"
     time_signature: str = "4/4"

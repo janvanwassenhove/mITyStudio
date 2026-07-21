@@ -37,6 +37,39 @@ def list_projects() -> list[dict]:
     return project_repo.list_projects()
 
 
+class GenerateSongRequest(BaseModel):
+    prompt: str = Field(min_length=1)     # "a happy bossa nova pop song"
+    language: str = "en"
+    force: bool = False                   # allow overwriting existing content
+
+
+@router.post("/{project_id}/generate-song", status_code=202)
+def generate_song(project_id: str, req: GenerateSongRequest) -> dict:
+    """Full-song pipeline (docs/song-quality.md §6): producer spec →
+    deterministic skeleton → parallel AI composers → metrics → one bounded
+    critic pass. Runs as a background job; poll the status endpoint."""
+    from ..services import song_pipeline
+    try:
+        project_repo.load_project(project_id)
+    except ProjectNotFound:
+        raise HTTPException(404, "project not found")
+    try:
+        job = song_pipeline.start(project_id, req.prompt,
+                                  language=req.language, force=req.force)
+    except ValueError as e:
+        raise HTTPException(409, str(e))
+    return {"job_id": job["id"], "status": job["status"]}
+
+
+@router.get("/{project_id}/generate-song/{job_id}")
+def generate_song_status(project_id: str, job_id: str) -> dict:
+    from ..services import song_pipeline
+    job = song_pipeline.get_job(job_id)
+    if job is None or job.get("project_id") != project_id:
+        raise HTTPException(404, "job not found")
+    return job
+
+
 @router.get("/{project_id}")
 def get_project(project_id: str) -> SongProject:
     try:

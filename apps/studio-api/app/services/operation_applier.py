@@ -60,16 +60,20 @@ def _next_start_bar(project: SongProject) -> int:
 # --- operation handlers ---------------------------------------------------
 
 def op_create_song(project: SongProject, p: dict) -> str:
+    from .genres import resolve_family
     project.title = p.get("title", project.title)
     project.style = p.get("style", project.style)
+    # pin the canonical genre family: explicit param wins, else derive it
+    # from the (possibly multi-word) style text so generators stay genre-true
+    project.genre = resolve_family(str(p.get("genre") or project.style))
     if "bpm" in p:
         project.bpm = float(p["bpm"])
     if "key" in p:
         project.key = str(p["key"])
     if "time_signature" in p:
         project.time_signature = str(p["time_signature"])
-    return (f"song set up: {project.title!r}, style={project.style or 'n/a'}, "
-            f"{project.bpm:g} BPM, {project.key}")
+    return (f"song set up: {project.title!r}, style={project.style or 'n/a'} "
+            f"[{project.genre}], {project.bpm:g} BPM, {project.key}")
 
 
 def op_add_section(project: SongProject, p: dict) -> str:
@@ -214,6 +218,41 @@ def op_remove_track(project: SongProject, p: dict) -> str:
     return f"removed track {t.name!r}"
 
 
+def op_set_clip_fades(project: SongProject, p: dict) -> str:
+    """Fade a clip in/out (seconds). The renderer applies these post-render
+    for midi clips and inline for sample clips — intro/outro polish."""
+    t = _find_track(project, p.get("track", ""))
+    clip = _clip_at_bar(project, t, p.get("at_bar"))
+    changes = []
+    for field, label in (("fade_in_seconds", "fade-in"),
+                         ("fade_out_seconds", "fade-out")):
+        if field in p:
+            v = max(0.0, min(15.0, float(p[field])))
+            setattr(clip, field, v)
+            changes.append(f"{label} {v:g}s")
+    if not changes:
+        raise OperationError(
+            "set_clip_fades requires fade_in_seconds and/or fade_out_seconds")
+    return f"clip on {t.name!r}: " + ", ".join(changes)
+
+
+def op_update_mix(project: SongProject, p: dict) -> str:
+    """Master mix settings — the master bus, not per-track levels."""
+    changes = []
+    if "master_volume" in p:
+        project.mix_settings.master_volume = max(
+            0.0, min(2.0, float(p["master_volume"])))
+        changes.append(f"master volume {project.mix_settings.master_volume:g}")
+    for flag in ("normalize", "limiter"):
+        if flag in p:
+            setattr(project.mix_settings, flag, bool(p[flag]))
+            changes.append(f"{flag} {'on' if p[flag] else 'off'}")
+    if not changes:
+        raise OperationError(
+            "update_mix requires master_volume, normalize or limiter")
+    return "mix: " + ", ".join(changes)
+
+
 def op_assign_soundfont(project: SongProject, p: dict) -> str:
     """Assign a SoundFont preset to a track. The LLM may name a preset the
     font doesn't contain (it can't see every bank/program), so the bank +
@@ -324,17 +363,29 @@ def op_select_sample(project: SongProject, p: dict) -> str:
 
 def _generate(project: SongProject, p: dict, kind: str,
               default_track_type: str, gen: Callable) -> str:
-    # section "all"/"*" generates for every section in one operation
+    # section "all"/"*" generates for every section in one operation —
+    # template-gated: the arrangement decides WHICH sections this instrument
+    # plays in (strip back quiet verses, land the chorus). Explicit
+    # per-section requests are never gated: the user asked for that section.
     if str(p.get("section", "")).lower() in ("all", "*"):
+        from .arrangement import plays_in_section
         if not project.sections:
             raise OperationError("project has no sections yet")
-        summaries = []
-        for s in project.sections:
+        tt = str(p.get("track_type", default_track_type))
+        targets = [s for s in project.sections
+                   if plays_in_section(tt, s, project)]
+        # never gate the whole part away — the loudest section always plays
+        if not targets:
+            targets = [max(project.sections, key=lambda s: s.energy)]
+        skipped = [s.name for s in project.sections if s not in targets]
+        for s in targets:
             sub = dict(p)
             sub["section"] = s.id
-            summaries.append(_generate(project, sub, kind,
-                                       default_track_type, gen))
-        return f"generated {kind} for all {len(project.sections)} sections"
+            _generate(project, sub, kind, default_track_type, gen)
+        msg = f"generated {kind} for {len(targets)}/{len(project.sections)} sections"
+        if skipped:
+            msg += f" (sits out low-energy: {', '.join(skipped)})"
+        return msg
     section = _find_section(project, p.get("section"))
     track_ref = p.get("track")
     track = None
@@ -704,6 +755,7 @@ _HANDLERS: dict[str, Callable[[SongProject, dict], str]] = {
     "split_clip": op_split_clip,
     "duplicate_clip": op_duplicate_clip,
     "delete_clip": op_delete_clip,
+    "set_clip_fades": op_set_clip_fades,
     "assign_soundfont": op_assign_soundfont,
     "assign_synth": op_assign_synth,
     "select_sample": op_select_sample,
@@ -719,6 +771,7 @@ _HANDLERS: dict[str, Callable[[SongProject, dict], str]] = {
     "arrange_from_score": op_arrange_from_score,
     "add_effect": op_add_effect,
     "update_effect": op_update_effect,
+    "update_mix": op_update_mix,
     "create_vocal_track": op_create_vocal_track,
     "assign_voice_profile": op_assign_voice_profile,
     "render_stems": op_render_stems,

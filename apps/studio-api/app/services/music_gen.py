@@ -1,14 +1,17 @@
 """Algorithmic music generators — production-quality pass.
 
 What makes these sound like parts instead of patterns:
+- a real genre engine (services/genres.py): token-matched style families
+  with per-genre groove templates, swing, chord colour and progressions —
+  bossa, funk, reggae, trap, country, synthwave... each audibly distinct
+- tempo awareness: hat subdivision, fill density and pattern density derive
+  from project.bpm, not just from section energy
 - humanized timing (±8 ms swing-aware jitter) and velocity contours
 - chord voicings with inversions chosen by voice-leading distance
-- guitar strums (sequential note offsets, down/up velocity shapes),
-  power chords for rock/punk/metal
-- drum grooves with accents, ghost notes, open-hat pushes, fills every
-  4 bars and crashes on section starts, density scaled by section energy
-- bass lines with passing notes approaching the next chord and style
-  patterns (driving 8ths, syncopated pop, walking jazz)
+- guitar strums, power chords, reggae skanks, funk stabs, pads
+- drum grooves with accents, ghost notes, fills and section crashes
+- bass lines per genre (driving 8ths, walking jazz, bossa root-fifth,
+  syncopated funk 16ths, one-drop reggae, long 808s)
 - melodies built from a repeated 2-bar motif with variations, phrase
   arcs that resolve to chord tones, and breaths between phrases
 
@@ -20,6 +23,7 @@ import random
 import re
 
 from ..models.song import Clip, NoteEvent, Section, SongProject
+from .genres import GenreProfile, genre_profile, profile_for
 
 _NOTE_OFFSETS = {"C": 0, "C#": 1, "Db": 1, "D": 2, "D#": 3, "Eb": 3, "E": 4,
                  "F": 5, "F#": 6, "Gb": 6, "G": 7, "G#": 8, "Ab": 8, "A": 9,
@@ -31,10 +35,6 @@ MINOR_SCALE = [0, 2, 3, 5, 7, 8, 10]
 # GM drum notes
 KICK, SNARE, RIM, HAT_CLOSED, HAT_PEDAL, HAT_OPEN = 36, 38, 37, 42, 44, 46
 CRASH, RIDE, TOM_LO, TOM_MID, TOM_HI = 49, 51, 45, 47, 50
-
-_ROCKY = ("punk", "rock", "metal", "grunge")
-_DANCY = ("edm", "dance", "house", "techno", "electro")
-_JAZZY = ("jazz", "blues", "swing")
 
 
 def parse_key(key: str) -> tuple[int, bool]:
@@ -51,9 +51,11 @@ def scale_notes(key: str) -> list[int]:
 
 
 def chord_progression(key: str, style: str, bars: int) -> list[list[int]]:
-    """One chord (list of pitch classes, root first) per bar."""
+    """One chord (list of pitch classes, root first) per bar, using the
+    genre profile's progression and chord colour."""
     root, minor = parse_key(key)
     scale = MINOR_SCALE if minor else MAJOR_SCALE
+    prof = profile_for(style)
 
     def triad(degree: int, seventh: bool = False) -> list[int]:
         pcs = [(root + scale[(degree + i) % 7]) % 12 for i in (0, 2, 4)]
@@ -61,18 +63,9 @@ def chord_progression(key: str, style: str, bars: int) -> list[list[int]]:
             pcs.append((root + scale[(degree + 6) % 7]) % 12)
         return pcs
 
-    seventh = style in _JAZZY
-    if minor:
-        degrees = [0, 5, 2, 6]           # i VI III VII
-    elif style in _ROCKY:
-        degrees = [0, 4, 5, 3]           # I V vi IV
-    elif style in _DANCY or style == "pop":
-        degrees = [5, 3, 0, 4]           # vi IV I V
-    elif style in _JAZZY:
-        degrees = [1, 4, 0, 5]           # ii V I vi
-    else:
-        degrees = [0, 3, 4, 0]           # I IV V I
-    return [triad(degrees[i % len(degrees)], seventh) for i in range(bars)]
+    degrees = prof.degrees_minor if minor else prof.degrees_major
+    return [triad(degrees[i % len(degrees)], prof.seventh)
+            for i in range(bars)]
 
 
 def _rng(project: SongProject, section: Section, salt: str) -> random.Random:
@@ -97,10 +90,26 @@ def _note(notes: list[NoteEvent], midi: int, beat: float, dur: float, vel: int,
 # DRUMS
 # --------------------------------------------------------------------------
 
+def _hat_subdivision(prof: GenreProfile, bpm: float, energy: float) -> float:
+    """Hat step in beats — tempo-aware: fast songs get 8ths (16ths would
+    blur), slow songs earn 16ths, mid tempo follows section energy."""
+    if prof.groove == "funk":
+        return 0.5 if bpm >= 140 else 0.25
+    if prof.groove in ("halftime", "sparse"):
+        return 0.5
+    if bpm >= 150:
+        return 0.5
+    if bpm <= 88:
+        return 0.25
+    return 0.25 if energy > 0.75 else 0.5
+
+
 def generate_drums(project: SongProject, section: Section) -> Clip:
     bpb = project.beats_per_bar
     length = section.length_bars * bpb
-    style = project.style.lower()
+    prof = genre_profile(project)
+    groove = prof.groove
+    bpm = float(project.bpm or 110)
     energy = section.energy
     rng = _rng(project, section, "drums")
     notes: list[NoteEvent] = []
@@ -108,37 +117,100 @@ def generate_drums(project: SongProject, section: Section) -> Clip:
     def hit(n: int, b: float, v: int, d: float = 0.2, j: float = 0.012) -> None:
         _note(notes, n, b, d, v, rng, length, j)
 
-    hat_step = 0.25 if (energy > 0.75 and style in _ROCKY + _DANCY) else 0.5
+    def sw(b: float) -> float:
+        """Swing: delay offbeat 8ths by the profile's swing amount."""
+        return b + (prof.swing if abs(b % 1 - 0.5) < 0.01 else 0.0)
+
+    hat_step = _hat_subdivision(prof, bpm, energy)
+    # tempo-aware fill density: very fast songs fill half as often
+    fill_every = 8 if bpm >= 168 else 4
+    quiet = groove in ("sparse", "bossa", "reggae")
+
     for bar in range(section.length_bars):
         base = bar * bpb
-        is_fill_bar = (bar % 4 == 3) and energy > 0.35 and section.length_bars >= 4
+        is_fill_bar = (bar % fill_every == fill_every - 1) \
+            and energy > (0.6 if quiet else 0.35) and section.length_bars >= 4
         fill_start = bpb - 1.0 if is_fill_bar else bpb + 1  # last beat of fill bars
 
-        # kick/snare skeleton per style
-        if style in _ROCKY:
+        # kick/snare skeleton per groove template
+        if groove == "rock":
             for b in range(int(bpb)):
                 hit(KICK, base + b, 112)
             hit(SNARE, base + 1, 116)
             hit(SNARE, base + 3, 118)
             if energy > 0.6 and rng.random() < 0.4:
                 hit(KICK, base + 2.5, 96)   # push into beat 3
-        elif style in _DANCY:
+        elif groove == "four_floor":
             for b in range(int(bpb)):
                 hit(KICK, base + b, 122, j=0.004)
                 hit(HAT_OPEN, base + b + 0.5, 60 + int(30 * energy), 0.3)
             hit(SNARE, base + 1, 100)
             hit(SNARE, base + 3, 102)
-        elif style in _JAZZY:
+        elif groove == "swing":
             # ride swing pattern, cross-stick on 2 & 4, feathered kick
             for b in range(int(bpb)):
                 hit(RIDE, base + b, 88)
-                hit(RIDE, base + b + 0.66, 66)
+                hit(RIDE, base + b + 0.5 + prof.swing, 66)
             hit(RIM, base + 1, 78)
             hit(RIM, base + 3, 80)
             hit(HAT_PEDAL, base + 1, 60)
             hit(HAT_PEDAL, base + 3, 60)
             if rng.random() < 0.3:
                 hit(KICK, base + rng.choice([0.0, 2.0]), 55)
+        elif groove == "bossa":
+            # surdo-style kick: 1 and the "and of 2", repeated on 3
+            hit(KICK, base + 0, 98, j=0.006)
+            hit(KICK, base + 1.5, 88, j=0.006)
+            hit(KICK, base + 2, 96, j=0.006)
+            hit(KICK, base + 3.5, 86, j=0.006)
+            # rim clave (3-2 son) across two bars
+            clave = (0.0, 1.5, 3.0) if bar % 2 == 0 else (1.0, 2.0)
+            for c in clave:
+                hit(RIM, base + c, 74, 0.15)
+        elif groove == "funk":
+            hit(KICK, base + 0, 116)
+            if rng.random() < 0.6:
+                hit(KICK, base + 0.75, 92)
+            hit(KICK, base + 2.5, 104)
+            if energy > 0.5 and rng.random() < 0.5:
+                hit(KICK, base + 3.25, 90)
+            hit(SNARE, base + 1, 112)
+            hit(SNARE, base + 3, 114)
+            for g in (1.75, 2.25, 3.75):        # ghosted snare 16ths
+                if rng.random() < 0.45:
+                    hit(SNARE, base + g, 34, 0.08)
+        elif groove == "reggae":
+            # one drop: kick + cross-stick together on beat 3, bar 1 empty
+            hit(KICK, base + 2, 108)
+            hit(RIM, base + 2, 96)
+            if energy > 0.5 and rng.random() < 0.3:
+                hit(KICK, base + 0, 68)         # occasional pickup
+        elif groove == "halftime":
+            # trap/hip-hop: snare on 3 only; syncopated sparse kicks
+            hit(KICK, base + 0, 118)
+            if rng.random() < 0.55:
+                hit(KICK, base + rng.choice([0.75, 1.25, 1.75]), 96)
+            hit(SNARE, base + 2, 116)
+            if energy > 0.6 and rng.random() < 0.35:
+                # trap hat roll into the next bar
+                for i in range(4):
+                    hit(HAT_CLOSED, base + 3.5 + i * 0.125, 58 + i * 8, 0.06)
+        elif groove == "train":
+            # country train beat: kick 1&3, snare 2&4 with 8th drive
+            hit(KICK, base + 0, 108)
+            hit(KICK, base + 2, 104)
+            hit(SNARE, base + 1, 104)
+            hit(SNARE, base + 3, 106)
+            if energy > 0.5:
+                hit(SNARE, base + 1.5, 52, 0.1)
+                hit(SNARE, base + 3.5, 52, 0.1)
+        elif groove == "sparse":
+            # ballad/ambient: minimal motion, let the song breathe
+            hit(KICK, base + 0, 92)
+            if energy > 0.3:
+                hit(RIM, base + 2, 70)
+            if energy > 0.55:
+                hit(KICK, base + 2.5, 74)
         else:  # pop / default backbeat
             hit(KICK, base + 0, 112)
             if energy > 0.4:
@@ -151,32 +223,52 @@ def generate_drums(project: SongProject, section: Section) -> Clip:
             if energy > 0.5 and rng.random() < 0.5:
                 hit(SNARE, base + rng.choice([1.75, 3.75]), 38, 0.1)
 
-        # hats with downbeat accents (not for dance/jazz which set their own)
-        if style not in _DANCY and style not in _JAZZY:
+        # hats — grooves with their own top pattern skip these
+        if groove in ("rock", "pop", "funk", "train", "halftime"):
             b = 0.0
             while b < bpb - 0.01:
                 on_beat = abs(b - round(b)) < 0.01
                 vel = (78 if on_beat else 56) + int(22 * energy)
                 if base + b < base + fill_start:
-                    hit(HAT_CLOSED, base + b, vel, 0.12)
+                    hit(HAT_CLOSED, base + sw(b), vel, 0.12)
                 b += hat_step
-            if energy > 0.55 and rng.random() < 0.5:
+            if energy > 0.55 and groove != "halftime" and rng.random() < 0.5:
                 hit(HAT_OPEN, base + bpb - 0.5, 74, 0.4)  # open-hat push
+        elif groove == "bossa":
+            b = 0.0
+            while b < bpb - 0.01:   # light shaker 8ths
+                on_beat = abs(b - round(b)) < 0.01
+                hit(HAT_CLOSED, base + b, (58 if on_beat else 44)
+                    + int(14 * energy), 0.1, 0.02)
+                b += 0.5
+        elif groove == "reggae":
+            for b in range(int(bpb)):   # offbeat skank hats
+                hit(HAT_CLOSED, base + b + 0.5, 72 + int(12 * energy), 0.12)
+        elif groove == "sparse" and energy > 0.4:
+            for b in range(int(bpb)):   # soft quarter hats
+                hit(HAT_CLOSED, base + b, 46 + int(16 * energy), 0.1)
 
-        # fills: snare/tom run over the last beat of every 4th bar
+        # fills: snare/tom run over the last beat of every fill bar
         if is_fill_bar:
-            fill_notes = rng.choice([
-                [SNARE, SNARE, TOM_HI, TOM_LO],
-                [SNARE, TOM_HI, TOM_MID, TOM_LO],
-                [SNARE, SNARE, SNARE, SNARE],
-                [TOM_HI, TOM_HI, TOM_MID, TOM_LO],
-            ])
-            for i, n in enumerate(fill_notes):
-                hit(n, base + fill_start + i * 0.25, 88 + i * 8, 0.2)
+            if quiet:   # gentle two-note fill for laid-back grooves
+                hit(SNARE, base + fill_start, 72, 0.2)
+                hit(TOM_LO, base + fill_start + 0.5, 78, 0.3)
+            else:
+                fill_notes = rng.choice([
+                    [SNARE, SNARE, TOM_HI, TOM_LO],
+                    [SNARE, TOM_HI, TOM_MID, TOM_LO],
+                    [SNARE, SNARE, SNARE, SNARE],
+                    [TOM_HI, TOM_HI, TOM_MID, TOM_LO],
+                ])
+                for i, n in enumerate(fill_notes):
+                    hit(n, base + fill_start + i * 0.25, 88 + i * 8, 0.2)
 
-        # crash on section start and after every fill
-        if bar == 0 or (bar % 4 == 0 and bar > 0 and energy > 0.5):
-            hit(CRASH, base, 104, 1.2)
+        # crash on section start and after every fill (laid-back grooves
+        # only crash when the section really pushes)
+        crash_ok = not quiet or energy > 0.6
+        if crash_ok and (bar == 0
+                         or (bar % fill_every == 0 and bar > 0 and energy > 0.5)):
+            hit(CRASH, base, 104 if not quiet else 88, 1.2)
 
     return Clip(section_id=section.id, clip_type="midi",
                 start_beat=section.start_bar * bpb,
@@ -196,9 +288,10 @@ def _nearest_octave(pc: int, around: int) -> int:
 def generate_bassline(project: SongProject, section: Section) -> Clip:
     bpb = project.beats_per_bar
     length = section.length_bars * bpb
-    style = project.style.lower()
+    prof = genre_profile(project)
     energy = section.energy
-    chords = chord_progression(project.key, style, section.length_bars)
+    chords = chord_progression(project.key, project.style.lower(),
+                               section.length_bars)
     rng = _rng(project, section, "bass")
     notes: list[NoteEvent] = []
 
@@ -209,7 +302,7 @@ def generate_bassline(project: SongProject, section: Section) -> Clip:
         next_chord = chords[(bar + 1) % len(chords)]
         next_root = _nearest_octave(next_chord[0], root)
 
-        if style in _ROCKY:
+        if prof.bass_style == "drive":
             # driving 8ths, accented downbeats, approach note into next bar
             for i in range(int(bpb * 2)):
                 b = i * 0.5
@@ -220,7 +313,7 @@ def generate_bassline(project: SongProject, section: Section) -> Clip:
                 _note(notes, pitch, base + b, 0.46, vel, rng, length, 0.008)
             if energy > 0.7 and rng.random() < 0.3:
                 _note(notes, root + 12, base + bpb - 0.5, 0.4, 100, rng, length)
-        elif style in _JAZZY:
+        elif prof.bass_style == "walk":
             # walking quarter notes: root, chord tone, scale walk, approach
             walk = [root,
                     _nearest_octave(chord[2 % len(chord)], root),
@@ -229,11 +322,54 @@ def generate_bassline(project: SongProject, section: Section) -> Clip:
             for i, pitch in enumerate(walk[:int(bpb)]):
                 _note(notes, pitch, base + i, 0.92, 92 + rng.randint(-4, 8),
                       rng, length, 0.015)
-        elif style in _DANCY:
+        elif prof.bass_style == "octave":
             # off-beat octave bounce
             for b in range(int(bpb)):
                 _note(notes, root, base + b, 0.4, 106, rng, length, 0.005)
                 _note(notes, root + 12, base + b + 0.5, 0.35, 92, rng, length, 0.005)
+        elif prof.bass_style == "bossa":
+            # classic bossa: root on 1 and 3, fifth on the "and of 2"/"of 4"
+            _note(notes, root, base + 0, 1.35, 100, rng, length, 0.01)
+            _note(notes, fifth, base + 1.5, 0.45, 88, rng, length, 0.01)
+            _note(notes, root, base + 2, 1.35, 98, rng, length, 0.01)
+            if next_root != root and rng.random() < 0.5:
+                _note(notes, next_root + rng.choice([-2, -1, 1, 2]),
+                      base + 3.5, 0.45, 86, rng, length, 0.01)
+            else:
+                _note(notes, fifth, base + 3.5, 0.45, 86, rng, length, 0.01)
+        elif prof.bass_style == "funk":
+            # syncopated 16ths with octave pops and dead-note feel
+            _note(notes, root, base + 0, 0.3, 114, rng, length, 0.006)
+            for off in (0.75, 1.5, 2.25, 2.75, 3.5):
+                if rng.random() < 0.35 + 0.4 * energy:
+                    pitch = root + 12 if rng.random() < 0.3 else root
+                    _note(notes, pitch, base + off, 0.2, 96, rng, length, 0.006)
+            _note(notes, fifth, base + 2, 0.3, 102, rng, length, 0.006)
+            if next_root != root:
+                _note(notes, next_root + rng.choice([-1, 1]),
+                      base + bpb - 0.25, 0.2, 92, rng, length, 0.006)
+        elif prof.bass_style == "reggae":
+            # spacious one-drop bass: often rests on 1, melodic and calm
+            if rng.random() < 0.55:
+                _note(notes, root, base + 0.5, 0.9, 96, rng, length, 0.012)
+            else:
+                _note(notes, root, base + 0, 1.3, 96, rng, length, 0.012)
+            _note(notes, _nearest_octave(chord[2 % len(chord)], root),
+                  base + 2, 0.9, 92, rng, length, 0.012)
+            _note(notes, root, base + 3, 0.7, 90, rng, length, 0.012)
+        elif prof.bass_style == "half":
+            # long 808-style roots; occasional slide into the next bar
+            _note(notes, root, base + 0, 2.6, 106, rng, length, 0.006)
+            if energy > 0.6 and rng.random() < 0.4:
+                _note(notes, root, base + 2.75, 0.4, 92, rng, length, 0.006)
+            if next_root != root and rng.random() < 0.5:
+                _note(notes, next_root + (1 if next_root < root else -1),
+                      base + 3.5, 0.45, 88, rng, length, 0.006)
+        elif prof.bass_style == "sparse":
+            # ballad: whole-note roots, fifth colour at higher energy
+            _note(notes, root, base + 0, bpb * 0.95, 88, rng, length, 0.015)
+            if energy > 0.5:
+                _note(notes, fifth, base + 2, bpb * 0.45, 78, rng, length, 0.015)
         else:
             # pop: root on 1, syncopated pushes, fifth colour, approach note
             _note(notes, root, base + 0, 1.4, 104, rng, length)
@@ -284,18 +420,17 @@ def _voice_chord(pcs: list[int], prev: list[int] | None,
 def generate_chords(project: SongProject, section: Section) -> Clip:
     bpb = project.beats_per_bar
     length = section.length_bars * bpb
-    style = project.style.lower()
+    prof = genre_profile(project)
     energy = section.energy
-    chords = chord_progression(project.key, style, section.length_bars)
+    chords = chord_progression(project.key, project.style.lower(),
+                               section.length_bars)
     rng = _rng(project, section, "chords")
     notes: list[NoteEvent] = []
     prev_voicing: list[int] | None = None
 
-    guitarish = style in _ROCKY or style in ("folk", "country")
-
     for bar, chord in enumerate(chords):
         base = bar * bpb
-        if guitarish and style in _ROCKY:
+        if prof.chord_style == "power":
             # power chords, palm-mute feel: root+5th+octave, driving 8ths
             root = _nearest_octave(chord[0], 45)
             stack = [root, root + 7, root + 12]
@@ -306,7 +441,7 @@ def generate_chords(project: SongProject, section: Section) -> Clip:
                 for j, n in enumerate(stack):
                     _note(notes, n, base + b + j * 0.006, dur, accent - j * 4,
                           rng, length, 0.006)
-        elif guitarish:
+        elif prof.chord_style == "strum":
             # folk strum pattern D _ D U _ U D U with up-strums lighter
             voiced = _voice_chord(chord, prev_voicing, center=55)
             prev_voicing = voiced
@@ -320,6 +455,45 @@ def generate_chords(project: SongProject, section: Section) -> Clip:
                     _note(notes, n, base + b + j * 0.012,
                           0.9 if down else 0.5, (96 if down else 78) - j * 3,
                           rng, length, 0.004)
+        elif prof.chord_style == "skank":
+            # reggae skank: short chord stabs on every offbeat
+            voiced = _voice_chord(chord, prev_voicing, center=64)
+            prev_voicing = voiced
+            for b in range(int(bpb)):
+                for j, n in enumerate(voiced):
+                    _note(notes, n, base + b + 0.5 + j * 0.006, 0.22,
+                          94 - j * 3 + int(8 * energy), rng, length, 0.006)
+        elif prof.chord_style == "stab":
+            # funk stabs: tight 16th hits leaving space for the rhythm section
+            voiced = _voice_chord(chord, prev_voicing, center=64)
+            prev_voicing = voiced
+            stabs = [0.0, 1.75, 2.5]
+            if energy > 0.6 and rng.random() < 0.5:
+                stabs.append(3.25)
+            for b in stabs:
+                if b >= bpb:
+                    continue
+                for j, n in enumerate(voiced):
+                    _note(notes, n, base + b + j * 0.005, 0.18,
+                          102 - j * 3, rng, length, 0.005)
+        elif prof.chord_style == "comp":
+            # bossa comp: syncopated short chords (guitar-style comping)
+            voiced = _voice_chord(chord, prev_voicing, center=60)
+            prev_voicing = voiced
+            pattern = [(0.0, 0.9), (1.5, 0.4), (2.0, 0.9), (3.5, 0.4)]
+            for b, dur in pattern:
+                if b >= bpb:
+                    continue
+                for j, n in enumerate(voiced):
+                    _note(notes, n, base + b + j * 0.008, dur,
+                          84 - j * 3 + int(10 * energy), rng, length, 0.008)
+        elif prof.chord_style == "pad":
+            # sustained pad: one soft voicing per bar, slow-attack friendly
+            voiced = _voice_chord(chord, prev_voicing, center=62)
+            prev_voicing = voiced
+            for j, n in enumerate(voiced):
+                _note(notes, n, base + j * 0.01, bpb * 0.98,
+                      68 - j * 2 + int(18 * energy), rng, length, 0.01)
         else:
             # keys: voice-led sustained chords; arpeggiate at low energy
             voiced = _voice_chord(chord, prev_voicing, center=62)
