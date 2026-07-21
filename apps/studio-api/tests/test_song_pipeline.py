@@ -116,6 +116,33 @@ def test_chat_hands_full_song_requests_to_the_pipeline(client, workspace,
     assert r2.json().get("job") is None
 
 
+def test_explicit_bpm_always_wins_over_the_genre_range(client, workspace):
+    """Regression: the genre tempo table is guidance for when the user says
+    nothing — it must never cap a tempo they asked for out loud."""
+    from app.services.song_pipeline import _fallback_spec, explicit_bpm
+
+    assert explicit_bpm("een punk nummer op 170 bpm") == 170
+    assert explicit_bpm("erstelle einen Song mit BPM: 96") == 96
+    assert explicit_bpm("a song at 128bpm") == 128
+    assert explicit_bpm("make 4 sections about summer 2024") is None
+    assert explicit_bpm("no tempo here") is None
+    assert explicit_bpm("9999 bpm") is None            # out of valid range
+
+    # 175 is far outside pop's 95-125 range and must survive anyway
+    assert _fallback_spec("maak een pop nummer, 175 bpm")["bpm"] == 175
+    assert _fallback_spec("a slow ballad at 60 bpm")["bpm"] == 60
+    # nothing asked → the genre's typical tempo
+    assert 118 <= _fallback_spec("a house track")["bpm"] <= 132
+
+    # end to end: the generated project really carries the requested tempo
+    p = make_project(client)
+    r = client.post(f"/api/projects/{p['id']}/generate-song",
+                    json={"prompt": "a pop song at 172 bpm"})
+    job = _wait_done(client, p["id"], r.json()["job_id"], timeout=60)
+    assert job["status"] == "done", job.get("error")
+    assert client.get(f"/api/projects/{p['id']}").json()["bpm"] == 172
+
+
 def test_pipeline_refuses_to_clobber_content(client, workspace):
     """R1: a project with clips requires force=true."""
     p = make_project(client)

@@ -65,6 +65,26 @@ _FULL_SONG_RE = re.compile(
     re.IGNORECASE | re.DOTALL)
 
 
+# An explicitly requested tempo ("170 bpm", "bpm: 96", "op 128 BPM").
+# Requiring the literal "bpm" keeps years, counts and section numbers out.
+_BPM_RE = re.compile(r"(?:(\d{2,3})\s*bpm|bpm\s*[:=]?\s*(\d{2,3}))",
+                     re.IGNORECASE)
+
+
+def explicit_bpm(message: str) -> float | None:
+    """The tempo the user asked for, if they named one. This ALWAYS wins over
+    the genre's typical range — that range is guidance for when nothing was
+    asked, never a cap on an explicit request."""
+    m = _BPM_RE.search(message or "")
+    if not m:
+        return None
+    try:
+        bpm = float(m.group(1) or m.group(2))
+    except (TypeError, ValueError):
+        return None
+    return bpm if 20 < bpm < 400 else None      # SongProject's valid range
+
+
 def detect_full_song_intent(message: str) -> bool:
     """Does this chat message ask for a whole song? Used by routes_chat to
     hand an empty project over to the pipeline instead of the one-shot
@@ -94,7 +114,10 @@ def _fallback_spec(prompt: str) -> dict:
         band = ["drums", "bass", "keys", "brass"]
     return {"title": prompt.strip()[:60] or "Untitled",
             "style": prompt.strip() or prof.label, "genre": fam,
-            "bpm": genres.suggest_bpm(fam), "key": "C major",
+            # an explicitly requested tempo wins; otherwise the genre's
+            # typical tempo is a sensible default
+            "bpm": explicit_bpm(prompt) or genres.suggest_bpm(fam),
+            "key": "C major",
             "sections": [{"name": n, "length_bars": b, "energy": e}
                          for n, b, e in _SECTION_TEMPLATE],
             "instrumentation": band}
@@ -127,16 +150,22 @@ def _producer_spec(project: SongProject, prompt: str, language: str,
                 if isinstance(s, dict) and s.get("name")][:10]
         fam = genres.resolve_family(str(p.get("genre") or p.get("style")
                                         or prompt))
-        lo, hi = genres.profile_for(fam).tempo
-        try:
-            bpm = float(p.get("bpm", 0)) or genres.suggest_bpm(fam)
-        except (TypeError, ValueError):
-            bpm = genres.suggest_bpm(fam)
+        asked = explicit_bpm(prompt)
+        if asked:
+            bpm = asked                    # the user named a tempo: obey it
+        else:
+            lo, hi = genres.profile_for(fam).tempo
+            try:
+                bpm = float(p.get("bpm", 0)) or genres.suggest_bpm(fam)
+            except (TypeError, ValueError):
+                bpm = genres.suggest_bpm(fam)
+            # only a model-invented tempo gets nudged toward the genre range
+            bpm = min(max(bpm, lo - 15), hi + 15)
         spec.update({
             "title": str(p.get("title") or spec["title"])[:80],
             "style": str(p.get("style") or spec["style"]),
             "genre": fam,
-            "bpm": min(max(bpm, lo - 15), hi + 15),   # near the genre range
+            "bpm": bpm,
             "key": str(p.get("key") or spec["key"]),
         })
         if len(secs) >= 3:

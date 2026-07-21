@@ -38,8 +38,9 @@ OP_REGISTRY: dict[str, dict[str, str]] = {
     "create_song": {
         "params": "title, style, genre? (canonical family; auto-derived from "
                   "style when omitted), bpm, key, time_signature",
-        "use": "set up or restyle the song; pick a bpm inside the genre's "
-               "typical range (see TEMPO table)"},
+        "use": "set up or restyle the song. A tempo the user names always "
+               "wins; only pick from the genre's typical range (see TEMPO "
+               "table) when they did not ask for one"},
     "add_section": {
         "params": "name, start_bar?, length_bars, energy (0-1), description?",
         "use": "energy shapes density AND which instruments play — quiet "
@@ -113,7 +114,7 @@ OP_REGISTRY: dict[str, dict[str, str]] = {
     "change_key": {"params": "key", "use": ""},
     "change_tempo": {
         "params": "bpm (number, or \"+10\"/\"-10\")",
-        "use": "stay inside the genre's typical range"},
+        "use": "use the exact tempo the user asks for"},
     "import_score": {
         "params": "score_asset_id",
         "use": "parse a score/PDF asset into chords, lyrics and sections"},

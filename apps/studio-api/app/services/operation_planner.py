@@ -83,7 +83,9 @@ OPERATIONS (the complete studio capability set — params, then when to use):
   polish where it serves the song: set_clip_fades on the intro/outro,
   update_track levels, at most a few well-chosen effects.
 
-TEMPO — typical bpm per genre; pick create_song's bpm inside the range:
+TEMPO — typical bpm per genre. If the user NAMES a tempo ("170 bpm", "make it
+slower"), that always wins — obey it exactly, even outside the range below.
+Only when they say nothing do you pick a bpm from this table:
 {genres.tempo_table_text()}
 
 STRICT RULES:

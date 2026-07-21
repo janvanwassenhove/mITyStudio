@@ -127,10 +127,22 @@ def test_bundle_import_never_claims_face_enrolment(client, workspace):
     assert 'pdump["face_consent"] = False' in src
 
 
-@pytest.mark.skipif(not face_id.models_installed(),
-                    reason="face models not installed")
-def test_detect_rejects_unusable_photos(client, workspace):
+def _real_models_dir():
+    """Where the models live in the developer's own workspace. The `workspace`
+    fixture points MITY_ROOT at a temp dir, so models_installed() must be
+    asked about THAT dir — the skip guard cannot be a module-level decorator
+    (it would be evaluated against the real root before the fixture runs)."""
+    from pathlib import Path
+    return Path(__file__).resolve().parents[3] / "models" / "face"
+
+
+def test_detect_rejects_unusable_photos(client, workspace, monkeypatch):
     import cv2
+    real = _real_models_dir()
+    if not (real / "face_recognition_sface_2021dec.onnx").exists():
+        pytest.skip("face models not installed")
+    monkeypatch.setattr(face_id, "models_dir", lambda: real)
+    face_id.reset_engines()
     with pytest.raises(face_id.FaceIdError):
         face_id.detect_and_embed(b"definitely not an image")
     blank = cv2.imencode(".jpg", np.zeros((480, 640, 3), np.uint8))[1].tobytes()
