@@ -25,7 +25,8 @@ OperationType = Literal[
     "generate_drums", "generate_bassline", "write_notes", "rewrite_lyrics",
     "change_key",
     "change_tempo", "import_score", "arrange_from_score", "add_effect",
-    "update_effect", "update_mix", "create_vocal_track",
+    "update_effect", "update_mix", "auto_mix", "finalize_ending",
+    "create_vocal_track",
     "assign_voice_profile",
     "render_stems", "render_mix",
 ]
@@ -132,6 +133,17 @@ OP_REGISTRY: dict[str, dict[str, str]] = {
     "update_mix": {
         "params": "master_volume? (0-2), normalize?, limiter?",
         "use": "master output settings for the final mix"},
+    "auto_mix": {
+        "params": "(none)",
+        "use": "balance the whole song in one step — role-appropriate levels "
+               "and pan per track plus the few effects that earn their place "
+               "(vocal compression/reverb, bass compression). Use this "
+               "instead of hand-setting a level on every track"},
+    "finalize_ending": {
+        "params": "(none)",
+        "use": "give the song a real ending: fades the intro in and the "
+               "final section out so it resolves instead of stopping "
+               "abruptly mid-bar"},
     "create_vocal_track": {
         "params": "name?, track_type, voice_profile_id?, vocal_style? "
                   "(sing|rap|soft|powerful)", "use": ""},

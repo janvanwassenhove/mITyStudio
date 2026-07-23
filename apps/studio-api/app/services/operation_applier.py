@@ -253,6 +253,25 @@ def op_update_mix(project: SongProject, p: dict) -> str:
     return "mix: " + ", ".join(changes)
 
 
+def op_auto_mix(project: SongProject, p: dict) -> str:
+    """Balance the whole song deterministically (services/mixing)."""
+    from . import mixing
+    lines = mixing.apply_default_mix(project)
+    if not lines:
+        raise OperationError("no tracks to mix yet")
+    return f"mixed {len(lines)} tracks: " + "; ".join(lines[:4])         + ("…" if len(lines) > 4 else "")
+
+
+def op_finalize_ending(project: SongProject, p: dict) -> str:
+    """Fade the intro in and the last section out so the song resolves."""
+    from . import mixing
+    lines = mixing.apply_ending(project)
+    if not lines:
+        raise OperationError(
+            "nothing to fade — the song has no sections with clips yet")
+    return "; ".join(lines)
+
+
 def op_assign_soundfont(project: SongProject, p: dict) -> str:
     """Assign a SoundFont preset to a track. The LLM may name a preset the
     font doesn't contain (it can't see every bank/program), so the bank +
@@ -353,12 +372,43 @@ def op_select_sample(project: SongProject, p: dict) -> str:
                              section.start_bar * bpb if section else 0.0))
     duration = float(p.get("duration_beats",
                            section.length_bars * bpb if section else bpb * 4))
+    loop = bool(p.get("loop", False))
+    # Retrieval already ranks samples by bpm/key fit, but ranking is advice —
+    # the model can still place a loop that fights the song. A LOOPED sample
+    # is locked to the grid, so a wrong tempo is audibly broken: refuse it
+    # here rather than trust the prompt. One-shots are tempo-free and pass.
+    note = ""
+    if loop:
+        from . import sample_analysis
+        an = sample_analysis.get_analysis(asset.id) or {}
+        s_bpm = an.get("estimated_bpm")
+        if s_bpm and project.bpm:
+            s_bpm = float(s_bpm)
+            # half/double time counts as a match — a 140 loop fits a 70 song
+            off = min(abs(s_bpm - project.bpm), abs(s_bpm / 2 - project.bpm),
+                      abs(s_bpm * 2 - project.bpm))
+            if off > 3.0:
+                raise OperationError(
+                    f"{asset.filename!r} is a {s_bpm:g} BPM loop and the song "
+                    f"is {project.bpm:g} BPM — it would drift. Pick a loop "
+                    f"within 3 BPM (half/double time counts), or place it as "
+                    f"a one-shot (loop=false).")
+        if not _keys_compatible_for_sample(project.key, an.get("estimated_key")):
+            note = (f" (note: sample key {an.get('estimated_key')} vs song "
+                    f"{project.key} — retune if it clashes)")
     track.clips.append(Clip(
         section_id=section.id if section else "",
         clip_type="sample", start_beat=start_beat, duration_beats=duration,
-        source_asset_id=asset.id, loop=bool(p.get("loop", False)),
+        source_asset_id=asset.id, loop=loop,
         gain_db=float(p.get("gain_db", 0.0))))
-    return f"placed sample {asset.filename!r} on track {track.name!r} at beat {start_beat:g}"
+    return (f"placed sample {asset.filename!r} on track {track.name!r} "
+            f"at beat {start_beat:g}{note}")
+
+
+def _keys_compatible_for_sample(song_key, sample_key) -> bool:
+    """Same rule the retrieval scorer uses (relative major/minor counts)."""
+    from .asset_retrieval import _keys_compatible
+    return _keys_compatible(song_key, sample_key)
 
 
 def _generate(project: SongProject, p: dict, kind: str,
@@ -783,6 +833,8 @@ _HANDLERS: dict[str, Callable[[SongProject, dict], str]] = {
     "add_effect": op_add_effect,
     "update_effect": op_update_effect,
     "update_mix": op_update_mix,
+    "auto_mix": op_auto_mix,
+    "finalize_ending": op_finalize_ending,
     "create_vocal_track": op_create_vocal_track,
     "assign_voice_profile": op_assign_voice_profile,
     "render_stems": op_render_stems,

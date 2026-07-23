@@ -381,6 +381,16 @@ def _run(job: dict, project_id: str, prompt: str, language: str) -> None:
                 _vocals_stage(project_id, spec, language, job))
             project = project_repo.load_project(project_id)
 
+        # Deterministic polish BEFORE rendering, so the fades bake into the
+        # stems and the levels are right the first time you press play. This
+        # used to be the critic's job, but the critic only runs when metrics
+        # flag a problem — so a structurally fine song got no mix and no
+        # ending, which is why generated songs stopped dead at the last bar.
+        _set(job, stage="mixing", progress=0.65)
+        from . import mixing
+        job.setdefault("log", []).extend(mixing.finalize_song(project))
+        project_repo.save_project(project)
+
         # render the instrument stems NOW: the waveform cache this fills is
         # what gives the critic real per-stem peaks/clipping to judge, and
         # the user can press ▶ the moment the job finishes
