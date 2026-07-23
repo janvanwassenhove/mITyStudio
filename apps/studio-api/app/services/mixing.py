@@ -96,7 +96,8 @@ def apply_default_mix(project: SongProject) -> list[str]:
         role = _ROLE.get(t.track_type)
         if role is None:
             continue
-        t.volume = role["vol"]
+        from . import preferences
+        t.volume = preferences.role_volume(t.track_type, role["vol"])
         if role["pan"]:
             t.pan = _PAN_SLOTS[pan_i % len(_PAN_SLOTS)]
             pan_i += 1

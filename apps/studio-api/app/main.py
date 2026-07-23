@@ -74,6 +74,16 @@ def create_app() -> FastAPI:
         from .services.update_check import check
         return check()
 
+    @app.get("/api/learning")
+    def learning() -> dict:
+        """What the studio has learned from this user — inspectable so the
+        learning is transparent, never a black box: mix taste, favourite
+        genres, how many saves it learned from, and the recurring issues the
+        improvement loop feeds back to the producer."""
+        from .services import preferences
+        return {**preferences.summary(),
+                "recurring_issues": preferences.recurring_issues()}
+
     from .api import (routes_assets, routes_projects, routes_settings,
                       routes_scores, routes_chat, routes_render,
                       routes_vocals, routes_export, routes_voice)

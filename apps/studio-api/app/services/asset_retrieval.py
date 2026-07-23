@@ -185,6 +185,10 @@ def retrieve_instruments(message: str, project: SongProject,
             e["synth_patch"] = p["synth_patch"]
         return e
 
+    from . import preferences
+    from .genres import genre_profile
+    genre = genre_profile(project).family
+
     scored: list[tuple[float, dict]] = []
     per_cat: dict[str, list[dict]] = {}
     for cat in _merged_catalog():
@@ -192,6 +196,9 @@ def retrieve_instruments(message: str, project: SongProject,
         for p in cat["presets"]:
             score = 2.0 * len(words & _tokens(p["label"])) \
                 + len(words & cat_words)
+            # nudge toward the instruments this user actually reaches for in
+            # this genre — taste refines ranking without overriding fit
+            score += preferences.asset_boost(genre, p["asset_id"])
             entry = _entry(cat["category"], p)
             if score > 0:
                 scored.append((score, entry))

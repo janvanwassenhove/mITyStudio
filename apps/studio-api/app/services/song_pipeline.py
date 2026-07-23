@@ -12,9 +12,10 @@ judgment is needed — never for orchestration:
                 own token budget (the fix for truncated half-songs), run
                 in parallel.
   4. metrics    arrangement_metrics — objective, no LLM.
-  5. critic     ONE bounded call that may only fix what the metrics flag
-                (fades, levels, effects that earn their place). Skipped
-                when the metrics are clean.
+  5. improve    an agentic loop: measure a 0-1 quality score, have the
+                producer fix the WEAKEST dimensions, re-measure, and keep the
+                round only if the score climbed (revert otherwise). Stops on
+                target, no-gain, or the round cap.
   6. ledger     metrics + usage appended to analysis-cache/song-pipeline.jsonl
                 so quality is comparable across runs (R4).
 
@@ -40,7 +41,9 @@ from .llm.settings import load_settings
 
 log = logging.getLogger(__name__)
 
-MAX_CRITIC_ROUNDS = 1          # hard cap (R3); metrics gate entry anyway
+MAX_CRITIC_ROUNDS = 3          # hard cap (R3); the loop also stops on no gain
+QUALITY_TARGET = 0.9           # stop improving once the score clears this
+MIN_GAIN = 0.01                # a round must lift the score by at least this
 MAX_COMPOSERS = 3              # parallel LLM composer calls
 
 _jobs: dict[str, dict] = {}
@@ -128,6 +131,10 @@ def _producer_spec(project: SongProject, prompt: str, language: str,
     spec = _fallback_spec(prompt)
     if not _llm_available():
         return spec
+    from . import preferences
+    avoid = preferences.recurring_issues()
+    lesson = ("\n\nRecent songs had these recurring problems — avoid them:\n- "
+              + "\n- ".join(avoid)) if avoid else ""
     ask = (
         "Design a song SPEC for this request — structure only, no notes yet. "
         "Reply with ONE operation: create_song with params title, style, "
@@ -137,7 +144,7 @@ def _producer_spec(project: SongProject, prompt: str, language: str,
         "choruses)}...], \"instrumentation\": [track types], "
         "\"vocals\": true|false (should this song be sung?), "
         "\"lyrics_theme\": \"one line\"}. "
-        f"Request: {prompt}")
+        f"Request: {prompt}{lesson}")
     reply, ops, _warn, usage = operation_planner.plan(project, ask,
                                                       language=language)
     _count_usage(job, usage)
@@ -310,22 +317,37 @@ _CRITIC_OPS = {"set_clip_fades", "update_track", "add_effect",
                "write_notes"}
 
 
-def _critic_round(project: SongProject, metrics: dict, language: str,
-                  job: dict) -> list[str]:
-    issues = list(metrics["incomplete_reasons"])
-    if metrics["static_arrangement"]:
-        issues.append("the same instruments play in every section — vary "
-                      "the arrangement")
-    issues += metrics["density_flags"]
-    if metrics["clipping"]:
-        issues.append("stems clipping: lower track volumes")
+# the fix each weak dimension calls for — turns a measured shortfall into a
+# concrete instruction the producer can act on
+_DIMENSION_FIX = {
+    "completeness": "some sections are missing parts — generate the missing "
+                    "instruments so every section is filled",
+    "key": "notes stray from the key — regenerate the off-key parts in key",
+    "dynamics": "the same instruments play in every section — vary the "
+                "arrangement so verses are sparser than choruses",
+    "headroom": "stems are clipping — lower the loudest track volumes with "
+                "update_track / update_mix",
+    "density": "a part is nearly empty or overcrowded — regenerate it at a "
+               "sensible density",
+    "complete_song": "the song is too short or thin to stand as a full song "
+                     "— add sections or parts",
+    "ending": "the song stops abruptly — finalize_ending (fade the outro out)",
+    "mix": "the mix is flat — auto_mix for role levels, pan and earning effects",
+}
+
+
+def _critic_round(project: SongProject, metrics: dict, sc: dict,
+                  language: str, job: dict) -> list[str]:
+    # target the weakest measured dimensions first, with concrete fixes
+    issues = [_DIMENSION_FIX[d] for d in sc["weakest"] if d in _DIMENSION_FIX]
+    issues += [r for r in metrics["incomplete_reasons"]
+               if r not in issues][:3]
     if not issues:
         return []
-    ask = ("You are the producer doing ONE polish pass. Fix ONLY these "
-           "measured issues — nothing else, and every effect must earn its "
-           "place (no stacking):\n- " + "\n- ".join(issues[:8])
-           + "\nFinish the song: intro fade-in and outro fade-out via "
-             "set_clip_fades where musical.")
+    ask = (f"You are the producer improving a song (current quality "
+           f"{sc['score']:.2f}/1.0). Fix ONLY these measured weaknesses — "
+           "nothing else, and every effect must earn its place (no "
+           "stacking):\n- " + "\n- ".join(issues[:6]))
     _reply, ops, _warn, usage = operation_planner.plan(project, ask,
                                                        language=language)
     _count_usage(job, usage)
@@ -405,33 +427,50 @@ def _run(job: dict, project_id: str, prompt: str, language: str) -> None:
 
         _set(job, stage="metrics", progress=0.78)
         metrics = arrangement_metrics.analyse(project)
+        sc = arrangement_metrics.score(metrics, project)
         job["metrics_before"] = arrangement_metrics.summary_line(metrics)
+        job["score_before"] = sc["score"]
 
+        # AGENTIC IMPROVEMENT LOOP: re-evaluate and re-fix until the measured
+        # quality score stops climbing. Each round targets the WEAKEST scoring
+        # dimensions, then re-measures; a round that does not raise the score
+        # by MIN_GAIN is rolled back (its edits reverted) and the loop ends —
+        # so the model can never make the song worse, and "learning" here
+        # means hill-climbing a number, not the model grading itself.
         if _llm_available():
-            for _ in range(MAX_CRITIC_ROUNDS):
-                clean = (metrics["is_complete_song"]
-                         and not metrics["static_arrangement"]
-                         and not metrics["density_flags"]
-                         and not metrics["clipping"])
-                if clean:
+            for rnd in range(MAX_CRITIC_ROUNDS):
+                if sc["score"] >= QUALITY_TARGET or not sc["weakest"]:
                     break
-                _set(job, stage="critic", progress=0.85)
-                fixes = _critic_round(project, metrics, language, job)
+                _set(job, stage="critic", progress=0.82 + 0.04 * rnd,
+                     detail=f"round {rnd + 1}: fixing {', '.join(sc['weakest'])}")
+                snapshot = project.model_copy(deep=True)
+                fixes = _critic_round(project, metrics, sc, language, job)
                 if not fixes:
                     break
-                job.setdefault("log", []).extend(fixes)
-                project_repo.save_project(project)
                 new_metrics = arrangement_metrics.analyse(project)
-                if new_metrics["completeness"] < metrics["completeness"]:
-                    break                      # never accept a regression
-                metrics = new_metrics
+                new_sc = arrangement_metrics.score(new_metrics, project)
+                if new_sc["score"] < sc["score"] + MIN_GAIN:
+                    # no real gain (or a regression) — undo this round and stop
+                    project = snapshot
+                    job.setdefault("log", []).append(
+                        f"round {rnd + 1}: score {new_sc['score']:.2f} did not "
+                        f"beat {sc['score']:.2f} — reverted")
+                    break
+                job.setdefault("log", []).extend(fixes)
+                job["log"].append(
+                    f"round {rnd + 1}: score {sc['score']:.2f} → "
+                    f"{new_sc['score']:.2f}")
+                project_repo.save_project(project)
+                metrics, sc = new_metrics, new_sc
 
         job["metrics"] = {k: metrics[k] for k in
                           ("completeness", "key_ratio", "duration_seconds",
                            "is_complete_song", "static_arrangement")}
+        job["score"] = sc["score"]
         _ledger_append(project, prompt, job, time.time() - t0)
         _set(job, stage="done", progress=1.0, status="done",
-             summary=arrangement_metrics.summary_line(metrics))
+             summary=f"quality {sc['score']:.2f} · "
+                     + arrangement_metrics.summary_line(metrics))
     except Exception as e:  # noqa: BLE001 — job must report, not vanish
         log.exception("song pipeline failed")
         _set(job, status="error", error=str(e))
@@ -450,6 +489,8 @@ def _ledger_append(project: SongProject, prompt: str, job: dict,
                 "llm_calls": job.get("llm_calls", 0),
                 "tokens_out": job.get("tokens_out", 0),
                 "seconds": round(seconds, 1),
+                "score_before": job.get("score_before"),
+                "score": job.get("score"),
                 "metrics": job.get("metrics", {}),
             }) + "\n")
     except OSError:

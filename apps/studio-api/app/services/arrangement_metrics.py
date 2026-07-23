@@ -132,6 +132,51 @@ def analyse(project: SongProject) -> dict:
     }
 
 
+def has_ending(project: SongProject) -> bool:
+    """Does the last section fade out (a real ending, not a hard stop)?"""
+    if not project.sections:
+        return False
+    last = max(project.sections, key=lambda s: s.start_bar)
+    return any(c.section_id == last.id and (c.fade_out_seconds or 0) > 0.4
+               for t in project.tracks for c in t.clips)
+
+
+def has_mix(project: SongProject) -> bool:
+    """Has anything shaped the mix, or is every track still flat/centred?"""
+    return any(t.volume != 1.0 or t.pan != 0.0 or t.effects.effects
+               for t in project.tracks
+               if t.track_type not in ("sample",))
+
+
+# what each dimension contributes to the 0-1 quality score. The score is the
+# scalar the improvement loop hill-climbs and the ledger records — grounded
+# in measurements, never in the model's opinion of its own work.
+_WEIGHTS = {"completeness": 0.30, "key": 0.20, "dynamics": 0.15,
+            "headroom": 0.12, "density": 0.08, "complete_song": 0.05,
+            "ending": 0.05, "mix": 0.05}
+
+
+def score(m: dict, project: SongProject | None = None) -> dict:
+    """A composite 0-1 quality score plus its per-dimension breakdown, so the
+    loop knows WHAT to improve, not just that it should."""
+    dims = {
+        "completeness": m["completeness"],
+        "key": m["key_ratio"],
+        "dynamics": 0.0 if m["static_arrangement"] else 1.0,
+        "headroom": 0.0 if m["clipping"] else 1.0,
+        "density": max(0.0, 1.0 - 0.34 * len(m["density_flags"])),
+        "complete_song": 1.0 if m["is_complete_song"] else 0.0,
+        "ending": 1.0 if (project and has_ending(project)) else 0.0,
+        "mix": 1.0 if (project and has_mix(project)) else 0.0,
+    }
+    total = round(sum(_WEIGHTS[k] * v for k, v in dims.items()), 4)
+    # the dimensions most worth fixing = biggest weighted shortfall
+    worst = sorted(dims, key=lambda k: _WEIGHTS[k] * (1 - dims[k]),
+                   reverse=True)
+    return {"score": total, "dimensions": dims,
+            "weakest": [k for k in worst if dims[k] < 0.999][:3]}
+
+
 def summary_line(m: dict) -> str:
     """One-line digest for logs, the chat reply and the ledger."""
     bits = [f"completeness {m['completeness']:.0%}",

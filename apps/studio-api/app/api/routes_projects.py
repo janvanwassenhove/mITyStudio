@@ -90,7 +90,12 @@ def update_project(project_id: str, data: dict) -> SongProject:
         raise HTTPException(422, errors)
     if errors:
         raise HTTPException(422, errors)
-    return project_repo.save_project(project)
+    saved = project_repo.save_project(project)
+    # learn from what the USER keeps/edits (only this route — never the
+    # pipeline's internal saves, which would relearn our own defaults)
+    from ..services import preferences
+    preferences.observe(saved)
+    return saved
 
 
 class QuickAddTrackRequest(BaseModel):
