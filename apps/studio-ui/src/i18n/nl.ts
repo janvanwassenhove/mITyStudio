@@ -256,6 +256,7 @@ export default {
     noResults: 'Geen resultaten — analyseer samples in de Bibliotheek om zoeken op BPM/toonsoort mogelijk te maken.',
   },
   inspector: {
+    bankLangMismatch: 'Deze voicebank kan geen {lang} zingen. Voicebanks zijn in de praktijk Engels/Japans/Chinees — kies je eigen stemprofiel voor deze songtekst.',
     takePlaced: 'take op het spoor geplaatst — render de zang om hem in de mix te horen',
     removeConfirm: 'Spoor "{name}" verwijderen?', autoMatch: '(automatisch bij renderen)',
     selectTrack: 'Selecteer een spoor in de tijdlijn om het te inspecteren.', name: 'Naam',

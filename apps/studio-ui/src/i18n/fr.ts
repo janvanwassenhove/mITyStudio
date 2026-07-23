@@ -256,6 +256,7 @@ export default {
     noResults: 'Aucun résultat — analysez les samples dans la Bibliothèque pour activer la recherche par BPM/tonalité.',
   },
   inspector: {
+    bankLangMismatch: 'Cette voicebank ne peut pas chanter en {lang}. Les voicebanks sont en pratique anglais/japonais/chinois — choisissez votre propre profil vocal pour ces paroles.',
     takePlaced: 'prise placée sur la piste — rendez les voix pour l’entendre dans le mix',
     removeConfirm: 'Supprimer la piste « {name} » ?', autoMatch: '(choix auto au rendu)',
     selectTrack: 'Sélectionnez une piste dans la timeline pour l’inspecter.', name: 'Nom',

@@ -256,6 +256,7 @@ export default {
     noResults: 'No results — analyse samples in the Asset Library to enable BPM/key search.',
   },
   inspector: {
+    bankLangMismatch: 'This voicebank cannot sing {lang}. Voicebanks are English/Japanese/Chinese in practice — pick your own voice profile for these lyrics.',
     takePlaced: 'take placed on track — render vocals to hear it in the mix',
     removeConfirm: 'Remove track "{name}"?', autoMatch: '(auto-match at render)',
     selectTrack: 'Select a track in the timeline to inspect it.', name: 'Name',

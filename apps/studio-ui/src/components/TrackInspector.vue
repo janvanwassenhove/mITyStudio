@@ -66,14 +66,27 @@ async function loadLibraries() {
   soundfonts.value = await api.get<Asset[]>('/assets/soundfonts')
   profiles.value = await api.get<VoiceProfile[]>('/voice/profiles')
   try {
-    const s = await api.get<{ banks: { name: string; dir: string }[] }>('/voice/svs/status')
+    const s = await api.get<{ banks: { name: string; dir: string; languages?: string[] }[] }>('/voice/svs/status')
     svsBanks.value = s.banks
   } catch { /* SVS unavailable on this backend */ }
 }
 
 // combined singing-voice selector: profiles (RVC to your voice) + voicebanks
 // (the bank's own voice). Encoded as 'profile:<id>' / 'bank:<dir>'.
-const svsBanks = ref<{ name: string; dir: string }[]>([])
+const svsBanks = ref<{ name: string; dir: string; languages?: string[] }[]>([])
+
+// A voicebank can only sing the languages its phoneme dictionary covers, so
+// show them — and warn when the song's lyrics are in another one, because
+// that silently degrades to sounds-without-words.
+const songLang = computed(() => studio.project?.lyrics?.language || '')
+function bankLangs(b: { languages?: string[] }): string {
+  const l = b.languages ?? []
+  return l.length ? l.slice(0, 6).join(' ') + (l.length > 6 ? '…' : '') : ''
+}
+function bankFitsSong(b: { languages?: string[] }): boolean {
+  const l = b.languages ?? []
+  return !songLang.value || !l.length || l.includes(songLang.value)
+}
 const voiceValue = computed(() => {
   const t = track.value
   if (!t) return ''
@@ -81,6 +94,10 @@ const voiceValue = computed(() => {
   if (t.svs_bank) return 'bank:' + t.svs_bank
   return ''
 })
+const selectedBank = computed(() =>
+  svsBanks.value.find((b) => 'bank:' + b.dir === voiceValue.value))
+const bankLangWarning = computed(() =>
+  !!selectedBank.value && !bankFitsSong(selectedBank.value))
 function setVoice(v: string) {
   const t = track.value
   if (!t) return
@@ -341,10 +358,15 @@ loadLibraries()
                 {{ t('inspector.aiVoice', { name: p.name }) }}</option>
             </optgroup>
             <optgroup v-if="svsBanks.length" :label="t('inspector.voicebanks')">
-              <option v-for="b in svsBanks" :key="b.dir" :value="'bank:' + b.dir">{{ b.name }}</option>
+              <option v-for="b in svsBanks" :key="b.dir" :value="'bank:' + b.dir">
+                {{ b.name }}{{ bankLangs(b) ? ` · ${bankLangs(b)}` : '' }}{{ bankFitsSong(b) ? '' : ' ⚠' }}
+              </option>
             </optgroup>
           </select>
         </label>
+        <p v-if="bankLangWarning" class="lang-warn small">
+          ⚠ {{ t('inspector.bankLangMismatch', { lang: songLang }) }}
+        </p>
         <p class="dim small">{{ t('inspector.voiceHint') }}</p>
         <label class="field">{{ t('inspector.vocalStyle') }}
           <select :value="track.vocal_style ?? 'sing'"
@@ -411,6 +433,7 @@ loadLibraries()
 </template>
 
 <style scoped>
+.lang-warn { color: var(--err); margin: 2px 0 0; }
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; }
 .inspector { display: flex; gap: 16px; padding: 12px; overflow-y: auto; height: 100%; }
 .col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }

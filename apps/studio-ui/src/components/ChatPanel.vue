@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Mic } from 'lucide-vue-next'
 import { api } from '../api/client'
@@ -80,11 +80,39 @@ interface ChatMsg {
   usage?: LlmUsage
 }
 
+// Chat history belongs to the SONG, not the app: switching projects used to
+// leave the previous song's conversation on screen. Keyed by project id and
+// persisted, so reopening a song brings its own chat back.
 const messages = ref<ChatMsg[]>([])
 const input = ref('')
 const busy = ref(false)
 const scrollEl = ref<HTMLElement | null>(null)
 const sessionTokens = ref(0)
+
+const CHAT_KEY = (id: string) => `mity-chat-${id}`
+const MAX_STORED = 60
+
+function loadChat(projectId: string | undefined) {
+  messages.value = []
+  sessionTokens.value = 0
+  if (!projectId) return
+  try {
+    const raw = localStorage.getItem(CHAT_KEY(projectId))
+    if (raw) messages.value = JSON.parse(raw) as ChatMsg[]
+  } catch { /* corrupt entry — start clean */ }
+}
+
+function saveChat() {
+  const id = studio.project?.id
+  if (!id) return
+  try {
+    localStorage.setItem(CHAT_KEY(id),
+      JSON.stringify(messages.value.slice(-MAX_STORED)))
+  } catch { /* quota — history is a convenience, never break the chat */ }
+}
+
+watch(() => studio.project?.id, (id) => loadChat(id), { immediate: true })
+watch(messages, saveChat, { deep: true })
 
 const fmtTok = (n: number) => (n >= 1000 ? (n / 1000).toFixed(1) + 'k' : String(n))
 

@@ -19,6 +19,15 @@ const { t } = useI18n()
 const studio = useStudioStore()
 const rightTab = ref<'chat' | 'export'>('chat')
 
+// Opening another song should bring up that song's conversation, not leave
+// you on the export tab (or with the chat panel collapsed) wondering where
+// it went. ChatPanel loads the per-project history itself.
+watch(() => studio.project?.id, (id, prev) => {
+  if (!id || id === prev) return
+  showRightPanel.value = true
+  rightTab.value = 'chat'
+})
+
 // context-aware tab labels: show WHAT the Track/Editor tabs will act on
 const selTrackName = computed(() =>
   studio.project?.tracks.find((x) => x.id === studio.selectedTrackId)?.name ?? '')

@@ -256,6 +256,7 @@ export default {
     noResults: 'Keine Ergebnisse — analysiere Samples in der Bibliothek, um die Suche nach BPM/Tonart zu aktivieren.',
   },
   inspector: {
+    bankLangMismatch: 'Diese Voicebank kann kein {lang} singen. Voicebanks sind praktisch Englisch/Japanisch/Chinesisch — wähle für diesen Text dein eigenes Stimmprofil.',
     takePlaced: 'Take auf der Spur platziert — rendere den Gesang, um ihn im Mix zu hören',
     removeConfirm: 'Spur "{name}" entfernen?', autoMatch: '(automatisch beim Rendern)',
     selectTrack: 'Wähle eine Spur in der Timeline, um sie zu inspizieren.', name: 'Name',
