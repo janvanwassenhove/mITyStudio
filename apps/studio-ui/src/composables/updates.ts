@@ -88,6 +88,14 @@ export async function startUpdate(): Promise<void> {
               '_blank')
 }
 
+/** Always opens the release page in a browser — the escape hatch when the
+ *  in-app download fails, where retrying it would just fail again. */
+export function openReleasePage(): void {
+  window.open(updateUrl.value
+    || 'https://github.com/janvanwassenhove/mITyStudio/releases/latest',
+    '_blank')
+}
+
 export function installUpdate(): void {
   void bridge()?.installUpdate?.()
 }

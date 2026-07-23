@@ -7,8 +7,8 @@ import { useStudioStore } from './stores/studio'
 import { isDesktop, showBottomPanel, showLeftPanel, showRightPanel,
          theme, toggleTheme } from './composables/uiPrefs'
 import { canSelfUpdate, dismissUpdate, initUpdateWatcher, installUpdate,
-         startUpdate, updateError, updatePercent, updatePhase, updateVersion }
-  from './composables/updates'
+         openReleasePage, startUpdate, updateError, updatePercent,
+         updatePhase, updateVersion } from './composables/updates'
 import OnboardingGuide from './components/OnboardingGuide.vue'
 import CountdownOverlay from './components/CountdownOverlay.vue'
 import AboutBox from './components/AboutBox.vue'
@@ -127,7 +127,11 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
         <button class="up-btn ghost" @click="dismissUpdate">{{ $t('nav.updateLater') }}</button>
       </template>
       <template v-else-if="updatePhase === 'error'">
-        <span :title="updateError">{{ $t('nav.updateFailed') }}</span>
+        <!-- show the real reason: hiding it in a tooltip once cost an hour
+             of guesswork over a 404 on a mis-named installer asset -->
+        <span>{{ $t('nav.updateFailed') }}</span>
+        <code v-if="updateError" class="up-err">{{ updateError }}</code>
+        <button class="up-btn" @click="openReleasePage">{{ $t('nav.updateView') }}</button>
         <button class="up-btn ghost" @click="dismissUpdate">✕</button>
       </template>
     </div>
@@ -200,4 +204,8 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 .update-banner .up-btn:hover { background: var(--accent); color: var(--bg); }
 .update-banner .up-btn.ghost { border-color: var(--border); color: var(--text-dim); }
 .update-banner .up-btn.ghost:hover { background: var(--bg); color: var(--text); }
+.update-banner .up-err {
+  font-size: 11px; color: var(--err); max-width: 46ch; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
 </style>

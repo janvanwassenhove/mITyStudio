@@ -77,7 +77,8 @@
       "allowToChangeInstallationDirectory": true,
       "deleteAppDataOnUninstall": false,
       "allowElevation": true,
-      "runAfterFinish": true
+      "runAfterFinish": true,
+      "artifactName": "mITyStudio-Setup-${version}.${ext}"
     },
     "mac": {
       "target": [
@@ -98,6 +99,7 @@
     "afterSign": "build/notarize.js",
     "publish": {
       "provider": "github"
-    }
+    },
+    "artifactName": "mITyStudio-Setup-${version}.${ext}"
   }
 }
