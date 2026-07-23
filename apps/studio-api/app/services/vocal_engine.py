@@ -707,6 +707,23 @@ def render_vocal_stems(project: SongProject) -> dict:
         if svs_bank and profile is None:
             results["render_log"].append(
                 f"{track.name}: singing in voicebank {svs_bank!r}'s own voice")
+        # A voicebank can only sing the languages its phoneme dictionary
+        # covers. Say so up front instead of letting it fail into the
+        # word-less fallback — DiffSinger banks are EN/JA/ZH-centric, so
+        # Dutch/German lyrics need your own voice profile (XTTS is
+        # language-general) rather than a bank.
+        if svs_bank:
+            from .lyric_text import resolve_lyrics_language
+            from . import svs_engine as _svs
+            lang = resolve_lyrics_language(project)
+            _bank = _svs.bank_by_dir(svs_bank)
+            langs = list(getattr(_bank, "languages", []) or []) if _bank else []
+            if langs and lang not in langs:
+                results["warnings"].append(
+                    f"{track.name}: voicebank {svs_bank!r} does not sing "
+                    f"{lang!r} (it covers {', '.join(sorted(langs)[:6])}) — "
+                    "select your own voice profile for these lyrics, or "
+                    "write them in one of the bank's languages.")
         tier = available_engine_tier(profile)
         content_fp = vocal_content_fingerprint(project, track)
         # NEVER silently downgrade: if this backend lacks the voice stack but
@@ -745,6 +762,20 @@ def render_vocal_stems(project: SongProject) -> dict:
                     raise
                 results["render_log"].append(f"{track.name}: {e} — "
                                              "using the clone engine")
+                # Without a voice profile the clone chain has nothing to
+                # sing WITH and lands on the word-less formant engine. Say
+                # that plainly instead of shipping unintelligible audio:
+                # DiffSinger banks are EN/JA/ZH-centric in practice (several
+                # advertise nl/de but their dictionaries cannot resolve it),
+                # so those languages need the language-general XTTS path.
+                if profile is None:
+                    from .lyric_text import resolve_lyrics_language
+                    results["warnings"].append(
+                        f"{track.name}: no voicebank can sing "
+                        f"{resolve_lyrics_language(project)!r} — the result "
+                        "will be sounds, not words. Select your own voice "
+                        "profile on this track for sung lyrics in this "
+                        "language.")
                 engine = get_engine("mock", profile, allow_svs=False)
                 tier = min(tier, 3)
                 r = engine.render(project, track, out_path)

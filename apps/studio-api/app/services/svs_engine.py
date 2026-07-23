@@ -1005,7 +1005,10 @@ class SvsSingingEngine(SingingVoiceEngine):
         style_name = resolve_delivery(
             getattr(track, "vocal_style", "sing") or "sing", project.style)
         style = _STYLES.get(style_name, _STYLES["sing"])
-        lang = (project.lyrics.language or "en").lower()
+        # same rule as the clone engine: detect rather than assume English,
+        # so a bank is asked for the phoneme dictionary that actually matches
+        from .lyric_text import resolve_lyrics_language
+        lang = resolve_lyrics_language(project).lower()
 
         segments: list[tuple[int, np.ndarray]] = []
         sung = 0

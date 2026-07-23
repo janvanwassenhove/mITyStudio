@@ -535,6 +535,20 @@ def _split_prefixed_sheet(lines: list) -> list[tuple[str, str]] | None:
     return parsed if hits >= max(2, len(lines) // 3) else None
 
 
+def _store_lyrics_language(project: SongProject, p: dict) -> None:
+    """Persist the lyrics' language. The model usually passes it; when it
+    doesn't we DETECT it rather than leave the default "en" in place —
+    English phonetics on Dutch words is what made vocals unintelligible."""
+    from .lyric_text import detect_language
+    if p.get("language"):
+        project.lyrics.language = str(p["language"]).lower()
+        return
+    text = " ".join(l.text for l in project.lyrics.lines)
+    project.lyrics.language = detect_language(text,
+                                              default=project.lyrics.language
+                                              or "en")
+
+
 def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
     from . import lyrics_editing
 
@@ -565,8 +579,7 @@ def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
             project.lyrics.lines.append(LyricsLine(section_id=section.id,
                                                    text=text))
             placed += 1
-        if "language" in p:
-            project.lyrics.language = str(p["language"])
+        _store_lyrics_language(project, p)
         for s in project.sections:
             lyrics_editing.resync_section(project, s.id)
         return (f"detected a full lyric sheet — placed {placed} lines across "
@@ -587,8 +600,7 @@ def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
                 project.lyrics.lines.append(LyricsLine(section_id=s.id,
                                                        text=str(text)))
             total += len(part)
-        if "language" in p:
-            project.lyrics.language = str(p["language"])
+        _store_lyrics_language(project, p)
         for s in sections:   # existing melodies must follow the new words
             lyrics_editing.resync_section(project, s.id)
         return f"distributed {total} lyric lines across {len(sections)} sections"
@@ -599,8 +611,7 @@ def op_rewrite_lyrics(project: SongProject, p: dict) -> str:
     for text in lines:
         project.lyrics.lines.append(LyricsLine(section_id=section_id,
                                                text=str(text)))
-    if "language" in p:
-        project.lyrics.language = str(p["language"])
+    _store_lyrics_language(project, p)
     if section_id:
         lyrics_editing.resync_section(project, section_id)
     where = f" for section {section.name!r}" if section else ""

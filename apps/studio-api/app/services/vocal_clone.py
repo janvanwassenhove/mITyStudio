@@ -624,7 +624,11 @@ class CloneSingingEngine(SingingVoiceEngine):
         if not speakers:
             raise RuntimeError("no usable source recording on the profile")
 
-        language = (project.lyrics.language or "en").lower()
+        # resolve, never assume: an unset language used to default to "en",
+        # which made XTTS pronounce Dutch/German lyrics with English
+        # phonetics — the main cause of unintelligible vocals
+        from .lyric_text import resolve_lyrics_language
+        language = resolve_lyrics_language(project).lower()
         if language not in _XTTS_LANGS:
             result.warnings.append(f"language {language!r} not supported by "
                                    "XTTS — singing in English")
