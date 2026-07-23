@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { api } from '../api/client'
 import type { Asset, Effect, Track, VoiceProfile } from '../api/types'
 import { useStudioStore } from '../stores/studio'
+import { catColor, catIcon } from '../lib/instrumentIcons'
 import { usePlaybackStore } from '../stores/playback'
 import { runCountdown } from '../composables/countdown'
 
@@ -16,10 +17,10 @@ const track = computed(() =>
 
 const soundfonts = ref<Asset[]>([])
 const sfSearch = ref('')
-const presets = ref<{ name: string; bank: number; program: number }[]>([])
+const presets = ref<{ name: string; bank: number; program: number; category?: string }[]>([])
 
 // global instrument search across ALL soundfont presets
-interface PresetHit { asset_id: string; soundfont: string; preset: string; bank: number; program: number }
+interface PresetHit { asset_id: string; soundfont: string; preset: string; bank: number; program: number; category?: string }
 const instSearch = ref('')
 const instHits = ref<PresetHit[]>([])
 const instSearching = ref(false)
@@ -319,6 +320,8 @@ loadLibraries()
                  @input="queueInstSearch" />
           <div v-if="instHits.length" class="picker">
             <div v-for="(h, i) in instHits" :key="i" class="pick-item" @click="pickInstrument(h)">
+              <component :is="catIcon(h.category ?? '')" class="pick-ic" :size="13"
+                         :style="{ color: catColor(h.category ?? '') }" />
               <strong>{{ h.preset }}</strong> <span class="dim">— {{ h.soundfont }}</span>
             </div>
           </div>
@@ -344,7 +347,11 @@ loadLibraries()
               v-for="(p, i) in presets.slice(0, 100)" :key="i" class="pick-item"
               :class="{ active: track.instrument_config.bank === p.bank && track.instrument_config.program === p.program }"
               @click="pickPreset(p)"
-            >{{ p.bank }}:{{ p.program }} — {{ p.name }}</div>
+            >
+              <component :is="catIcon(p.category ?? '')" class="pick-ic" :size="13"
+                         :style="{ color: catColor(p.category ?? '') }" />
+              {{ p.bank }}:{{ p.program }} — {{ p.name }}
+            </div>
           </div>
         </div>
       </template>
@@ -433,6 +440,8 @@ loadLibraries()
 </template>
 
 <style scoped>
+.pick-item { display: flex; align-items: center; gap: 6px; }
+.pick-ic { flex: none; }
 .lang-warn { color: var(--err); margin: 2px 0 0; }
 .empty { display: flex; align-items: center; justify-content: center; height: 100%; }
 .inspector { display: flex; gap: 16px; padding: 12px; overflow-y: auto; height: 100%; }

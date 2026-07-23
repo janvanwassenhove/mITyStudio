@@ -93,7 +93,7 @@ def analyse_batch(limit: int = 150) -> dict:
 def search_presets(q: str, limit: int = 40) -> list[dict]:
     """Search preset names across ALL SoundFonts — 'conga', 'trombone',
     'rhodes', 'overdrive'… Returns (asset, bank, program) ready to assign."""
-    from ..services.sf2_parser import get_preset_inventory
+    from ..services.sf2_parser import _categorize_preset, get_preset_inventory
     ql = q.strip().lower()
     if not ql:
         return []
@@ -106,7 +106,9 @@ def search_presets(q: str, limit: int = 40) -> list[dict]:
             if ql in p["name"].lower():
                 hits.append({"asset_id": asset.id, "soundfont": asset.filename,
                              "preset": p["name"], "bank": p["bank"],
-                             "program": p["program"]})
+                             "program": p["program"],
+                             "category": _categorize_preset(
+                                 p["name"], p["bank"], p["program"])})
                 if len(hits) >= limit:
                     return hits
     return hits
@@ -161,9 +163,14 @@ def soundfont_presets(asset_id: str) -> dict:
     from ..services.sf2_parser import _categorize_preset, get_preset_inventory
     inv = dict(get_preset_inventory(asset.id, Path(asset.original_path)) or {})
     cats: dict[str, int] = {}
+    # tag every preset with its category so the pickers can show a matching
+    # instrument icon — the classifier lives here, never duplicated in TS
+    presets = []
     for p in inv.get("presets", []):
         c = _categorize_preset(p.get("name", ""), p["bank"], p["program"])
         cats[c] = cats.get(c, 0) + 1
+        presets.append({**p, "category": c})
+    inv["presets"] = presets
     inv["categories"] = sorted(
         ({"category": c, "count": n} for c, n in cats.items()),
         key=lambda x: -x["count"])

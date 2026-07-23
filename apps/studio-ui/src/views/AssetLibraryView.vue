@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { catColor, catIcon } from '../lib/instrumentIcons'
 import { Bell, Drum, Guitar, Layers, Mic, Music, Music2, Piano, RefreshCw,
          Sparkles, Tag, Upload, Waves, Wind, Zap } from 'lucide-vue-next'
 import { api } from '../api/client'
@@ -9,20 +10,6 @@ import { CATEGORY_COLORS } from '../lib/trackColors'
 
 // instrument icon + color per soundfont category tag (tags are lowercase
 // category names from the preset scan)
-const CAT_ICONS: Record<string, unknown> = {
-  'piano & keys': Piano, organ: Piano, guitar: Guitar, bass: Guitar,
-  strings: Music2, brass: Music2, 'sax & winds': Wind,
-  'voice & choir': Mic, 'synth lead': Zap, 'synth pad': Waves,
-  'drum kits': Drum, percussion: Bell, fx: Sparkles, 'gm-bank': Layers,
-}
-function catIcon(tag: string) {
-  return CAT_ICONS[tag.toLowerCase()] ?? Music
-}
-function catColor(tag: string): string {
-  const hit = Object.entries(CATEGORY_COLORS)
-    .find(([k]) => k.toLowerCase() === tag.toLowerCase())
-  return hit ? hit[1] : CATEGORY_COLORS.Other
-}
 
 const { t } = useI18n()
 const TABS = ['score', 'soundfont', 'sample', 'voice_recording'] as const
