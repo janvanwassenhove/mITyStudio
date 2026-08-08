@@ -722,23 +722,27 @@ function laneMenu(e: MouseEvent, mtrack: { track_id: string; track_type: string 
     <div v-show="hasTracks" ref="scrollEl" class="scroll-area">
       <div class="grid" :style="{ width: LABEL_W + contentWidth + 'px' }">
         <div ref="playheadEl" class="playhead-overlay" />
-        <!-- ruler -->
-        <div class="row ruler-row">
-          <div class="label small dim" :style="{ width: LABEL_W + 'px' }">{{ $t('timeline.bars') }}</div>
-          <div class="lane ruler" :style="{ width: contentWidth + 'px' }" @pointerdown="scrubStart">
-            <div v-for="b in bars" :key="b.label" class="bar-tick" :style="{ left: b.x + 'px' }">
-              <span class="bar-num">{{ b.label }}</span>
+        <!-- bars/time + sections stay pinned to the top while the track
+             lanes scroll underneath -->
+        <div class="lane-header">
+          <!-- ruler -->
+          <div class="row ruler-row">
+            <div class="label small dim" :style="{ width: LABEL_W + 'px' }">{{ $t('timeline.bars') }}</div>
+            <div class="lane ruler" :style="{ width: contentWidth + 'px' }" @pointerdown="scrubStart">
+              <div v-for="b in bars" :key="b.label" class="bar-tick" :style="{ left: b.x + 'px' }">
+                <span class="bar-num">{{ b.label }}</span>
+              </div>
             </div>
           </div>
-        </div>
-        <!-- section lane -->
-        <div class="row">
-          <div class="label small dim" :style="{ width: LABEL_W + 'px' }">{{ $t('timeline.sections') }}</div>
-          <div class="lane section-lane" :style="{ width: contentWidth + 'px' }" @pointerdown="scrubStart">
-            <div
-              v-for="s in manifest.sections" :key="s.section_id" class="section-block"
-              :style="{ left: s.start_beat * pxPerBeat + 'px', width: (s.end_beat - s.start_beat) * pxPerBeat + 'px' }"
-            >{{ s.name }}</div>
+          <!-- section lane -->
+          <div class="row section-row">
+            <div class="label small dim" :style="{ width: LABEL_W + 'px' }">{{ $t('timeline.sections') }}</div>
+            <div class="lane section-lane" :style="{ width: contentWidth + 'px' }" @pointerdown="scrubStart">
+              <div
+                v-for="s in manifest.sections" :key="s.section_id" class="section-block"
+                :style="{ left: s.start_beat * pxPerBeat + 'px', width: (s.end_beat - s.start_beat) * pxPerBeat + 'px' }"
+              >{{ s.name }}</div>
+            </div>
           </div>
         </div>
         <!-- track lanes -->
@@ -904,6 +908,11 @@ function laneMenu(e: MouseEvent, mtrack: { track_id: string; track_type: string 
 .tb.danger:not(:disabled) { border-color: var(--err); color: var(--err); }
 .scroll-area { flex: 1; overflow: auto; }
 .grid { min-width: 100%; position: relative; }
+/* the bars/time + sections header stays pinned to the top of the scroll
+   area while the track lanes scroll under it. z-index sits above the track
+   labels (5) and the playhead (4); an opaque background stops lanes bleeding
+   through the header as they scroll past. */
+.lane-header { position: sticky; top: 0; z-index: 8; background: var(--bg-panel); }
 .playhead-overlay { position: absolute; top: 0; bottom: 0; left: 0; width: 1px; background: var(--err); z-index: 4; pointer-events: none; will-change: transform; }
 .row { display: flex; border-bottom: 1px solid var(--border); }
 .label { flex: none; padding: 4px 8px; display: flex; align-items: center; gap: 6px; position: sticky; left: 0; background: var(--bg-panel); z-index: 5; border-right: 1px solid var(--border); }
