@@ -167,15 +167,29 @@ export const usePlaybackStore = defineStore('playback', () => {
     stemsLoaded.value = 0
     if (!m) return
     if (!ctx) ctx = new AudioContext()
+    // A stem that fails to load is a track you silently cannot hear — the
+    // hardest kind of bug to report ("the vocal is missing"). Never swallow
+    // it: name the track in renderWarnings so it shows up in the UI.
+    const failures: string[] = []
+    const trackName = (id: string) =>
+      studio.project?.tracks.find((t) => t.id === id)?.name ?? id.slice(0, 8)
     await Promise.all(manifestStems(m).map(async (s) => {
       try {
         const res = await fetch(`/api/projects/${m.project_id}/stems/${s.track_id}/file`)
-        if (!res.ok) return
+        if (!res.ok) {
+          failures.push(`${trackName(s.track_id)}: audio unavailable (${res.status})`)
+          return
+        }
         const buf = await ctx!.decodeAudioData(await res.arrayBuffer())
         buffers.set(s.track_id, buf)
         stemsLoaded.value = buffers.size
-      } catch { /* stem not playable; clock still runs */ }
+      } catch (e) {
+        failures.push(`${trackName(s.track_id)}: audio could not be decoded`)
+      }
     }))
+    if (failures.length) {
+      renderWarnings.value = [...renderWarnings.value, ...failures]
+    }
   }
 
   function stopSources() {

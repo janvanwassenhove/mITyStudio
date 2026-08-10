@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue'
-import { Info, Moon, PanelBottom, PanelLeft, PanelRight, Sun } from 'lucide-vue-next'
+import { AudioLines, Info, Library, Mic, Moon, PanelBottom, PanelLeft,
+         PanelRight, SlidersHorizontal, Sun } from 'lucide-vue-next'
 import { getHealth, type HealthResponse } from './api/client'
 import { LOCALES, currentLocale, setLocale, type LocaleCode } from './i18n'
 import { useStudioStore } from './stores/studio'
@@ -72,10 +73,17 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
   <div class="app-shell" :class="{ desktop: isDesktop }">
     <nav class="topnav">
       <span class="brand">mITy<span style="color: var(--accent)">Studio</span></span>
-      <RouterLink to="/">{{ $t('nav.studio') }}</RouterLink>
-      <RouterLink to="/assets">{{ $t('nav.assets') }}</RouterLink>
-      <RouterLink to="/voices">{{ $t('nav.voices') }}</RouterLink>
-      <RouterLink to="/settings">{{ $t('nav.settings') }}</RouterLink>
+      <!-- icons, not labels: the four Dutch/German labels plus the status
+           text overflowed the fixed-height title bar and pushed Assets /
+           Voices / Settings out of reach. Tooltips keep them nameable. -->
+      <RouterLink to="/" class="navlink" :title="$t('nav.studio')"
+                  :aria-label="$t('nav.studio')"><AudioLines :size="17" /></RouterLink>
+      <RouterLink to="/assets" class="navlink" :title="$t('nav.assets')"
+                  :aria-label="$t('nav.assets')"><Library :size="17" /></RouterLink>
+      <RouterLink to="/voices" class="navlink" :title="$t('nav.voices')"
+                  :aria-label="$t('nav.voices')"><Mic :size="17" /></RouterLink>
+      <RouterLink to="/settings" class="navlink" :title="$t('nav.settings')"
+                  :aria-label="$t('nav.settings')"><SlidersHorizontal :size="17" /></RouterLink>
       <span class="spacer" />
       <div class="layout-toggles" :title="$t('nav.layoutTip')">
         <button class="tbtn" :class="{ off: !showLeftPanel }"
@@ -97,9 +105,9 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
       <select v-model="locale" class="lang" :title="$t('nav.language')" @change="changeLocale">
         <option v-for="l in LOCALES" :key="l.code" :value="l.code">{{ l.label }}</option>
       </select>
-      <span v-if="health" class="health ok">● {{ $t('nav.backendConnected') }}</span>
-      <span v-else-if="healthError" class="health err" :title="healthError">● {{ $t('nav.backendOffline') }}</span>
-      <span v-else class="health dim">● {{ $t('nav.connecting') }}</span>
+      <span v-if="health" class="health ok" :title="$t('nav.backendConnected')">●<span class="health-txt"> {{ $t('nav.backendConnected') }}</span></span>
+      <span v-else-if="healthError" class="health err" :title="healthError">●<span class="health-txt"> {{ $t('nav.backendOffline') }}</span></span>
+      <span v-else class="health dim" :title="$t('nav.connecting')">●<span class="health-txt"> {{ $t('nav.connecting') }}</span></span>
     </nav>
     <div v-if="healthError" class="offline-banner">
       {{ $t('nav.offlineBanner') }}
@@ -171,7 +179,17 @@ onUnmounted(() => { if (pollTimer) clearInterval(pollTimer) })
 .tbtn.off { opacity: 0.38; }
 .brand { font-weight: 700; font-size: 15px; margin-right: 8px; }
 .topnav a { color: var(--text-dim); text-decoration: none; font-size: 13px; }
-.topnav a.router-link-active { color: var(--text); font-weight: 600; }
+.navlink {
+  display: flex; align-items: center; padding: 4px 7px; flex: none;
+  border-radius: var(--radius-sm);
+}
+.navlink:hover { color: var(--text); background: var(--bg-elevated); }
+.topnav a.router-link-active { color: var(--accent); background: var(--bg-elevated); }
+/* controls keep their size; the status label is the only thing allowed to
+   collapse, so nothing can be pushed out of reach on a narrow window */
+.topnav .tbtn, .topnav .lang, .layout-toggles, .brand { flex: none; }
+.health { flex: 0 1 auto; min-width: 0; overflow: hidden; white-space: nowrap; }
+@media (max-width: 900px) { .health-txt { display: none; } }
 .spacer { flex: 1; }
 .health { font-size: 12px; }
 .lang {
