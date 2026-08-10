@@ -151,9 +151,19 @@ def has_mix(project: SongProject) -> bool:
 # what each dimension contributes to the 0-1 quality score. The score is the
 # scalar the improvement loop hill-climbs and the ledger records — grounded
 # in measurements, never in the model's opinion of its own work.
-_WEIGHTS = {"completeness": 0.30, "key": 0.20, "dynamics": 0.15,
-            "headroom": 0.12, "density": 0.08, "complete_song": 0.05,
-            "ending": 0.05, "mix": 0.05}
+_WEIGHTS = {"completeness": 0.26, "key": 0.18, "dynamics": 0.13,
+            "headroom": 0.10, "density": 0.07, "complete_song": 0.05,
+            "ending": 0.05, "mix": 0.05, "transitions": 0.11}
+
+
+def _transition_coverage(project: SongProject | None) -> float:
+    if project is None:
+        return 0.0
+    try:
+        from .transitions import transition_coverage
+        return transition_coverage(project)
+    except Exception:  # noqa: BLE001 — a metric must never break a render
+        return 0.0
 
 
 def score(m: dict, project: SongProject | None = None) -> dict:
@@ -168,6 +178,8 @@ def score(m: dict, project: SongProject | None = None) -> dict:
         "complete_song": 1.0 if m["is_complete_song"] else 0.0,
         "ending": 1.0 if (project and has_ending(project)) else 0.0,
         "mix": 1.0 if (project and has_mix(project)) else 0.0,
+        # are the sections glued, or butted together as hard-cut blocks?
+        "transitions": _transition_coverage(project),
     }
     total = round(sum(_WEIGHTS[k] * v for k, v in dims.items()), 4)
     # the dimensions most worth fixing = biggest weighted shortfall

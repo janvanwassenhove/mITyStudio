@@ -233,6 +233,11 @@ def _compose_track(project_id: str, track_id: str, language: str,
     ask = (f"Compose the {track.track_type} part for track \"{track.name}\" "
            f"yourself with write_notes, section by section — a genre-true, "
            f"memorable part that fits the song's style, key and tempo. "
+           f"Make it FLOW, not a row of identical blocks: vary each section "
+           f"instead of repeating one pattern, build intensity toward the "
+           f"end of a section (rising velocities), and lead into the next "
+           f"section with a pickup in its final beat. Sustained instruments "
+           f"may let the last note ring past the section end. "
            f"Replace the placeholder pattern; do not add tracks or effects.")
     _reply, ops, _warn, usage = operation_planner.plan(project, ask,
                                                        language=language)
@@ -333,6 +338,9 @@ _DIMENSION_FIX = {
                      "— add sections or parts",
     "ending": "the song stops abruptly — finalize_ending (fade the outro out)",
     "mix": "the mix is flat — auto_mix for role levels, pan and earning effects",
+    "transitions": "sections are butted together as hard-cut blocks — "
+                   "glue_sections so notes ring over the boundary, pickups "
+                   "lead into lifts and crashes land the downbeat",
 }
 
 
@@ -409,7 +417,8 @@ def _run(job: dict, project_id: str, prompt: str, language: str) -> None:
         # flag a problem — so a structurally fine song got no mix and no
         # ending, which is why generated songs stopped dead at the last bar.
         _set(job, stage="mixing", progress=0.65)
-        from . import mixing
+        from . import mixing, transitions
+        job.setdefault("log", []).extend(transitions.apply_transitions(project))
         job.setdefault("log", []).extend(mixing.finalize_song(project))
         project_repo.save_project(project)
 

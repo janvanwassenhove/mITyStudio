@@ -26,6 +26,7 @@ OperationType = Literal[
     "change_key",
     "change_tempo", "import_score", "arrange_from_score", "add_effect",
     "update_effect", "update_mix", "auto_mix", "finalize_ending",
+    "glue_sections",
     "create_vocal_track",
     "assign_voice_profile",
     "render_stems", "render_mix",
@@ -139,6 +140,12 @@ OP_REGISTRY: dict[str, dict[str, str]] = {
                "and pan per track plus the few effects that earn their place "
                "(vocal compression/reverb, bass compression). Use this "
                "instead of hand-setting a level on every track"},
+    "glue_sections": {
+        "params": "(none)",
+        "use": "make the song flow instead of sounding like separate blocks: "
+               "lets the last note of a section ring over the boundary, adds "
+               "a pickup fill/walk-up into sections that lift, and crashes "
+               "the downbeat of the lift. Run it after the parts exist"},
     "finalize_ending": {
         "params": "(none)",
         "use": "give the song a real ending: fades the intro in and the "

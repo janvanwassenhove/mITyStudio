@@ -262,6 +262,16 @@ def op_auto_mix(project: SongProject, p: dict) -> str:
     return f"mixed {len(lines)} tracks: " + "; ".join(lines[:4])         + ("…" if len(lines) > 4 else "")
 
 
+def op_glue_sections(project: SongProject, p: dict) -> str:
+    """Join the sections up (services/transitions)."""
+    from . import transitions
+    lines = transitions.apply_transitions(project)
+    if not lines:
+        raise OperationError(
+            "nothing to glue — the song needs at least two sections with parts")
+    return "; ".join(lines)
+
+
 def op_finalize_ending(project: SongProject, p: dict) -> str:
     """Fade the intro in and the last section out so the song resolves."""
     from . import mixing
@@ -834,6 +844,7 @@ _HANDLERS: dict[str, Callable[[SongProject, dict], str]] = {
     "update_effect": op_update_effect,
     "update_mix": op_update_mix,
     "auto_mix": op_auto_mix,
+    "glue_sections": op_glue_sections,
     "finalize_ending": op_finalize_ending,
     "create_vocal_track": op_create_vocal_track,
     "assign_voice_profile": op_assign_voice_profile,

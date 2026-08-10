@@ -35,12 +35,15 @@ def _full_song(style: str = "pop") -> SongProject:
 # --- quality score ---------------------------------------------------------
 
 def test_score_rewards_a_finished_song_over_a_stub():
-    from app.services import mixing
+    # "finished" now includes glued sections — a row of hard-cut blocks is
+    # measurably less done than an arrangement that flows
+    from app.services import mixing, transitions
     stub = SongProject(title="t", key="C major")
     stub.sections = [Section(name="V", start_bar=0, length_bars=4, energy=0.5)]
     stub_score = am.score(am.analyse(stub), stub)["score"]
 
     song = _full_song()
+    transitions.apply_transitions(song)
     mixing.finalize_song(song)
     song_score = am.score(am.analyse(song), song)["score"]
 

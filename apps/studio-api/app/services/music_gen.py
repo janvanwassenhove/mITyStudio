@@ -72,14 +72,28 @@ def _rng(project: SongProject, section: Section, salt: str) -> random.Random:
     return random.Random(f"{project.id}:{section.id}:{salt}")
 
 
+def _section_arc(pos: float) -> float:
+    """Velocity multiplier across a section (pos 0..1).
+
+    A section that sits at one intensity for eight bars reads as a loop, not
+    a performance. Players settle in just after the downbeat and push toward
+    the hand-over, so shape every part that way: ~8% under at the start,
+    ~8% over by the end. Subtle on any single note, clearly audible as a
+    build across the section.
+    """
+    return 0.92 + 0.16 * (max(0.0, min(1.0, pos)) ** 1.4)
+
+
 def _note(notes: list[NoteEvent], midi: int, beat: float, dur: float, vel: int,
           rng: random.Random, length_beats: float, jitter: float = 0.02,
           syllable: str = "") -> None:
-    """Humanized note append: timing jitter + velocity variation."""
+    """Humanized note append: timing jitter, velocity variation and the
+    section's dynamic arc."""
     beat = max(0.0, beat + rng.uniform(-jitter, jitter))
     if beat >= length_beats - 0.01:
         return
     dur = min(dur, length_beats - beat)
+    vel = int(round(vel * _section_arc(beat / max(length_beats, 1e-6))))
     vel = max(20, min(127, vel + rng.randint(-6, 6)))
     notes.append(NoteEvent(midi_note=max(0, min(127, midi)), start_beat=round(beat, 4),
                            duration_beats=round(max(dur, 1 / 32), 4),
